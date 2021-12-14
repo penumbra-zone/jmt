@@ -10,10 +10,10 @@ use crate:hash::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };
-use diem_types::{
+use crate::types::{
     nibble::{nibble_path::NibblePath, Nibble},
     proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
-    transaction::Version,
+    Version,
 };
 use proptest::prelude::*;
 use std::{io::Cursor, panic, rc::Rc};

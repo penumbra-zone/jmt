@@ -7,6 +7,7 @@
 # configure your local ignore list.
 
 Cargo.lock
+/jellyfish-merkle/target
 
 ## File system
 .DS_Store
