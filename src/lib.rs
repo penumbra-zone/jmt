@@ -68,7 +68,10 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
+pub mod hash;
 pub mod iterator;
+pub mod types;
+
 #[cfg(test)]
 mod jellyfish_merkle_test;
 pub mod metrics;
@@ -80,16 +83,16 @@ pub mod restore;
 pub mod test_helper;
 mod tree_cache;
 
-use anyhow::{bail, ensure, format_err, Result};
-use diem_crypto::{hash::CryptoHash, HashValue};
-use diem_types::{
+use crate::hash::{CryptoHash, HashValue};
+use crate::types::{
     nibble::{
         nibble_path::{skip_common_prefix, NibbleIterator, NibblePath},
         Nibble, ROOT_NIBBLE_HEIGHT,
     },
     proof::{SparseMerkleProof, SparseMerkleRangeProof},
-    transaction::Version,
+    Version,
 };
+use anyhow::{bail, ensure, format_err, Result};
 use node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::arbitrary::Arbitrary;
@@ -139,13 +142,6 @@ pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
 /// tests.
 #[cfg(any(test, feature = "fuzzing"))]
 pub trait TestValue: Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + 'static {}
-
-// This crate still depends on types for a few things, therefore we implement `Value` and
-// `TestValue` for `AccountStateBlob` here. Ideally the module that defines the specific value like
-// `AccountStateBlob` should import the `Value` trait and implement it there.
-impl Value for diem_types::account_state_blob::AccountStateBlob {}
-#[cfg(any(test, feature = "fuzzing"))]
-impl TestValue for diem_types::account_state_blob::AccountStateBlob {}
 
 /// Node batch that will be written into db atomically with other batches.
 pub type NodeBatch<V> = BTreeMap<NodeKey, Node<V>>;
@@ -1034,8 +1030,8 @@ impl NibbleExt for HashValue {
 #[cfg(test)]
 mod test {
     use super::NibbleExt;
-    use diem_crypto::hash::{HashValue, TestOnlyHash};
-    use diem_types::nibble::Nibble;
+    use crate::hash::{HashValue, TestOnlyHash};
+    use crate::types::nibble::Nibble;
 
     #[test]
     fn test_common_prefix_nibbles_len() {

@@ -30,7 +30,7 @@ impl<H: CryptoHasher> MerkleTreeInternalNode<H> {
             right_child,
             hasher: PhantomData,
         }
-    }s
+    }
 }
 
 impl<H: CryptoHasher> CryptoHash for MerkleTreeInternalNode<H> {

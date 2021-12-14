@@ -6,7 +6,7 @@ use super::{
     NodeKey,
 };
 use crate::{node_type::NodeType, test_helper::ValueBlob};
-use diem_crypto::{
+use crate:hash::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };

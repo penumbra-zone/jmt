@@ -7,6 +7,15 @@
 #[cfg(test)]
 mod restore_test;
 
+use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use crate::types::{
+    nibble::{
+        nibble_path::{NibbleIterator, NibblePath},
+        Nibble,
+    },
+    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
+    Version,
+};
 use crate::{
     node_type::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
@@ -15,21 +24,9 @@ use crate::{
     NibbleExt, NodeBatch, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
 };
 use anyhow::{bail, ensure, Result};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
-};
-use diem_types::{
-    nibble::{
-        nibble_path::{NibbleIterator, NibblePath},
-        Nibble,
-    },
-    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
-    transaction::Version,
-};
 use mirai_annotations::*;
 use std::sync::Arc;
-use storage_interface::StateSnapshotReceiver;
+//use storage_interface::StateSnapshotReceiver;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ChildInfo<V> {
@@ -691,20 +688,20 @@ where
     }
 }
 
-impl<V: crate::Value> StateSnapshotReceiver<V> for JellyfishMerkleRestore<V> {
-    fn add_chunk(
-        &mut self,
-        chunk: Vec<(HashValue, V)>,
-        proof: SparseMerkleRangeProof,
-    ) -> Result<()> {
-        self.add_chunk_impl(chunk, proof)
-    }
+// impl<V: crate::Value> StateSnapshotReceiver<V> for JellyfishMerkleRestore<V> {
+//     fn add_chunk(
+//         &mut self,
+//         chunk: Vec<(HashValue, V)>,
+//         proof: SparseMerkleRangeProof,
+//     ) -> Result<()> {
+//         self.add_chunk_impl(chunk, proof)
+//     }
 
-    fn finish(self) -> Result<()> {
-        self.finish_impl()
-    }
+//     fn finish(self) -> Result<()> {
+//         self.finish_impl()
+//     }
 
-    fn finish_box(self: Box<Self>) -> Result<()> {
-        self.finish_impl()
-    }
-}
+//     fn finish_box(self: Box<Self>) -> Result<()> {
+//         self.finish_impl()
+//     }
+// }
