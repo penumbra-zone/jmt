@@ -353,7 +353,7 @@ pub fn hasher_dispatch(input: TokenStream) -> TokenStream {
         #[derive(Clone)]
         pub struct #hasher_name(crate::hash::DefaultHasher);
 
-        static #static_seed_name: diem_crypto::_once_cell::sync::OnceCell<[u8; 32]> = d::__cryptoonce_cell::sync::OnceCell::new();
+        static #static_seed_name: diem_crypto::_once_cell::sync::OnceCell<[u8; 32]> = diem_crypto::_once_cell::sync::OnceCell::new();
 
         impl #hasher_name {
             fn new() -> Self {
