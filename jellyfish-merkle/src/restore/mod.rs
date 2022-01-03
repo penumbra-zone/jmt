@@ -685,20 +685,33 @@ where
     }
 }
 
-// impl<V: crate::Value> StateSnapshotReceiver<V> for JellyfishMerkleRestore<V> {
-//     fn add_chunk(
-//         &mut self,
-//         chunk: Vec<(HashValue, V)>,
-//         proof: SparseMerkleRangeProof,
-//     ) -> Result<()> {
-//         self.add_chunk_impl(chunk, proof)
-//     }
+/// Taken from `storage-interface` crate.
+pub trait StateSnapshotReceiver<V> {
+    fn add_chunk(
+        &mut self,
+        chunk: Vec<(HashValue, V)>,
+        proof: SparseMerkleRangeProof,
+    ) -> Result<()>;
 
-//     fn finish(self) -> Result<()> {
-//         self.finish_impl()
-//     }
+    fn finish(self) -> Result<()>;
 
-//     fn finish_box(self: Box<Self>) -> Result<()> {
-//         self.finish_impl()
-//     }
-// }
+    fn finish_box(self: Box<Self>) -> Result<()>;
+}
+
+impl<V: crate::Value> StateSnapshotReceiver<V> for JellyfishMerkleRestore<V> {
+    fn add_chunk(
+        &mut self,
+        chunk: Vec<(HashValue, V)>,
+        proof: SparseMerkleRangeProof,
+    ) -> Result<()> {
+        self.add_chunk_impl(chunk, proof)
+    }
+
+    fn finish(self) -> Result<()> {
+        self.finish_impl()
+    }
+
+    fn finish_box(self: Box<Self>) -> Result<()> {
+        self.finish_impl()
+    }
+}
