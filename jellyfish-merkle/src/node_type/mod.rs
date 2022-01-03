@@ -9,9 +9,7 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
-#[cfg(test)]
-mod node_type_test;
-
+use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
 use crate::metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES};
 use crate::types::{
     nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
@@ -20,10 +18,6 @@ use crate::types::{
 };
 use anyhow::{ensure, Context, Result};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use crate::hash::{
-    CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
-    HashValue,
-};
 use itertools::Itertools;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::FromPrimitive;
