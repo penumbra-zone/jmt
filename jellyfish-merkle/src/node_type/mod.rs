@@ -18,7 +18,6 @@ use crate::types::{
 };
 use anyhow::{ensure, Context, Result};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use itertools::Itertools;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::FromPrimitive;
 #[cfg(any(test, feature = "fuzzing"))]
@@ -344,7 +343,12 @@ impl InternalNode {
     }
 
     pub fn children_sorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
-        self.children.iter().sorted_by_key(|(nibble, _)| **nibble)
+        // Previously this used `.sorted_by_key()` directly on the iterator but this does not appear
+        // to be available in itertools (it does not seem to ever have existed???) for unknown
+        // reasons. This satisfies the same behavior. ¯\_(ツ)_/¯
+        let mut sorted: Vec<(&Nibble, &Child)> = self.children.iter().collect();
+        sorted.sort_by_key(|(&nibble, _)| nibble);
+        sorted.into_iter()
     }
 
     pub fn serialize(&self, binary: &mut Vec<u8>, persist_leaf_counts: bool) -> Result<()> {
