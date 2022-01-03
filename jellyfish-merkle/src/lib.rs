@@ -413,6 +413,7 @@ where
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn batch_create_subtree_with_existing_leaf(
         &self,
         node_key: NodeKey,
