@@ -26,13 +26,12 @@ aes-gcm = "0.8.0"
 bytes = "1.0.1"
 chrono = { version = "0.4.19", default-features = false, features = ["clock"] }
 hex = "0.4.3"
+prometheus = "0.13"
 serde_json = "1.0.64"
 serde_bytes = "0.11.5"
 serde-name = "0.2"
 tiny-keccak = { version = "2.0.2", default-features = false, features = ["sha3"] }
-
 bcs = "0.1.2"
-diem-metrics = { git = "https://github.com/diem/diem" }
 
 [dev-dependencies]
 rand = "0.8.3"
