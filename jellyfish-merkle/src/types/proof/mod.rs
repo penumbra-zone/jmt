@@ -85,20 +85,19 @@ impl CryptoHash for SparseMerkleLeafNode {
 #[derive(Clone)]
 pub struct SparseMerkleLeafNodeHasher(crate::hash::DefaultHasher);
 
-static SPARSE_MERKLE_LEAF_NODE_SEED: diem_crypto::_once_cell::sync::OnceCell<[u8; 32]> =
-    diem_crypto::_once_cell::sync::OnceCell::new();
+static SPARSE_MERKLE_LEAF_NODE_SEED: once_cell::sync::OnceCell<[u8; 32]> =
+    once_cell::sync::OnceCell::new();
 
 impl SparseMerkleLeafNodeHasher {
     fn new() -> Self {
-        let name = diem_crypto::_serde_name::trace_name::<SparseMerkleLeafNode>()
+        let name = serde_name::trace_name::<SparseMerkleLeafNode>()
             .expect("The `CryptoHasher` macro only applies to structs and enums");
-        SparseMerkleLeafNodeHasher(crate::hash::DefaultHasher::new(&name.as_bytes()))
+        SparseMerkleLeafNodeHasher(crate::hash::DefaultHasher::new(name.as_bytes()))
     }
 }
 
-static SPARSE_MERKLE_LEAF_NODE_HASHER: diem_crypto::_once_cell::sync::Lazy<
-    SparseMerkleLeafNodeHasher,
-> = diem_crypto::_once_cell::sync::Lazy::new(|| SparseMerkleLeafNodeHasher::new());
+static SPARSE_MERKLE_LEAF_NODE_HASHER: once_cell::sync::Lazy<SparseMerkleLeafNodeHasher> =
+    once_cell::sync::Lazy::new(SparseMerkleLeafNodeHasher::new);
 
 impl std::default::Default for SparseMerkleLeafNodeHasher {
     fn default() -> Self {
@@ -109,10 +108,10 @@ impl std::default::Default for SparseMerkleLeafNodeHasher {
 impl crate::hash::CryptoHasher for SparseMerkleLeafNodeHasher {
     fn seed() -> &'static [u8; 32] {
         SPARSE_MERKLE_LEAF_NODE_SEED.get_or_init(|| {
-            let name = diem_crypto::_serde_name::trace_name::<SparseMerkleLeafNode>()
+            let name = serde_name::trace_name::<SparseMerkleLeafNode>()
                 .expect("The `CryptoHasher` macro only applies to structs and enums.")
                 .as_bytes();
-            crate::hash::DefaultHasher::prefixed_hash(&name)
+            crate::hash::DefaultHasher::prefixed_hash(name)
         })
     }
 

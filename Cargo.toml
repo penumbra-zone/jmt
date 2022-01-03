@@ -2,5 +2,4 @@
 
 members = [
     "jellyfish-merkle",
-    "diem-crypto-derive",
 ]
