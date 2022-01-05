@@ -1,8 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use diem_metrics::{register_int_counter, IntCounter};
 use once_cell::sync::Lazy;
+use prometheus::{register_int_counter, IntCounter};
 
 pub static DIEM_JELLYFISH_LEAF_ENCODED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     register_int_counter!(

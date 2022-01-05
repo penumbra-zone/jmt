@@ -9,22 +9,15 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
-#[cfg(test)]
-mod node_type_test;
-
+use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
 use crate::metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES};
-use anyhow::{ensure, Context, Result};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
-};
-use diem_types::{
+use crate::types::{
     nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
     proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
-    transaction::Version,
+    Version,
 };
-use itertools::Itertools;
+use anyhow::{ensure, Context, Result};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::FromPrimitive;
 #[cfg(any(test, feature = "fuzzing"))]
@@ -350,7 +343,12 @@ impl InternalNode {
     }
 
     pub fn children_sorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
-        self.children.iter().sorted_by_key(|(nibble, _)| **nibble)
+        // Previously this used `.sorted_by_key()` directly on the iterator but this does not appear
+        // to be available in itertools (it does not seem to ever have existed???) for unknown
+        // reasons. This satisfies the same behavior. ¯\_(ツ)_/¯
+        let mut sorted: Vec<(&Nibble, &Child)> = self.children.iter().collect();
+        sorted.sort_by_key(|(&nibble, _)| nibble);
+        sorted.into_iter()
     }
 
     pub fn serialize(&self, binary: &mut Vec<u8>, persist_leaf_counts: bool) -> Result<()> {
