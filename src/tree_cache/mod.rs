@@ -66,17 +66,14 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-#[cfg(test)]
-mod tree_cache_test;
-
+use crate::hash::HashValue;
+use crate::types::{Version, PRE_GENESIS_VERSION};
 use crate::{
     metrics::DIEM_JELLYFISH_STORAGE_READS,
     node_type::{Node, NodeKey},
     NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
 };
 use anyhow::{bail, Result};
-use diem_crypto::HashValue;
-use diem_types::transaction::{Version, PRE_GENESIS_VERSION};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// `FrozenTreeCache` is used as a field of `TreeCache` storing all the nodes and values that
