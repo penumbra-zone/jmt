@@ -95,7 +95,9 @@ use proptest_derive::Arbitrary;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    future::Future,
     marker::PhantomData,
+    pin::Pin,
 };
 use thiserror::Error;
 use tree_cache::TreeCache;
@@ -106,22 +108,75 @@ pub struct MissingRootError {
     pub version: Version,
 }
 
+pub enum Async {}
+
+pub enum Sync {}
+
+mod sealed {
+    use super::{Async, Sync};
+
+    pub trait Synchrony {}
+    impl Synchrony for Async {}
+    impl Synchrony for Sync {}
+}
+
+pub trait TreeReaderResult<V>: sealed::Synchrony {
+    type GetNodeResult;
+    type GetNodeOptionResult;
+    type GetRightmostLeafResult;
+}
+
+impl<V> TreeReaderResult<V> for Sync {
+    type GetNodeResult = Result<Node<V>>;
+    type GetNodeOptionResult = Result<Option<Node<V>>>;
+    type GetRightmostLeafResult = Result<Option<(NodeKey, LeafNode<V>)>>;
+}
+
+#[allow(clippy::type_complexity)]
+impl<V> TreeReaderResult<V> for Async {
+    type GetNodeResult = Pin<Box<dyn Future<Output = Result<Node<V>>>>>;
+    type GetNodeOptionResult = Pin<Box<dyn Future<Output = Result<Option<Node<V>>>>>>;
+    type GetRightmostLeafResult =
+        Pin<Box<dyn Future<Output = Result<Option<(NodeKey, LeafNode<V>)>>>>>;
+}
+
 /// `TreeReader` defines the interface between
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
-pub trait TreeReader<V> {
+pub trait TreeReader<V, S: TreeReaderResult<V>> {
+    /// Gets node given a node key. Returns `None` if the node does not exist.
+    fn get_node_option(
+        &self,
+        node_key: &NodeKey,
+    ) -> <S as TreeReaderResult<V>>::GetNodeOptionResult;
+
+    /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
+    /// and all nodes are at the same version.
+    fn get_rightmost_leaf(&self) -> <S as TreeReaderResult<V>>::GetRightmostLeafResult;
+}
+
+pub trait TreeReaderExt<V, S: TreeReaderResult<V>> {
     /// Gets node given a node key. Returns error if the node does not exist.
+    fn get_node(&self, node_key: &NodeKey) -> <S as TreeReaderResult<V>>::GetNodeResult;
+}
+
+impl<V, T: TreeReader<V, Sync>> TreeReaderExt<V, Sync> for T {
     fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
         self.get_node_option(node_key)?
             .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
     }
+}
 
-    /// Gets node given a node key. Returns `None` if the node does not exist.
-    fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node<V>>>;
-
-    /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
-    /// and all nodes are at the same version.
-    fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode<V>)>>;
+impl<V: 'static, T: TreeReader<V, Async>> TreeReaderExt<V, Async> for T {
+    fn get_node(&self, node_key: &NodeKey) -> Pin<Box<dyn Future<Output = Result<Node<V>>>>> {
+        let future = self.get_node_option(node_key);
+        let node_key = node_key.clone();
+        Box::pin(async move {
+            future
+                .await?
+                .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
+        })
+    }
 }
 
 pub trait TreeWriter<V> {
@@ -226,7 +281,7 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReader<V>,
+    R: 'a + TreeReader<V, crate::Sync>,
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
