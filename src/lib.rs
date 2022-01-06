@@ -95,6 +95,7 @@ use proptest_derive::Arbitrary;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    future::Future,
     marker::PhantomData,
 };
 use thiserror::Error;
@@ -106,22 +107,51 @@ pub struct MissingRootError {
     pub version: Version,
 }
 
-/// `TreeReader` defines the interface between
+/// `TreeReaderSync` defines the interface between
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
-pub trait TreeReader<V> {
-    /// Gets node given a node key. Returns error if the node does not exist.
-    fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
-        self.get_node_option(node_key)?
-            .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
-    }
-
+///
+/// Only use this in a *synchronous* context.
+pub trait TreeReaderSync<V> {
     /// Gets node given a node key. Returns `None` if the node does not exist.
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node<V>>>;
 
     /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
     /// and all nodes are at the same version.
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode<V>)>>;
+}
+
+// TODO: delete this, replace with `get_node_async` after async refactor
+fn get_node_sync<R: TreeReaderSync<V>, V>(reader: &R, node_key: &NodeKey) -> Result<Node<V>> {
+    reader
+        .get_node_option(node_key)?
+        .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
+}
+
+/// `TreeReaderAsync` defines the interface between
+/// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
+/// and underlying storage holding nodes.
+pub trait TreeReaderAsync<V> {
+    type GetNodeOptionFuture: Future<Output = Result<Option<Node<V>>>>;
+    type GetRightmostLeafFuture: Future<Output = Result<Option<(NodeKey, LeafNode<V>)>>>;
+
+    /// Gets node given a node key. Returns `None` if the node does not exist.
+    fn get_node_option(&self, node_key: &NodeKey) -> Self::GetNodeOptionFuture;
+
+    /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
+    /// and all nodes are at the same version.
+    fn get_rightmost_leaf(&self) -> Self::GetRightmostLeafFuture;
+}
+
+/// Gets node given a node key. Returns error if the node does not exist.
+async fn get_node_async<R: TreeReaderAsync<V>, V>(
+    reader: &R,
+    node_key: &NodeKey,
+) -> Result<Node<V>> {
+    reader
+        .get_node_option(node_key)
+        .await?
+        .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
 }
 
 pub trait TreeWriter<V> {
@@ -226,7 +256,7 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReader<V>,
+    R: 'a + TreeReaderSync<V>,
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
@@ -881,7 +911,7 @@ where
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
+            let next_node = get_node_sync(self.reader, &next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     MissingRootError { version }.into()
                 } else {

@@ -13,7 +13,7 @@ use crate::types::{
 };
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
-    TreeReader,
+    TreeReaderSync,
 };
 use anyhow::{bail, ensure, format_err, Result};
 use std::{marker::PhantomData, sync::Arc};
@@ -111,7 +111,7 @@ pub struct JellyfishMerkleIterator<R, V> {
 
 impl<R, V> JellyfishMerkleIterator<R, V>
 where
-    R: TreeReader<V>,
+    R: TreeReaderSync<V>,
     V: crate::Value,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
@@ -125,7 +125,8 @@ where
         let nibble_path = NibblePath::new(starting_key.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
-        while let Node::Internal(internal_node) = reader.get_node(&current_node_key)? {
+        while let Node::Internal(internal_node) = crate::get_node_sync(&*reader, &current_node_key)?
+        {
             let child_index = nibble_iter.next().expect("Should have enough nibbles.");
             match internal_node.child(child_index) {
                 Some(child) => {
@@ -164,7 +165,7 @@ where
             }
         }
 
-        match reader.get_node(&current_node_key)? {
+        match crate::get_node_sync(&*reader, &current_node_key)? {
             Node::Internal(_) => unreachable!("Should have reached the bottom of the tree."),
             Node::Leaf(leaf_node) => {
                 if leaf_node.account_key() < starting_key {
@@ -203,7 +204,7 @@ where
         let mut parent_stack = vec![];
 
         let mut current_node_key = NodeKey::new_empty_path(version);
-        let mut current_node = reader.get_node(&current_node_key)?;
+        let mut current_node = crate::get_node_sync(&*reader, &current_node_key)?;
         let total_leaves = current_node
             .leaf_count()
             .ok_or_else(|| format_err!("Leaf counts not available."))?;
@@ -248,7 +249,7 @@ where
                     current_node_key = next_node_key;
                 }
             };
-            current_node = reader.get_node(&current_node_key)?;
+            current_node = crate::get_node_sync(&*reader, &current_node_key)?;
         }
 
         bail!("Bug: potential infinite loop.");
@@ -275,7 +276,7 @@ where
 
 impl<R, V> Iterator for JellyfishMerkleIterator<R, V>
 where
-    R: TreeReader<V>,
+    R: TreeReaderSync<V>,
     V: crate::Value,
 {
     type Item = Result<(HashValue, V)>;
@@ -287,7 +288,7 @@ where
 
         if self.parent_stack.is_empty() {
             let root_node_key = NodeKey::new_empty_path(self.version);
-            match self.reader.get_node(&root_node_key) {
+            match crate::get_node_sync(&*self.reader, &root_node_key) {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
@@ -321,7 +322,7 @@ where
                     .version,
                 child_index,
             );
-            match self.reader.get_node(&node_key) {
+            match crate::get_node_sync(&*self.reader, &node_key) {
                 Ok(Node::Internal(internal_node)) => {
                     let visit_info = NodeVisitInfo::new(node_key, internal_node);
                     self.parent_stack.push(visit_info);
