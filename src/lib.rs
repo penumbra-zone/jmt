@@ -143,7 +143,7 @@ pub trait TreeReaderAsync<V> {
     fn get_rightmost_leaf(&self) -> Self::GetRightmostLeafFuture;
 }
 
-/// Gets node given a node key. Returns error if the node does not exist.
+/// Internal helper: Gets node given a node key. Returns error if the node does not exist.
 async fn get_node_async<R: TreeReaderAsync<V>, V>(
     reader: &R,
     node_key: &NodeKey,
@@ -260,7 +260,6 @@ where
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
