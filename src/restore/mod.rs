@@ -21,7 +21,7 @@ use crate::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
         NodeType,
     },
-    NibbleExt, NodeBatch, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
+    NibbleExt, NodeBatch, TreeReaderSync, TreeWriterSync, ROOT_NIBBLE_HEIGHT,
 };
 use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;
@@ -114,7 +114,7 @@ where
 
 pub struct JellyfishMerkleRestore<V> {
     /// The underlying storage.
-    store: Arc<dyn TreeWriter<V>>,
+    store: Arc<dyn TreeWriterSync<V>>,
 
     /// The version of the tree we are restoring.
     version: Version,
@@ -172,7 +172,7 @@ impl<V> JellyfishMerkleRestore<V>
 where
     V: crate::Value,
 {
-    pub fn new<D: 'static + TreeReader<V> + TreeWriter<V>>(
+    pub fn new<D: 'static + TreeReaderSync<V> + TreeWriterSync<V>>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: HashValue,
@@ -207,7 +207,7 @@ where
         })
     }
 
-    pub fn new_overwrite<D: 'static + TreeWriter<V>>(
+    pub fn new_overwrite<D: 'static + TreeWriterSync<V>>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: HashValue,
@@ -228,7 +228,7 @@ where
     /// Recovers partial nodes from storage. We do this by looking at all the ancestors of the
     /// rightmost leaf. The ones do not exist in storage are the partial nodes.
     fn recover_partial_nodes(
-        store: &dyn TreeReader<V>,
+        store: &dyn TreeReaderSync<V>,
         version: Version,
         rightmost_leaf_node_key: NodeKey,
     ) -> Result<Vec<InternalInfo<V>>> {

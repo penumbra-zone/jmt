@@ -34,47 +34,6 @@
 //! specifications, we use [Binary Canonical Serialization (BCS)](https://docs.rs/bcs/)
 //! as the recommended solution to write Rust values into a hasher.
 //!
-//! # Quick Start
-//!
-//! To obtain a `hash()` method for any new type `MyNewStruct`, it is (strongly) recommended to
-//! use the derive macros of `serde` and `diem_crypto_derive` as follows:
-//! ```
-//! use diem_crypto::hash::CryptoHash;
-//! use diem_crypto_derive::{CryptoHasher, BCSCryptoHash};
-//! use serde::{Deserialize, Serialize};
-//! #[derive(Serialize, Deserialize, CryptoHasher, BCSCryptoHash)]
-//! struct MyNewStruct { /*...*/ }
-//!
-//! let value = MyNewStruct { /*...*/ };
-//! value.hash();
-//! ```
-//!
-//! Under the hood, this will generate a new implementation `MyNewStructHasher` for the trait
-//! `CryptoHasher` and implement the trait `CryptoHash` for `MyNewStruct` using BCS.
-//!
-//! # Implementing New Hashers
-//!
-//! The trait `CryptoHasher` captures the notion of a pre-seeded hash function, aka a "hasher".
-//! New implementations can be defined in two ways.
-//!
-//! ## Derive macro (recommended)
-//!
-//! For any new structure `MyNewStruct` that needs to be hashed, it is recommended to simply
-//! use the derive macro [`CryptoHasher`](https://doc.rust-lang.org/reference/procedural-macros.html).
-//!
-//! ```
-//! use diem_crypto_derive::CryptoHasher;
-//! use serde::Deserialize;
-//! #[derive(Deserialize, CryptoHasher)]
-//! #[serde(rename = "OptionalCustomSerdeName")]
-//! struct MyNewStruct { /*...*/ }
-//! ```
-//!
-//! The macro `CryptoHasher` will define a hasher automatically called `MyNewStructHasher`, and derive a salt
-//! using the name of the type as seen by the Serde library. In the example above, this name
-//! was changed using the Serde parameter `rename`: the salt will be based on the value `OptionalCustomSerdeName`
-//! instead of the default name `MyNewStruct`.
-//!
 //! ## Customized hashers
 //!
 //! **IMPORTANT:** Do NOT use this for new code unless you know what you are doing.
@@ -92,7 +51,7 @@
 //! **IMPORTANT:** Do NOT use this for new code unless you know what you are doing.
 //!
 //! ```
-//! use diem_crypto::hash::{CryptoHasher, TestOnlyHasher};
+//! use penumbra_jellyfish_merkle::hash::{CryptoHasher, TestOnlyHasher};
 //!
 //! let mut hasher = TestOnlyHasher::default();
 //! hasher.update("Test message".as_bytes());
@@ -674,7 +633,7 @@ pub static GENESIS_BLOCK_ID: Lazy<HashValue> = Lazy::new(|| {
 ///
 /// # Example
 /// ```
-/// use diem_crypto::hash::TestOnlyHash;
+/// use penumbra_jellyfish_merkle::hash::TestOnlyHash;
 ///
 /// b"hello world".test_only_hash();
 /// ```

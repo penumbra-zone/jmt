@@ -70,15 +70,17 @@
 
 pub mod hash;
 pub mod iterator;
-pub mod types;
-
-pub mod jellyfish_merkle_test;
+#[cfg(test)]
+mod jellyfish_merkle_test;
 pub mod metrics;
-pub mod mock_tree_store;
+#[cfg(test)]
+mod mock_tree_store;
 pub mod node_type;
 pub mod restore;
+#[cfg(test)]
 pub mod test_helper;
 mod tree_cache;
+pub mod types;
 
 use crate::hash::{CryptoHash, HashValue};
 use crate::types::{
@@ -90,6 +92,7 @@ use crate::types::{
     Version,
 };
 use anyhow::{bail, ensure, format_err, Result};
+use futures::future::BoxFuture;
 use node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::arbitrary::Arbitrary;
@@ -109,16 +112,12 @@ pub struct MissingRootError {
     pub version: Version,
 }
 
-/// `TreeReader` defines the interface between
+/// `TreeReaderSync` defines the interface between
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
-pub trait TreeReader<V> {
-    /// Gets node given a node key. Returns error if the node does not exist.
-    fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
-        self.get_node_option(node_key)?
-            .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
-    }
-
+///
+/// Only use this in a *synchronous* context.
+pub trait TreeReaderSync<V> {
     /// Gets node given a node key. Returns `None` if the node does not exist.
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node<V>>>;
 
@@ -127,18 +126,58 @@ pub trait TreeReader<V> {
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode<V>)>>;
 }
 
-pub trait TreeWriter<V> {
+/// `TreeReaderAsync` defines the interface between
+/// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
+/// and underlying storage holding nodes.
+pub trait TreeReaderAsync<V> {
+    /// Gets node given a node key. Returns `None` if the node does not exist.
+    fn get_node_option<'future, 'a: 'future, 'n: 'future>(
+        &'a self,
+        node_key: &'n NodeKey,
+    ) -> BoxFuture<'future, Result<Option<Node<V>>>>;
+
+    /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
+    /// and all nodes are at the same version.
+    #[allow(clippy::type_complexity)]
+    fn get_rightmost_leaf<'future, 'a: 'future>(
+        &'a self,
+    ) -> BoxFuture<'future, Result<Option<(NodeKey, LeafNode<V>)>>>;
+}
+
+/// Internal helper: Gets node given a node key. Returns error if the node does not exist.
+async fn get_node_async<R: TreeReaderAsync<V>, V>(
+    reader: &R,
+    node_key: &NodeKey,
+) -> Result<Node<V>> {
+    reader
+        .get_node_option(node_key)
+        .await?
+        .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
+}
+
+pub trait TreeWriterSync<V> {
     /// Writes a node batch into storage.
     fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Result<()>;
 }
 
+pub trait TreeWriterAsync<V> {
+    /// Writes a node batch into storage.
+    fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
+        &'a mut self,
+        node_batch: &'n NodeBatch<V>,
+    ) -> BoxFuture<'future, Result<()>>;
+}
+
 /// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
-pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
+pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned + Send + Sync + 'static {}
 
 /// `TestValue` defines the types of data that can be stored in a Jellyfish Merkle tree and used in
 /// tests.
 #[cfg(any(test, feature = "fuzzing"))]
-pub trait TestValue: Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + 'static {}
+pub trait TestValue:
+    Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + Send + Sync + 'static
+{
+}
 
 /// Node batch that will be written into db atomically with other batches.
 pub type NodeBatch<V> = BTreeMap<NodeKey, Node<V>>;
@@ -221,6 +260,7 @@ impl<'a, V> std::iter::Iterator for NibbleRangeIterator<'a, V> {
 }
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
+#[derive(Debug, Clone)]
 pub struct JellyfishMerkleTree<'a, R, V> {
     reader: &'a R,
     leaf_count_migration: bool,
@@ -229,11 +269,10 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReader<V>,
+    R: 'a + TreeReaderAsync<V> + Sync,
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
@@ -267,13 +306,13 @@ where
     }
 
     /// The batch version of `put_value_sets`.
-    pub fn batch_put_value_sets(
+    pub async fn batch_put_value_sets(
         &self,
         value_sets: Vec<Vec<(HashValue, V)>>,
         node_hashes: Option<Vec<&HashMap<NibblePath, HashValue>>>,
         first_version: Version,
     ) -> Result<(Vec<HashValue>, TreeUpdateBatch<V>)> {
-        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+        let mut tree_cache = TreeCache::new(self.reader, first_version).await?;
         let hash_sets: Vec<_> = match node_hashes {
             Some(hashes) => hashes.into_iter().map(Some).collect(),
             None => (0..value_sets.len()).map(|_| None).collect(),
@@ -293,24 +332,27 @@ where
                 .into_iter()
                 .collect::<Vec<_>>();
             let root_node_key = tree_cache.get_root_node_key().clone();
-            let (new_root_node_key, _) = self.batch_insert_at(
-                root_node_key,
-                version,
-                deduped_and_sorted_kvs.as_slice(),
-                0,
-                &hash_set,
-                &mut tree_cache,
-            )?;
+            let (new_root_node_key, _) = self
+                .batch_insert_at(
+                    root_node_key,
+                    version,
+                    deduped_and_sorted_kvs.as_slice(),
+                    0,
+                    &hash_set,
+                    &mut tree_cache,
+                )
+                .await?;
             tree_cache.set_root_node_key(new_root_node_key);
 
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze().await;
         }
 
         Ok(tree_cache.into())
     }
 
-    fn batch_insert_at(
+    #[async_recursion::async_recursion]
+    async fn batch_insert_at(
         &self,
         mut node_key: NodeKey,
         version: Version,
@@ -321,7 +363,7 @@ where
     ) -> Result<(NodeKey, Node<V>)> {
         assert!(!kvs.is_empty());
 
-        let node = tree_cache.get_node(&node_key)?;
+        let node = tree_cache.get_node(&node_key).await?;
         Ok(match node {
             Node::Internal(internal_node) => {
                 // We always delete the existing internal node here because it will not be referenced anyway
@@ -349,7 +391,8 @@ where
                                     depth + 1,
                                     hash_cache,
                                     tree_cache,
-                                )?
+                                )
+                                .await?
                             }
                             None => {
                                 let new_child_node_key =
@@ -535,14 +578,14 @@ where
     /// This is a convenient function that calls
     /// [`put_value_sets`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
     /// `keyed_value_set`.
-    #[cfg(any(test, feature = "fuzzing"))]
-    pub fn put_value_set(
+    pub async fn put_value_set(
         &self,
         value_set: Vec<(HashValue, V)>,
         version: Version,
     ) -> Result<(HashValue, TreeUpdateBatch<V>)> {
-        let (root_hashes, tree_update_batch) =
-            self.batch_put_value_sets(vec![value_set], None, version)?;
+        let (root_hashes, tree_update_batch) = self
+            .batch_put_value_sets(vec![value_set], None, version)
+            .await?;
         assert_eq!(
             root_hashes.len(),
             1,
@@ -592,34 +635,34 @@ where
     /// the returned batch, the state `S_{i+1}` is ready to be read from the tree by calling
     /// [`get_with_proof`](struct.JellyfishMerkleTree.html#method.get_with_proof). Anything inside
     /// the batch is not reachable from public interfaces before being committed.
-    pub fn put_value_sets(
+    pub async fn put_value_sets(
         &self,
         value_sets: Vec<Vec<(HashValue, V)>>,
         first_version: Version,
     ) -> Result<(Vec<HashValue>, TreeUpdateBatch<V>)> {
-        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+        let mut tree_cache = TreeCache::new(self.reader, first_version).await?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             assert!(
                 !value_set.is_empty(),
                 "Transactions that output empty write set should not be included.",
             );
             let version = first_version + idx as u64;
-            value_set
-                .into_iter()
-                .try_for_each(|(key, value)| self.put(key, value, version, &mut tree_cache))?;
+            for (key, value) in value_set {
+                self.put(key, value, version, &mut tree_cache).await?;
+            }
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze().await;
         }
 
         Ok(tree_cache.into())
     }
 
-    fn put(
+    async fn put(
         &self,
         key: HashValue,
         value: V,
         version: Version,
-        tree_cache: &mut TreeCache<R, V>,
+        tree_cache: &mut TreeCache<'a, R, V>,
     ) -> Result<()> {
         let nibble_path = NibblePath::new(key.to_vec());
 
@@ -629,13 +672,15 @@ where
         let mut nibble_iter = nibble_path.nibbles();
 
         // Start insertion from the root node.
-        let (new_root_node_key, _) = self.insert_at(
-            root_node_key.clone(),
-            version,
-            &mut nibble_iter,
-            value,
-            tree_cache,
-        )?;
+        let (new_root_node_key, _) = self
+            .insert_at(
+                root_node_key.clone(),
+                version,
+                &mut nibble_iter,
+                value,
+                tree_cache,
+            )
+            .await?;
 
         tree_cache.set_root_node_key(new_root_node_key);
         Ok(())
@@ -645,24 +690,28 @@ where
     /// [`NodeKey`](node_type/struct.NodeKey.html). Returns the newly inserted node.
     /// It is safe to use recursion here because the max depth is limited by the key length which
     /// for this tree is the length of the hash of account addresses.
-    fn insert_at(
-        &self,
+    #[async_recursion::async_recursion]
+    async fn insert_at<'future, 'cache: 'future>(
+        &'future self,
         node_key: NodeKey,
         version: Version,
-        nibble_iter: &mut NibbleIterator,
+        nibble_iter: &mut NibbleIterator<'future>,
         value: V,
-        tree_cache: &mut TreeCache<R, V>,
+        tree_cache: &mut TreeCache<'cache, R, V>,
     ) -> Result<(NodeKey, Node<V>)> {
-        let node = tree_cache.get_node(&node_key)?;
+        let node = tree_cache.get_node(&node_key).await?;
         match node {
-            Node::Internal(internal_node) => self.insert_at_internal_node(
-                node_key,
-                internal_node,
-                version,
-                nibble_iter,
-                value,
-                tree_cache,
-            ),
+            Node::Internal(internal_node) => {
+                self.insert_at_internal_node(
+                    node_key,
+                    internal_node,
+                    version,
+                    nibble_iter,
+                    value,
+                    tree_cache,
+                )
+                .await
+            }
             Node::Leaf(leaf_node) => self.insert_at_leaf_node(
                 node_key,
                 leaf_node,
@@ -695,14 +744,14 @@ where
     /// Helper function for recursive insertion into the subtree that starts from the current
     /// `internal_node`. Returns the newly inserted node with its
     /// [`NodeKey`](node_type/struct.NodeKey.html).
-    fn insert_at_internal_node(
-        &self,
+    async fn insert_at_internal_node<'future, 'cache: 'future>(
+        &'future self,
         mut node_key: NodeKey,
         internal_node: InternalNode,
         version: Version,
-        nibble_iter: &mut NibbleIterator,
+        nibble_iter: &mut NibbleIterator<'future>,
         value: V,
-        tree_cache: &mut TreeCache<R, V>,
+        tree_cache: &mut TreeCache<'cache, R, V>,
     ) -> Result<(NodeKey, Node<V>)> {
         // We always delete the existing internal node here because it will not be referenced anyway
         // since this version.
@@ -716,7 +765,8 @@ where
         let (_, new_child_node) = match internal_node.child(child_index) {
             Some(child) => {
                 let child_node_key = node_key.gen_child_node_key(child.version, child_index);
-                self.insert_at(child_node_key, version, nibble_iter, value, tree_cache)?
+                self.insert_at(child_node_key, version, nibble_iter, value, tree_cache)
+                    .await?
             }
             None => {
                 let new_child_node_key = node_key.gen_child_node_key(version, child_index);
@@ -870,7 +920,7 @@ where
     }
 
     /// Returns the value (if applicable) and the corresponding merkle proof.
-    pub fn get_with_proof(
+    pub async fn get_with_proof(
         &self,
         key: HashValue,
         version: Version,
@@ -884,13 +934,15 @@ where
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
-                if nibble_depth == 0 {
-                    MissingRootError { version }.into()
-                } else {
-                    err
-                }
-            })?;
+            let next_node = get_node_async(self.reader, &next_node_key)
+                .await
+                .map_err(|err| {
+                    if nibble_depth == 0 {
+                        MissingRootError { version }.into()
+                    } else {
+                        err
+                    }
+                })?;
             match next_node {
                 Node::Internal(internal_node) => {
                     let queried_child_index = nibble_iter
@@ -941,12 +993,12 @@ where
     }
 
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
-    pub fn get_range_proof(
+    pub async fn get_range_proof(
         &self,
         rightmost_key_to_prove: HashValue,
         version: Version,
     ) -> Result<SparseMerkleRangeProof> {
-        let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version)?;
+        let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version).await?;
         ensure!(account.is_some(), "rightmost_key_to_prove must exist.");
 
         let siblings = proof
@@ -967,32 +1019,32 @@ where
         Ok(SparseMerkleRangeProof::new(siblings))
     }
 
-    #[cfg(test)]
-    pub fn get(&self, key: HashValue, version: Version) -> Result<Option<V>> {
-        Ok(self.get_with_proof(key, version)?.0)
+    pub async fn get(&self, key: HashValue, version: Version) -> Result<Option<V>> {
+        Ok(self.get_with_proof(key, version).await?.0)
     }
 
-    fn get_root_node(&self, version: Version) -> Result<Node<V>> {
-        self.get_root_node_option(version)?
+    async fn get_root_node(&self, version: Version) -> Result<Node<V>> {
+        self.get_root_node_option(version)
+            .await?
             .ok_or_else(|| format_err!("Root node not found for version {}.", version))
     }
 
-    fn get_root_node_option(&self, version: Version) -> Result<Option<Node<V>>> {
+    async fn get_root_node_option(&self, version: Version) -> Result<Option<Node<V>>> {
         let root_node_key = NodeKey::new_empty_path(version);
-        self.reader.get_node_option(&root_node_key)
+        self.reader.get_node_option(&root_node_key).await
     }
 
-    pub fn get_root_hash(&self, version: Version) -> Result<HashValue> {
-        self.get_root_node(version).map(|n| n.hash())
+    pub async fn get_root_hash(&self, version: Version) -> Result<HashValue> {
+        self.get_root_node(version).await.map(|n| n.hash())
     }
 
-    pub fn get_root_hash_option(&self, version: Version) -> Result<Option<HashValue>> {
-        Ok(self.get_root_node_option(version)?.map(|n| n.hash()))
+    pub async fn get_root_hash_option(&self, version: Version) -> Result<Option<HashValue>> {
+        Ok(self.get_root_node_option(version).await?.map(|n| n.hash()))
     }
 
-    pub fn get_leaf_count(&self, version: Version) -> Result<Option<usize>> {
+    pub async fn get_leaf_count(&self, version: Version) -> Result<Option<usize>> {
         if self.leaf_count_migration {
-            self.get_root_node(version).map(|n| n.leaf_count())
+            self.get_root_node(version).await.map(|n| n.leaf_count())
         } else {
             // When all children of an internal node are leaves, the leaf count is accessible
             // even if the migration haven't started. In fact, in such a case, there's no difference
