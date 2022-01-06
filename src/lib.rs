@@ -256,7 +256,7 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReaderSync<V>,
+    R: 'a + TreeReaderAsync<V>,
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).

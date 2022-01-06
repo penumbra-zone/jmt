@@ -71,7 +71,7 @@ use crate::types::{Version, PRE_GENESIS_VERSION};
 use crate::{
     metrics::DIEM_JELLYFISH_STORAGE_READS,
     node_type::{Node, NodeKey},
-    NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReaderSync, TreeUpdateBatch,
+    NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReaderAsync, TreeUpdateBatch,
 };
 use anyhow::{bail, Result};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
@@ -134,15 +134,15 @@ pub struct TreeCache<'a, R, V> {
 
 impl<'a, R, V> TreeCache<'a, R, V>
 where
-    R: 'a + TreeReaderSync<V>,
+    R: 'a + TreeReaderAsync<V>,
     V: crate::Value,
 {
     /// Constructs a new `TreeCache` instance.
-    pub fn new(reader: &'a R, next_version: Version) -> Result<Self> {
+    pub async fn new(reader: &'a R, next_version: Version) -> Result<TreeCache<'a, R, V>> {
         let mut node_cache = HashMap::new();
         let root_node_key = if next_version == 0 {
             let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
-            let pre_genesis_root = reader.get_node_option(&pre_genesis_root_key)?;
+            let pre_genesis_root = reader.get_node_option(&pre_genesis_root_key).await?;
 
             match pre_genesis_root {
                 Some(_) => {
@@ -175,14 +175,14 @@ where
     }
 
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
-    pub fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
+    pub async fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             node.clone()
         } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
             node.clone()
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
-            crate::get_node_sync(self.reader, node_key)?
+            crate::get_node_async(self.reader, node_key).await?
         })
     }
 
@@ -226,10 +226,11 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze(&mut self) {
+    pub async fn freeze(&mut self) {
         let root_node_key = self.get_root_node_key();
         let root_hash = self
             .get_node(root_node_key)
+            .await
             .unwrap_or_else(|_| unreachable!("Root node with key {:?} must exist", root_node_key))
             .hash();
         self.frozen_cache.root_hashes.push(root_hash);
@@ -264,7 +265,7 @@ where
 
 impl<'a, R, V> From<TreeCache<'a, R, V>> for (Vec<HashValue>, TreeUpdateBatch<V>)
 where
-    R: 'a + TreeReaderSync<V>,
+    R: 'a,
 {
     fn from(tree_cache: TreeCache<'a, R, V>) -> Self {
         (
