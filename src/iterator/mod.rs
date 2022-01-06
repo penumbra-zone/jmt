@@ -13,7 +13,7 @@ use crate::types::{
 };
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
-    TreeReader, TreeReaderExt,
+    TreeReader,
 };
 use anyhow::{bail, ensure, format_err, Result};
 use std::{marker::PhantomData, sync::Arc};
@@ -111,7 +111,7 @@ pub struct JellyfishMerkleIterator<R, V> {
 
 impl<R, V> JellyfishMerkleIterator<R, V>
 where
-    R: TreeReader<V, crate::Sync>,
+    R: TreeReader<V>,
     V: crate::Value,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
@@ -275,7 +275,7 @@ where
 
 impl<R, V> Iterator for JellyfishMerkleIterator<R, V>
 where
-    R: TreeReader<V, crate::Sync>,
+    R: TreeReader<V>,
     V: crate::Value,
 {
     type Item = Result<(HashValue, V)>;

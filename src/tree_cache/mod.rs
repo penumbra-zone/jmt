@@ -71,8 +71,7 @@ use crate::types::{Version, PRE_GENESIS_VERSION};
 use crate::{
     metrics::DIEM_JELLYFISH_STORAGE_READS,
     node_type::{Node, NodeKey},
-    NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeReaderExt,
-    TreeUpdateBatch,
+    NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
 };
 use anyhow::{bail, Result};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
@@ -135,7 +134,7 @@ pub struct TreeCache<'a, R, V> {
 
 impl<'a, R, V> TreeCache<'a, R, V>
 where
-    R: 'a + TreeReader<V, crate::Sync>,
+    R: 'a + TreeReader<V>,
     V: crate::Value,
 {
     /// Constructs a new `TreeCache` instance.
@@ -265,7 +264,7 @@ where
 
 impl<'a, R, V> From<TreeCache<'a, R, V>> for (Vec<HashValue>, TreeUpdateBatch<V>)
 where
-    R: 'a + TreeReader<V, crate::Sync>,
+    R: 'a + TreeReader<V>,
 {
     fn from(tree_cache: TreeCache<'a, R, V>) -> Self {
         (
