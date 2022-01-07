@@ -110,6 +110,7 @@ pub struct JellyfishMerkleStream<R, V> {
     done: bool,
 
     /// The future, if any, of a node lookup needed for the next call to `poll_next`.
+    // TODO: this needs to be pin-projected as unpinned
     future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
 
     phantom_value: PhantomData<V>,
