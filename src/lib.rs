@@ -332,7 +332,7 @@ where
             tree_cache.set_root_node_key(new_root_node_key);
 
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze().await;
         }
 
         Ok(tree_cache.into())
@@ -340,13 +340,13 @@ where
 
     #[async_recursion::async_recursion(?Send)]
     async fn batch_insert_at(
-        &'a self,
+        &self,
         mut node_key: NodeKey,
         version: Version,
         kvs: &[(HashValue, V)],
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, HashValue>>,
-        tree_cache: &mut TreeCache<'a, R, V>,
+        tree_cache: &mut TreeCache<R, V>,
     ) -> Result<(NodeKey, Node<V>)> {
         assert!(!kvs.is_empty());
 
@@ -635,31 +635,29 @@ where
                 "Transactions that output empty write set should not be included.",
             );
             let version = first_version + idx as u64;
-            // FIXME: turn this into a for-loop
-            value_set
-                .into_iter()
-                .try_for_each(|(key, value)| self.put(key, value, version, &mut tree_cache))
-                .await?;
+            for (key, value) in value_set {
+                self.put(key, value, version, &mut tree_cache).await?;
+            }
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze().await;
         }
 
         Ok(tree_cache.into())
     }
 
     async fn put(
-        &'a self,
+        &self,
         key: HashValue,
         value: V,
         version: Version,
-        tree_cache: &'a mut TreeCache<'a, R, V>,
+        tree_cache: &mut TreeCache<'a, R, V>,
     ) -> Result<()> {
         let nibble_path = NibblePath::new(key.to_vec());
 
         // Get the root node. If this is the first operation, it would get the root node from the
         // underlying db. Otherwise it most likely would come from `cache`.
         let root_node_key = tree_cache.get_root_node_key();
-        let mut nibble_iter = nibble_path.nibbles(); // FIXME: wrong lifetime somewhere?
+        let mut nibble_iter = nibble_path.nibbles();
 
         // Start insertion from the root node.
         let (new_root_node_key, _) = self
@@ -681,13 +679,13 @@ where
     /// It is safe to use recursion here because the max depth is limited by the key length which
     /// for this tree is the length of the hash of account addresses.
     #[async_recursion::async_recursion(?Send)]
-    async fn insert_at(
-        &'a self,
+    async fn insert_at<'future, 'cache: 'future>(
+        &'future self,
         node_key: NodeKey,
         version: Version,
-        nibble_iter: &'a mut NibbleIterator<'a>,
+        nibble_iter: &mut NibbleIterator<'future>,
         value: V,
-        tree_cache: &mut TreeCache<'a, R, V>,
+        tree_cache: &mut TreeCache<'cache, R, V>,
     ) -> Result<(NodeKey, Node<V>)> {
         let node = tree_cache.get_node(&node_key).await?;
         match node {
@@ -734,14 +732,14 @@ where
     /// Helper function for recursive insertion into the subtree that starts from the current
     /// `internal_node`. Returns the newly inserted node with its
     /// [`NodeKey`](node_type/struct.NodeKey.html).
-    async fn insert_at_internal_node(
-        &'a self,
+    async fn insert_at_internal_node<'future, 'cache: 'future>(
+        &'future self,
         mut node_key: NodeKey,
         internal_node: InternalNode,
         version: Version,
-        nibble_iter: &'a mut NibbleIterator<'a>,
+        nibble_iter: &mut NibbleIterator<'future>,
         value: V,
-        tree_cache: &mut TreeCache<'a, R, V>,
+        tree_cache: &mut TreeCache<'cache, R, V>,
     ) -> Result<(NodeKey, Node<V>)> {
         // We always delete the existing internal node here because it will not be referenced anyway
         // since this version.
@@ -1009,7 +1007,6 @@ where
         Ok(SparseMerkleRangeProof::new(siblings))
     }
 
-    #[cfg(test)]
     pub async fn get(&self, key: HashValue, version: Version) -> Result<Option<V>> {
         Ok(self.get_with_proof(key, version).await?.0)
     }
