@@ -16,13 +16,14 @@ use crate::{
     TreeReaderAsync,
 };
 use anyhow::{bail, ensure, format_err, Result};
+use futures::{ready, Future};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{marker::PhantomData, sync::Arc};
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
 /// indicates which ones of its children have been visited.
-#[derive(Debug)]
+#[derive(Debug, Clone)] // TODO: can we eliminate this `Clone` impl for efficiency?
 struct NodeVisitInfo {
     /// The key to this node.
     node_key: NodeKey,
@@ -108,6 +109,9 @@ pub struct JellyfishMerkleStream<R, V> {
     /// additional bit.
     done: bool,
 
+    /// The future, if any, of a node lookup needed for the next call to `poll_next`.
+    future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
+
     phantom_value: PhantomData<V>,
 }
 
@@ -162,6 +166,7 @@ where
                         version,
                         parent_stack,
                         done,
+                        future: None,
                         phantom_value: PhantomData,
                     });
                 }
@@ -186,6 +191,7 @@ where
             version,
             parent_stack,
             done,
+            future: None,
             phantom_value: PhantomData,
         })
     }
@@ -217,6 +223,7 @@ where
                 version,
                 parent_stack,
                 done: true,
+                future: None,
                 phantom_value: PhantomData,
             });
         }
@@ -237,6 +244,7 @@ where
                         version,
                         parent_stack,
                         done: false,
+                        future: None,
                         phantom_value: PhantomData,
                     });
                 }
@@ -275,11 +283,38 @@ where
 
         bail!("Bug: Internal node has less leaves than expected.");
     }
+
+    fn poll_get_node(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        node_key: impl FnOnce() -> NodeKey + 'static,
+    ) -> Poll<(NodeKey, Result<Node<V>>)>
+    where
+        R: 'static,
+    {
+        let reader = self.reader.clone();
+
+        // If we have not yet created a future for polling, make one and store it
+        if self.future.is_none() {
+            self.future = Some(Box::pin(async move {
+                let node_key = node_key();
+                (node_key, crate::get_node_async(&*reader, &node_key).await)
+            }));
+        }
+
+        // Get the result of the future
+        let result = ready!(self.future.unwrap().as_mut().poll(cx));
+
+        // Clear the contained future so we won't poll it again
+        self.future = None;
+
+        Poll::Ready(result)
+    }
 }
 
 impl<R, V> futures::Stream for JellyfishMerkleStream<R, V>
 where
-    R: TreeReaderAsync<V>,
+    R: TreeReaderAsync<V> + Sync + 'static,
     V: crate::Value,
 {
     type Item = Result<(HashValue, V)>;
@@ -291,7 +326,8 @@ where
 
         if self.parent_stack.is_empty() {
             let root_node_key = NodeKey::new_empty_path(self.version);
-            match crate::get_node_async(&*self.reader, &root_node_key).await {
+
+            match ready!(self.poll_get_node(cx, || root_node_key)).1 {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
@@ -317,18 +353,25 @@ where
             let last_visited_node_info = self
                 .parent_stack
                 .last()
-                .expect("We have checked that self.parent_stack is not empty.");
-            let child_index =
-                Nibble::from(last_visited_node_info.next_child_to_visit.trailing_zeros() as u8);
-            let node_key = last_visited_node_info.node_key.gen_child_node_key(
-                last_visited_node_info
-                    .node
-                    .child(child_index)
-                    .expect("Child should exist.")
-                    .version,
-                child_index,
-            );
-            match crate::get_node_async(&*self.reader, &node_key).await {
+                .expect("We have checked that self.parent_stack is not empty.")
+                .clone();
+
+            let node_key = || {
+                let child_index =
+                    Nibble::from(last_visited_node_info.next_child_to_visit.trailing_zeros() as u8);
+                last_visited_node_info.node_key.gen_child_node_key(
+                    last_visited_node_info
+                        .node
+                        .child(child_index)
+                        .expect("Child should exist.")
+                        .version,
+                    child_index,
+                )
+            };
+
+            let (node_key, result) = ready!(self.poll_get_node(cx, node_key));
+
+            match result {
                 Ok(Node::Internal(internal_node)) => {
                     let visit_info = NodeVisitInfo::new(node_key, internal_node);
                     self.parent_stack.push(visit_info);
