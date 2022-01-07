@@ -13,9 +13,11 @@ use crate::types::{
 };
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
-    TreeReaderSync,
+    TreeReaderAsync,
 };
 use anyhow::{bail, ensure, format_err, Result};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::{marker::PhantomData, sync::Arc};
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
@@ -91,7 +93,7 @@ impl NodeVisitInfo {
 }
 
 /// The `JellyfishMerkleIterator` implementation.
-pub struct JellyfishMerkleIterator<R, V> {
+pub struct JellyfishMerkleStream<R, V> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,
 
@@ -109,15 +111,15 @@ pub struct JellyfishMerkleIterator<R, V> {
     phantom_value: PhantomData<V>,
 }
 
-impl<R, V> JellyfishMerkleIterator<R, V>
+impl<R, V> JellyfishMerkleStream<R, V>
 where
-    R: TreeReaderSync<V>,
+    R: TreeReaderAsync<V>,
     V: crate::Value,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the smallest key that is greater or equal to
     /// `starting_key`.
-    pub fn new(reader: Arc<R>, version: Version, starting_key: HashValue) -> Result<Self> {
+    pub async fn new(reader: Arc<R>, version: Version, starting_key: HashValue) -> Result<Self> {
         let mut parent_stack = vec![];
         let mut done = false;
 
@@ -125,7 +127,8 @@ where
         let nibble_path = NibblePath::new(starting_key.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
-        while let Node::Internal(internal_node) = crate::get_node_sync(&*reader, &current_node_key)?
+        while let Node::Internal(internal_node) =
+            crate::get_node_async(&*reader, &current_node_key).await?
         {
             let child_index = nibble_iter.next().expect("Should have enough nibbles.");
             match internal_node.child(child_index) {
@@ -165,7 +168,7 @@ where
             }
         }
 
-        match crate::get_node_sync(&*reader, &current_node_key)? {
+        match crate::get_node_async(&*reader, &current_node_key).await? {
             Node::Internal(_) => unreachable!("Should have reached the bottom of the tree."),
             Node::Leaf(leaf_node) => {
                 if leaf_node.account_key() < starting_key {
@@ -200,11 +203,11 @@ where
 
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the leaf at `start_idx`.
-    pub fn new_by_index(reader: Arc<R>, version: Version, start_idx: usize) -> Result<Self> {
+    pub async fn new_by_index(reader: Arc<R>, version: Version, start_idx: usize) -> Result<Self> {
         let mut parent_stack = vec![];
 
         let mut current_node_key = NodeKey::new_empty_path(version);
-        let mut current_node = crate::get_node_sync(&*reader, &current_node_key)?;
+        let mut current_node = crate::get_node_async(&*reader, &current_node_key).await?;
         let total_leaves = current_node
             .leaf_count()
             .ok_or_else(|| format_err!("Leaf counts not available."))?;
@@ -249,7 +252,7 @@ where
                     current_node_key = next_node_key;
                 }
             };
-            current_node = crate::get_node_sync(&*reader, &current_node_key)?;
+            current_node = crate::get_node_async(&*reader, &current_node_key).await?;
         }
 
         bail!("Bug: potential infinite loop.");
@@ -274,36 +277,39 @@ where
     }
 }
 
-impl<R, V> Iterator for JellyfishMerkleIterator<R, V>
+impl<R, V> futures::Stream for JellyfishMerkleStream<R, V>
 where
-    R: TreeReaderSync<V>,
+    R: TreeReaderAsync<V>,
     V: crate::Value,
 {
     type Item = Result<(HashValue, V)>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {
-            return None;
+            return Poll::Ready(None);
         }
 
         if self.parent_stack.is_empty() {
             let root_node_key = NodeKey::new_empty_path(self.version);
-            match crate::get_node_sync(&*self.reader, &root_node_key) {
+            match crate::get_node_async(&*self.reader, &root_node_key).await {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
                     // true in `new`). Return the node and mark `self.done` so next time we return
                     // None.
                     self.done = true;
-                    return Some(Ok((leaf_node.account_key(), leaf_node.value().clone())));
+                    return Poll::Ready(Some(Ok((
+                        leaf_node.account_key(),
+                        leaf_node.value().clone(),
+                    ))));
                 }
                 Ok(Node::Internal(_)) => {
                     // This means `starting_key` is bigger than every key in this tree, or we have
                     // iterated past the last key.
-                    return None;
+                    return Poll::Ready(None);
                 }
                 Ok(Node::Null) => unreachable!("We would have set done to true in new."),
-                Err(err) => return Some(Err(err)),
+                Err(err) => return Poll::Ready(Some(Err(err))),
             }
         }
 
@@ -322,7 +328,7 @@ where
                     .version,
                 child_index,
             );
-            match crate::get_node_sync(&*self.reader, &node_key) {
+            match crate::get_node_async(&*self.reader, &node_key).await {
                 Ok(Node::Internal(internal_node)) => {
                     let visit_info = NodeVisitInfo::new(node_key, internal_node);
                     self.parent_stack.push(visit_info);
@@ -330,10 +336,12 @@ where
                 Ok(Node::Leaf(leaf_node)) => {
                     let ret = (leaf_node.account_key(), leaf_node.value().clone());
                     Self::cleanup_stack(&mut self.parent_stack);
-                    return Some(Ok(ret));
+                    return Poll::Ready(Some(Ok(ret)));
                 }
-                Ok(Node::Null) => return Some(Err(format_err!("Should not reach a null node."))),
-                Err(err) => return Some(Err(err)),
+                Ok(Node::Null) => {
+                    return Poll::Ready(Some(Err(format_err!("Should not reach a null node."))))
+                }
+                Err(err) => return Poll::Ready(Some(Err(err))),
             }
         }
     }

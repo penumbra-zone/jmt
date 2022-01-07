@@ -33,6 +33,7 @@ serde_bytes = "0.11.5"
 serde-name = "0.2"
 tiny-keccak = { version = "2.0.2", default-features = false, features = ["sha3"] }
 bcs = "0.1.2"
+futures = "0.3"
 
 [dev-dependencies]
 rand = "0.8.3"

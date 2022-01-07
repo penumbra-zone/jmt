@@ -121,13 +121,6 @@ pub trait TreeReaderSync<V> {
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode<V>)>>;
 }
 
-// TODO: delete this, replace with `get_node_async` after async refactor
-fn get_node_sync<R: TreeReaderSync<V>, V>(reader: &R, node_key: &NodeKey) -> Result<Node<V>> {
-    reader
-        .get_node_option(node_key)?
-        .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
-}
-
 /// `TreeReaderAsync` defines the interface between
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
