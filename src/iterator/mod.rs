@@ -94,6 +94,7 @@ impl NodeVisitInfo {
 }
 
 /// The `JellyfishMerkleIterator` implementation.
+
 pub struct JellyfishMerkleStream<R, V> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,
@@ -109,11 +110,11 @@ pub struct JellyfishMerkleStream<R, V> {
     /// additional bit.
     done: bool,
 
+    phantom_value: PhantomData<V>,
+
     /// The future, if any, of a node lookup needed for the next call to `poll_next`.
     // TODO: this needs to be pin-projected as unpinned
-    future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
-
-    phantom_value: PhantomData<V>,
+    future: Option<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>,
 }
 
 impl<R, V> JellyfishMerkleStream<R, V>
@@ -288,28 +289,36 @@ where
     fn poll_get_node(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        node_key: impl FnOnce() -> NodeKey + 'static,
+        node_key: NodeKey,
     ) -> Poll<(NodeKey, Result<Node<V>>)>
     where
         R: 'static,
+        dyn Future<Output = (NodeKey, Result<Node<V>>)>: Unpin + Future,
     {
         let reader = self.reader.clone();
 
         // If we have not yet created a future for polling, make one and store it
         if self.future.is_none() {
-            self.future = Some(Box::pin(async move {
-                let node_key = node_key();
-                (node_key, crate::get_node_async(&*reader, &node_key).await)
+            self.future = Some(Box::new(async move {
+                (
+                    node_key.clone(),
+                    crate::get_node_async(&*reader, &node_key).await,
+                )
             }));
         }
 
+        let poll = Pin::new(&mut self.future.unwrap()).poll(cx);
+
         // Get the result of the future
-        let result = ready!(self.future.unwrap().as_mut().poll(cx));
+        let result = match poll {
+            Poll::Ready(result) => Poll::Ready(result),
+            Poll::Pending => Poll::Pending,
+        };
 
         // Clear the contained future so we won't poll it again
         self.future = None;
 
-        Poll::Ready(result)
+        result
     }
 }
 
@@ -317,6 +326,7 @@ impl<R, V> futures::Stream for JellyfishMerkleStream<R, V>
 where
     R: TreeReaderAsync<V> + Sync + 'static,
     V: crate::Value,
+    dyn Future<Output = (NodeKey, Result<Node<V>>)>: Unpin + Future,
 {
     type Item = Result<(HashValue, V)>;
 
@@ -328,7 +338,7 @@ where
         if self.parent_stack.is_empty() {
             let root_node_key = NodeKey::new_empty_path(self.version);
 
-            match ready!(self.poll_get_node(cx, || root_node_key)).1 {
+            match ready!(self.poll_get_node(cx, root_node_key)).1 {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
@@ -351,13 +361,11 @@ where
         }
 
         loop {
-            let last_visited_node_info = self
-                .parent_stack
-                .last()
-                .expect("We have checked that self.parent_stack is not empty.")
-                .clone();
-
-            let node_key = || {
+            let node_key = {
+                let last_visited_node_info = self
+                    .parent_stack
+                    .last()
+                    .expect("We have checked that self.parent_stack is not empty.");
                 let child_index =
                     Nibble::from(last_visited_node_info.next_child_to_visit.trailing_zeros() as u8);
                 last_visited_node_info.node_key.gen_child_node_key(
