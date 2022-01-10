@@ -94,7 +94,6 @@ impl NodeVisitInfo {
 }
 
 /// The `JellyfishMerkleIterator` implementation.
-#[pin_project::pin_project]
 pub struct JellyfishMerkleStream<R, V> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,
