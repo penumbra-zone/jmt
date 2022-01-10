@@ -18,8 +18,8 @@ use crate::{
 use anyhow::{bail, ensure, format_err, Result};
 use futures::{ready, Future};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::{marker::PhantomData, sync::Arc};
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
 /// indicates which ones of its children have been visited.
@@ -110,8 +110,6 @@ pub struct JellyfishMerkleStream<R, V> {
     /// additional bit.
     done: bool,
 
-    phantom_value: PhantomData<V>,
-
     /// The future, if any, of a node lookup needed for the next call to `poll_next`.
     #[allow(clippy::type_complexity)]
     future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
@@ -169,7 +167,6 @@ where
                         parent_stack,
                         done,
                         future: None,
-                        phantom_value: PhantomData,
                     });
                 }
             }
@@ -194,7 +191,6 @@ where
             parent_stack,
             done,
             future: None,
-            phantom_value: PhantomData,
         })
     }
 
@@ -226,7 +222,6 @@ where
                 parent_stack,
                 done: true,
                 future: None,
-                phantom_value: PhantomData,
             });
         }
 
@@ -247,7 +242,6 @@ where
                         parent_stack,
                         done: false,
                         future: None,
-                        phantom_value: PhantomData,
                     });
                 }
                 Node::Internal(internal_node) => {
@@ -286,22 +280,38 @@ where
         bail!("Bug: Internal node has less leaves than expected.");
     }
 
-    fn poll_get_node(
-        &mut self,
-        cx: &mut Context<'_>,
-        node_key: NodeKey,
-    ) -> Poll<(NodeKey, Result<Node<V>>)>
+    /// Internal helper function used in the `Stream` impl.
+    fn poll_get_node(&mut self, cx: &mut Context<'_>) -> Poll<(NodeKey, Result<Node<V>>)>
     where
         R: 'static,
     {
         // If we have not yet created a future for polling, make one and store it
         if self.future.is_none() {
             let reader = self.reader.clone();
-            self.future = Some(Box::pin(async move {
-                (
-                    node_key.clone(),
-                    crate::get_node_async(&*reader, &node_key).await,
+
+            // Compute the appropriate node key
+            let node_key = if self.parent_stack.is_empty() {
+                NodeKey::new_empty_path(self.version)
+            } else {
+                let last_visited_node_info = self
+                    .parent_stack
+                    .last()
+                    .expect("We have checked that self.parent_stack is not empty.");
+                let child_index =
+                    Nibble::from(last_visited_node_info.next_child_to_visit.trailing_zeros() as u8);
+                last_visited_node_info.node_key.gen_child_node_key(
+                    last_visited_node_info
+                        .node
+                        .child(child_index)
+                        .expect("Child should exist.")
+                        .version,
+                    child_index,
                 )
+            };
+
+            self.future = Some(Box::pin(async move {
+                let result = crate::get_node_async(&*reader, &node_key).await;
+                (node_key, result)
             }));
         }
 
@@ -331,13 +341,11 @@ where
         }
 
         if self.parent_stack.is_empty() {
-            let root_node_key = NodeKey::new_empty_path(self.version);
-
-            match ready!(self.poll_get_node(cx, root_node_key)).1 {
+            match ready!(self.poll_get_node(cx)).1 {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
-                    // true in `new`). Return the node and mark `this.done` so next time we return
+                    // true in `new`). Return the node and mark `self.done` so next time we return
                     // None.
                     self.done = true;
                     return Poll::Ready(Some(Ok((
@@ -356,24 +364,7 @@ where
         }
 
         loop {
-            let node_key = {
-                let last_visited_node_info = self
-                    .parent_stack
-                    .last()
-                    .expect("We have checked that self.parent_stack is not empty.");
-                let child_index =
-                    Nibble::from(last_visited_node_info.next_child_to_visit.trailing_zeros() as u8);
-                last_visited_node_info.node_key.gen_child_node_key(
-                    last_visited_node_info
-                        .node
-                        .child(child_index)
-                        .expect("Child should exist.")
-                        .version,
-                    child_index,
-                )
-            };
-
-            let (node_key, result) = ready!(self.poll_get_node(cx, node_key));
+            let (node_key, result) = ready!(self.poll_get_node(cx));
 
             match result {
                 Ok(Node::Internal(internal_node)) => {
