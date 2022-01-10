@@ -94,7 +94,7 @@ impl NodeVisitInfo {
 }
 
 /// The `JellyfishMerkleIterator` implementation.
-
+#[pin_project::pin_project]
 pub struct JellyfishMerkleStream<R, V> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,
@@ -113,8 +113,8 @@ pub struct JellyfishMerkleStream<R, V> {
     phantom_value: PhantomData<V>,
 
     /// The future, if any, of a node lookup needed for the next call to `poll_next`.
-    // TODO: this needs to be pin-projected as unpinned
-    future: Option<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>,
+    #[allow(clippy::type_complexity)]
+    future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
 }
 
 impl<R, V> JellyfishMerkleStream<R, V>
@@ -287,19 +287,17 @@ where
     }
 
     fn poll_get_node(
-        self: Pin<&mut Self>,
+        &mut self,
         cx: &mut Context<'_>,
         node_key: NodeKey,
     ) -> Poll<(NodeKey, Result<Node<V>>)>
     where
         R: 'static,
-        dyn Future<Output = (NodeKey, Result<Node<V>>)>: Unpin + Future,
     {
-        let reader = self.reader.clone();
-
         // If we have not yet created a future for polling, make one and store it
         if self.future.is_none() {
-            self.future = Some(Box::new(async move {
+            let reader = self.reader.clone();
+            self.future = Some(Box::pin(async move {
                 (
                     node_key.clone(),
                     crate::get_node_async(&*reader, &node_key).await,
@@ -307,18 +305,16 @@ where
             }));
         }
 
-        let poll = Pin::new(&mut self.future.unwrap()).poll(cx);
+        // Get the future
+        let mut future = std::mem::take(&mut self.future).unwrap();
 
-        // Get the result of the future
-        let result = match poll {
+        match future.as_mut().poll(cx) {
             Poll::Ready(result) => Poll::Ready(result),
-            Poll::Pending => Poll::Pending,
-        };
-
-        // Clear the contained future so we won't poll it again
-        self.future = None;
-
-        result
+            Poll::Pending => {
+                self.future = Some(future); // Put the future back
+                Poll::Pending
+            }
+        }
     }
 }
 
@@ -326,11 +322,10 @@ impl<R, V> futures::Stream for JellyfishMerkleStream<R, V>
 where
     R: TreeReaderAsync<V> + Sync + 'static,
     V: crate::Value,
-    dyn Future<Output = (NodeKey, Result<Node<V>>)>: Unpin + Future,
 {
     type Item = Result<(HashValue, V)>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {
             return Poll::Ready(None);
         }
@@ -342,7 +337,7 @@ where
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
-                    // true in `new`). Return the node and mark `self.done` so next time we return
+                    // true in `new`). Return the node and mark `this.done` so next time we return
                     // None.
                     self.done = true;
                     return Poll::Ready(Some(Ok((
