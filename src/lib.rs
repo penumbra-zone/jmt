@@ -147,9 +147,16 @@ async fn get_node_async<R: TreeReaderAsync<V>, V>(
         .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
 }
 
-pub trait TreeWriter<V> {
+pub trait TreeWriterSync<V> {
     /// Writes a node batch into storage.
     fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Result<()>;
+}
+
+pub trait TreeWriterAsync<V> {
+    type WriteNodeBatchFuture: Future<Output = Result<Option<Node<V>>>>;
+
+    /// Writes a node batch into storage.
+    fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Self::WriteNodeBatchFuture;
 }
 
 /// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
