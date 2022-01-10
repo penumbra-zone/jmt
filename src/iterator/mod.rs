@@ -281,18 +281,21 @@ where
     }
 
     /// Internal helper function used in the `Stream` impl.
-    fn poll_get_node(&mut self, cx: &mut Context<'_>) -> Poll<(NodeKey, Result<Node<V>>)>
+    ///
+    /// Gets the current node key and the result of trying to get it out of the tree, or returns
+    /// `Poll::Pending` if necessary to fulfill the request.
+    fn poll_get_current_node(&mut self, cx: &mut Context<'_>) -> Poll<(NodeKey, Result<Node<V>>)>
     where
         R: 'static,
     {
         // If we have not yet created a future for polling, make one and store it
         if self.future.is_none() {
-            let reader = self.reader.clone();
-
-            // Compute the appropriate node key
+            // Compute the appropriate node key depending on whether we are at the root or not
             let node_key = if self.parent_stack.is_empty() {
+                // Root node
                 NodeKey::new_empty_path(self.version)
             } else {
+                // Next child node
                 let last_visited_node_info = self
                     .parent_stack
                     .last()
@@ -309,6 +312,8 @@ where
                 )
             };
 
+            // Set the future so we can poll it
+            let reader = self.reader.clone();
             self.future = Some(Box::pin(async move {
                 let result = crate::get_node_async(&*reader, &node_key).await;
                 (node_key, result)
@@ -319,9 +324,12 @@ where
         let mut future = std::mem::take(&mut self.future).unwrap();
 
         match future.as_mut().poll(cx) {
-            Poll::Ready(result) => Poll::Ready(result),
+            Poll::Ready(result) => {
+                // In this case, `self.future` is now `None`
+                Poll::Ready(result)
+            }
             Poll::Pending => {
-                self.future = Some(future); // Put the future back
+                self.future = Some(future); // Put the future back into `self.future`
                 Poll::Pending
             }
         }
@@ -341,7 +349,7 @@ where
         }
 
         if self.parent_stack.is_empty() {
-            match ready!(self.poll_get_node(cx)).1 {
+            match ready!(self.poll_get_current_node(cx)).1 {
                 Ok(Node::Leaf(leaf_node)) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
@@ -364,7 +372,8 @@ where
         }
 
         loop {
-            let (node_key, result) = ready!(self.poll_get_node(cx));
+            // Get the current node key and the result of the currently pending node get operation
+            let (node_key, result) = ready!(self.poll_get_current_node(cx));
 
             match result {
                 Ok(Node::Internal(internal_node)) => {
