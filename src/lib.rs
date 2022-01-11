@@ -577,7 +577,6 @@ where
     /// This is a convenient function that calls
     /// [`put_value_sets`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
     /// `keyed_value_set`.
-    #[cfg(any(test, feature = "fuzzing"))]
     pub async fn put_value_set(
         &self,
         value_set: Vec<(HashValue, V)>,
