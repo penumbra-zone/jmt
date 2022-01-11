@@ -2,15 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{mock_tree_store::MockTreeStore, node_type::LeafNode, JellyfishMerkleTree};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
-};
-use diem_crypto_derive::{BCSCryptoHash, CryptoHasher};
-use diem_types::{
-    proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
-    transaction::Version,
-};
 use proptest::{
     collection::{btree_map, hash_map, vec},
     prelude::*,
