@@ -7,10 +7,15 @@ use crate::{
     NodeBatch, StaleNodeIndex, TreeReaderAsync, TreeUpdateBatch, TreeWriterAsync,
 };
 use anyhow::{bail, ensure, Result};
-use diem_infallible::RwLock;
+use futures::future::BoxFuture;
+use futures::{stream, StreamExt};
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 
+#[cfg(test)]
+use tokio::sync::RwLock;
+
 pub struct MockTreeStore<V> {
+    #[allow(clippy::type_complexity)]
     data: RwLock<(HashMap<NodeKey, Node<V>>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
 }
@@ -26,43 +31,57 @@ impl<V> Default for MockTreeStore<V> {
 
 impl<V> TreeReaderAsync<V> for MockTreeStore<V>
 where
-    V: crate::TestValue,
+    V: crate::TestValue + Send + Sync,
 {
-    fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node<V>>> {
-        Ok(self.data.read().0.get(node_key).cloned())
+    fn get_node_option<'future, 'a: 'future, 'n: 'future>(
+        &'a self,
+        node_key: &'n NodeKey,
+    ) -> BoxFuture<'future, Result<Option<Node<V>>>> {
+        Box::pin(async move { Ok(self.data.read().await.0.get(node_key).cloned()) })
     }
 
-    fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode<V>)>> {
-        let locked = self.data.read();
-        let mut node_key_and_node: Option<(NodeKey, LeafNode<V>)> = None;
+    #[allow(clippy::type_complexity)]
+    fn get_rightmost_leaf<'future, 'a: 'future>(
+        &'a self,
+    ) -> BoxFuture<'future, Result<Option<(NodeKey, LeafNode<V>)>>> {
+        Box::pin(async move {
+            let locked = self.data.read().await;
+            let mut node_key_and_node: Option<(NodeKey, LeafNode<V>)> = None;
 
-        for (key, value) in locked.0.iter() {
-            if let Node::Leaf(leaf_node) = value {
-                if node_key_and_node.is_none()
-                    || leaf_node.account_key() > node_key_and_node.as_ref().unwrap().1.account_key()
-                {
-                    node_key_and_node.replace((key.clone(), leaf_node.clone()));
+            for (key, value) in locked.0.iter() {
+                if let Node::Leaf(leaf_node) = value {
+                    if node_key_and_node.is_none()
+                        || leaf_node.account_key()
+                            > node_key_and_node.as_ref().unwrap().1.account_key()
+                    {
+                        node_key_and_node.replace((key.clone(), leaf_node.clone()));
+                    }
                 }
             }
-        }
 
-        Ok(node_key_and_node)
+            Ok(node_key_and_node)
+        })
     }
 }
 
 impl<V> TreeWriterAsync<V> for MockTreeStore<V>
 where
-    V: crate::TestValue,
+    V: crate::TestValue + Send + Sync,
 {
-    fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Result<()> {
-        let mut locked = self.data.write();
-        for (node_key, node) in node_batch.clone() {
-            let replaced = locked.0.insert(node_key, node);
-            if !self.allow_overwrite {
-                assert_eq!(replaced, None);
+    fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
+        &'a self,
+        node_batch: &'n NodeBatch<V>,
+    ) -> BoxFuture<'future, Result<()>> {
+        Box::pin(async move {
+            let mut locked = self.data.write().await;
+            for (node_key, node) in node_batch.clone() {
+                let replaced = locked.0.insert(node_key, node);
+                if !self.allow_overwrite {
+                    assert_eq!(replaced, None);
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -77,8 +96,8 @@ where
         }
     }
 
-    pub fn put_node(&self, node_key: NodeKey, node: Node<V>) -> Result<()> {
-        match self.data.write().0.entry(node_key) {
+    pub async fn put_node(&self, node_key: NodeKey, node: Node<V>) -> Result<()> {
+        match self.data.write().await.0.entry(node_key) {
             Entry::Occupied(o) => bail!("Key {:?} exists.", o.key()),
             Entry::Vacant(v) => {
                 v.insert(node);
@@ -87,28 +106,30 @@ where
         Ok(())
     }
 
-    fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {
-        let is_new_entry = self.data.write().1.insert(index);
+    async fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {
+        let is_new_entry = self.data.write().await.1.insert(index);
         ensure!(is_new_entry, "Duplicated retire log.");
         Ok(())
     }
 
-    pub fn write_tree_update_batch(&self, batch: TreeUpdateBatch<V>) -> Result<()> {
-        batch
-            .node_batch
+    pub async fn write_tree_update_batch(&self, batch: TreeUpdateBatch<V>) -> Result<()> {
+        stream::iter(batch.node_batch.into_iter())
+            .then(|(k, v)| self.put_node(k, v))
+            .collect::<Vec<_>>()
+            .await
             .into_iter()
-            .map(|(k, v)| self.put_node(k, v))
-            .collect::<Result<Vec<_>>>()?;
-        batch
-            .stale_node_index_batch
+            .collect::<Result<_>>()?;
+        stream::iter(batch.stale_node_index_batch.into_iter())
+            .then(|i| self.put_stale_node_index(i))
+            .collect::<Vec<_>>()
+            .await
             .into_iter()
-            .map(|i| self.put_stale_node_index(i))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<_>>()?;
         Ok(())
     }
 
-    pub fn purge_stale_nodes(&self, least_readable_version: Version) -> Result<()> {
-        let mut wlocked = self.data.write();
+    pub async fn purge_stale_nodes(&self, least_readable_version: Version) -> Result<()> {
+        let mut wlocked = self.data.write().await;
 
         // Only records retired before or at `least_readable_version` can be purged in order
         // to keep that version still readable.
@@ -128,7 +149,7 @@ where
         Ok(())
     }
 
-    pub fn num_nodes(&self) -> usize {
-        self.data.read().0.len()
+    pub async fn num_nodes(&self) -> usize {
+        self.data.read().await.0.len()
     }
 }

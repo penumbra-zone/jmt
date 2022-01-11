@@ -92,6 +92,7 @@ use crate::types::{
     Version,
 };
 use anyhow::{bail, ensure, format_err, Result};
+use futures::future::BoxFuture;
 use node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::arbitrary::Arbitrary;
@@ -100,7 +101,6 @@ use proptest_derive::Arbitrary;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    future::Future,
     marker::PhantomData,
 };
 use thiserror::Error;
@@ -130,15 +130,18 @@ pub trait TreeReaderSync<V> {
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
 pub trait TreeReaderAsync<V> {
-    type GetNodeOptionFuture: Future<Output = Result<Option<Node<V>>>> + Send;
-    type GetRightmostLeafFuture: Future<Output = Result<Option<(NodeKey, LeafNode<V>)>>> + Send;
-
     /// Gets node given a node key. Returns `None` if the node does not exist.
-    fn get_node_option(&self, node_key: &NodeKey) -> Self::GetNodeOptionFuture;
+    fn get_node_option<'future, 'a: 'future, 'n: 'future>(
+        &'a self,
+        node_key: &'n NodeKey,
+    ) -> BoxFuture<'future, Result<Option<Node<V>>>>;
 
     /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
     /// and all nodes are at the same version.
-    fn get_rightmost_leaf(&self) -> Self::GetRightmostLeafFuture;
+    #[allow(clippy::type_complexity)]
+    fn get_rightmost_leaf<'future, 'a: 'future>(
+        &'a self,
+    ) -> BoxFuture<'future, Result<Option<(NodeKey, LeafNode<V>)>>>;
 }
 
 /// Internal helper: Gets node given a node key. Returns error if the node does not exist.
@@ -158,10 +161,11 @@ pub trait TreeWriterSync<V> {
 }
 
 pub trait TreeWriterAsync<V> {
-    type WriteNodeBatchFuture: Future<Output = Result<Option<Node<V>>>>;
-
     /// Writes a node batch into storage.
-    fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Self::WriteNodeBatchFuture;
+    fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
+        &'a self,
+        node_batch: &'n NodeBatch<V>,
+    ) -> BoxFuture<'future, Result<()>>;
 }
 
 /// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
@@ -170,7 +174,10 @@ pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
 /// `TestValue` defines the types of data that can be stored in a Jellyfish Merkle tree and used in
 /// tests.
 #[cfg(any(test, feature = "fuzzing"))]
-pub trait TestValue: Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + 'static {}
+pub trait TestValue:
+    Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + Send + Sync + 'static
+{
+}
 
 /// Node batch that will be written into db atomically with other batches.
 pub type NodeBatch<V> = BTreeMap<NodeKey, Node<V>>;
