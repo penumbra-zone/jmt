@@ -1,8 +1,8 @@
 [package]
-name = "penumbra-jellyfish-merkle"
+name = "jmt"
 version = "0.1.0"
 authors = ["Penumbra Labs <team@penumbra.zone>", "Diem Association <opensource@diem.com>"]
-description = "Penumbra jellyfish merkle tree (fork of Diem jellyfish merkle tree)"
+description = "Jellyfish Merkle Tree (forked from Diem)"
 repository = "https://github.com/penumbra-zone/jellyfish-merkle"
 homepage = "https://penumbra.zone"
 license = "Apache-2.0"
