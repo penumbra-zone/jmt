@@ -70,15 +70,17 @@
 
 pub mod hash;
 pub mod iterator;
-pub mod types;
-
-pub mod jellyfish_merkle_test;
+#[cfg(test)]
+mod jellyfish_merkle_test;
 pub mod metrics;
-pub mod mock_tree_store;
+#[cfg(any(test, feature = "fuzzing"))]
+mod mock_tree_store;
 pub mod node_type;
 pub mod restore;
+#[cfg(any(test, feature = "fuzzing"))]
 pub mod test_helper;
 mod tree_cache;
+pub mod types;
 
 use crate::hash::{CryptoHash, HashValue};
 use crate::types::{
