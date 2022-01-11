@@ -73,11 +73,11 @@ pub mod iterator;
 #[cfg(test)]
 mod jellyfish_merkle_test;
 pub mod metrics;
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(test)]
 mod mock_tree_store;
 pub mod node_type;
 pub mod restore;
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(test)]
 pub mod test_helper;
 mod tree_cache;
 pub mod types;

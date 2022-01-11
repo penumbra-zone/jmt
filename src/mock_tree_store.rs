@@ -1,7 +1,7 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::Version;
+use crate::types::Version;
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
     NodeBatch, StaleNodeIndex, TreeReaderAsync, TreeUpdateBatch, TreeWriterAsync,
@@ -9,7 +9,6 @@ use crate::{
 use anyhow::{bail, ensure, Result};
 use diem_infallible::RwLock;
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
-use types::transaction::Version;
 
 pub struct MockTreeStore<V> {
     data: RwLock<(HashMap<NodeKey, Node<V>>, BTreeSet<StaleNodeIndex>)>,
