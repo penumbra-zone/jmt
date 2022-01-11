@@ -125,8 +125,8 @@ pub trait TreeReaderSync<V> {
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
 /// and underlying storage holding nodes.
 pub trait TreeReaderAsync<V> {
-    type GetNodeOptionFuture: Future<Output = Result<Option<Node<V>>>>;
-    type GetRightmostLeafFuture: Future<Output = Result<Option<(NodeKey, LeafNode<V>)>>>;
+    type GetNodeOptionFuture: Future<Output = Result<Option<Node<V>>>> + Send;
+    type GetRightmostLeafFuture: Future<Output = Result<Option<(NodeKey, LeafNode<V>)>>> + Send;
 
     /// Gets node given a node key. Returns `None` if the node does not exist.
     fn get_node_option(&self, node_key: &NodeKey) -> Self::GetNodeOptionFuture;

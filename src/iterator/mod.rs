@@ -16,7 +16,7 @@ use crate::{
     TreeReaderAsync,
 };
 use anyhow::{bail, ensure, format_err, Result};
-use futures::{ready, Future};
+use futures::{future::BoxFuture, ready};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -110,13 +110,12 @@ pub struct JellyfishMerkleStream<R, V> {
     done: bool,
 
     /// The future, if any, of a node lookup needed for the next call to `poll_next`.
-    #[allow(clippy::type_complexity)]
-    future: Option<Pin<Box<dyn Future<Output = (NodeKey, Result<Node<V>>)>>>>,
+    future: Option<BoxFuture<'static, (NodeKey, Result<Node<V>>)>>,
 }
 
 impl<R, V> JellyfishMerkleStream<R, V>
 where
-    R: TreeReaderAsync<V>,
+    R: TreeReaderAsync<V> + Send + Sync,
     V: crate::Value,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
@@ -285,7 +284,7 @@ where
     /// `Poll::Pending` if necessary to fulfill the request.
     fn poll_get_current_node(&mut self, cx: &mut Context<'_>) -> Poll<(NodeKey, Result<Node<V>>)>
     where
-        R: 'static,
+        R: 'static + Send + Sync,
     {
         // If we have not yet created a future for polling, make one and store it
         if self.future.is_none() {
@@ -313,6 +312,7 @@ where
 
             // Set the future so we can poll it
             let reader = self.reader.clone();
+
             self.future = Some(Box::pin(async move {
                 let result = crate::get_node_async(&*reader, &node_key).await;
                 (node_key, result)
@@ -337,7 +337,7 @@ where
 
 impl<R, V> futures::Stream for JellyfishMerkleStream<R, V>
 where
-    R: TreeReaderAsync<V> + Sync + 'static,
+    R: TreeReaderAsync<V> + Send + Sync + 'static,
     V: crate::Value,
 {
     type Item = Result<(HashValue, V)>;
