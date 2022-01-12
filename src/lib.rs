@@ -169,7 +169,7 @@ pub trait TreeWriterAsync<V> {
 }
 
 /// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
-pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
+pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned + Send + Sync + 'static {}
 
 /// `TestValue` defines the types of data that can be stored in a Jellyfish Merkle tree and used in
 /// tests.
