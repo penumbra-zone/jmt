@@ -260,6 +260,7 @@ impl<'a, V> std::iter::Iterator for NibbleRangeIterator<'a, V> {
 }
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
+#[derive(Debug, Clone)]
 pub struct JellyfishMerkleTree<'a, R, V> {
     reader: &'a R,
     leaf_count_migration: bool,
