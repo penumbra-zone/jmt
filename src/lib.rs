@@ -163,7 +163,7 @@ pub trait TreeWriterSync<V> {
 pub trait TreeWriterAsync<V> {
     /// Writes a node batch into storage.
     fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
-        &'a self,
+        &'a mut self,
         node_batch: &'n NodeBatch<V>,
     ) -> BoxFuture<'future, Result<()>>;
 }
