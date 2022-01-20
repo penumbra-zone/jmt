@@ -926,10 +926,11 @@ where
         version: Version,
     ) -> Result<(Option<V>, SparseMerkleProof<V>)> {
         // Empty tree just returns proof with no sibling hash.
-        let mut next_node_key = NodeKey::new_empty_path(version);
+
         let mut siblings = vec![];
         let nibble_path = NibblePath::new(key.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
+        let mut next_node_key = NodeKey::new(version, nibble_path.clone());
 
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
