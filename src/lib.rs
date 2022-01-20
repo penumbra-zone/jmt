@@ -269,7 +269,7 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReaderAsync<V>,
+    R: 'a + TreeReaderAsync<V> + Sync,
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
@@ -351,7 +351,7 @@ where
         Ok(tree_cache.into())
     }
 
-    #[async_recursion::async_recursion(?Send)]
+    #[async_recursion::async_recursion]
     async fn batch_insert_at(
         &self,
         mut node_key: NodeKey,
@@ -690,7 +690,7 @@ where
     /// [`NodeKey`](node_type/struct.NodeKey.html). Returns the newly inserted node.
     /// It is safe to use recursion here because the max depth is limited by the key length which
     /// for this tree is the length of the hash of account addresses.
-    #[async_recursion::async_recursion(?Send)]
+    #[async_recursion::async_recursion]
     async fn insert_at<'future, 'cache: 'future>(
         &'future self,
         node_key: NodeKey,
