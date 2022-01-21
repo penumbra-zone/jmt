@@ -336,7 +336,7 @@ where
                 .into_iter()
                 .collect::<Vec<_>>();
             let root_node_key = tree_cache.get_root_node_key().clone();
-            dbg!(&root_node_key);
+            tracing::warn!(?root_node_key);
             let (new_root_node_key, _) = self
                 .batch_insert_at(
                     root_node_key,
@@ -353,7 +353,7 @@ where
             tree_cache.freeze().await;
         }
 
-        dbg!(&tree_cache);
+        tracing::warn!(?tree_cache);
 
         Ok(tree_cache.into())
     }
