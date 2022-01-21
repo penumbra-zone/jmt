@@ -499,7 +499,7 @@ impl fmt::Debug for DefaultHasher {
         write!(f, "DefaultHasher: state = Sha3")
     }
 }
-
+#[macro_export]
 macro_rules! define_hasher {
     (
         $(#[$attr:meta])*
