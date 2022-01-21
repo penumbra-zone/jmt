@@ -14,6 +14,7 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 #[cfg(test)]
 use tokio::sync::RwLock;
 
+#[derive(Debug)]
 pub struct MockTreeStore<V> {
     #[allow(clippy::type_complexity)]
     data: RwLock<(HashMap<NodeKey, Node<V>>, BTreeSet<StaleNodeIndex>)>,
@@ -37,7 +38,11 @@ where
         &'a self,
         node_key: &'n NodeKey,
     ) -> BoxFuture<'future, Result<Option<Node<V>>>> {
-        Box::pin(async move { Ok(self.data.read().await.0.get(node_key).cloned()) })
+        Box::pin(async move {
+            let node_value = self.data.read().await.0.get(node_key).cloned();
+            dbg!(&node_value);
+            Ok(node_value)
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -59,6 +64,8 @@ where
                 }
             }
 
+            dbg!(&node_key_and_node);
+
             Ok(node_key_and_node)
         })
     }
@@ -69,7 +76,7 @@ where
     V: crate::TestValue + Send + Sync,
 {
     fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
-        &'a self,
+        &'a mut self,
         node_batch: &'n NodeBatch<V>,
     ) -> BoxFuture<'future, Result<()>> {
         Box::pin(async move {
@@ -97,6 +104,7 @@ where
     }
 
     pub async fn put_node(&self, node_key: NodeKey, node: Node<V>) -> Result<()> {
+        dbg!(&node_key, &node);
         match self.data.write().await.0.entry(node_key) {
             Entry::Occupied(o) => bail!("Key {:?} exists.", o.key()),
             Entry::Vacant(v) => {

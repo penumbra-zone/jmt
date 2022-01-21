@@ -269,8 +269,8 @@ pub struct JellyfishMerkleTree<'a, R, V> {
 
 impl<'a, R, V> JellyfishMerkleTree<'a, R, V>
 where
-    R: 'a + TreeReaderAsync<V> + Sync,
-    V: Value,
+    R: 'a + TreeReaderAsync<V> + Sync + std::fmt::Debug,
+    V: Value + std::fmt::Debug,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
     pub fn new(reader: &'a R) -> Self {
@@ -311,7 +311,11 @@ where
         value_sets: Vec<Vec<(HashValue, V)>>,
         node_hashes: Option<Vec<&HashMap<NibblePath, HashValue>>>,
         first_version: Version,
-    ) -> Result<(Vec<HashValue>, TreeUpdateBatch<V>)> {
+    ) -> Result<(Vec<HashValue>, TreeUpdateBatch<V>)>
+    where
+        V: std::fmt::Debug,
+        R: std::fmt::Debug,
+    {
         let mut tree_cache = TreeCache::new(self.reader, first_version).await?;
         let hash_sets: Vec<_> = match node_hashes {
             Some(hashes) => hashes.into_iter().map(Some).collect(),
@@ -332,6 +336,7 @@ where
                 .into_iter()
                 .collect::<Vec<_>>();
             let root_node_key = tree_cache.get_root_node_key().clone();
+            dbg!(&root_node_key);
             let (new_root_node_key, _) = self
                 .batch_insert_at(
                     root_node_key,
@@ -347,6 +352,8 @@ where
             // Freezes the current cache to make all contents in the current cache immutable.
             tree_cache.freeze().await;
         }
+
+        dbg!(&tree_cache);
 
         Ok(tree_cache.into())
     }

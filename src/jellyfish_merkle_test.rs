@@ -42,6 +42,7 @@ async fn test_insert_to_empty_tree() {
         .batch_put_value_sets(vec![vec![(key, value.clone())]], None, 0 /* version */)
         .await
         .unwrap();
+    dbg!(_new_root_hash);
     assert!(batch.stale_node_index_batch.is_empty());
 
     db.write_tree_update_batch(batch).await.unwrap();
