@@ -69,7 +69,7 @@ where
     V: crate::TestValue + Send + Sync,
 {
     fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
-        &'a self,
+        &'a mut self,
         node_batch: &'n NodeBatch<V>,
     ) -> BoxFuture<'future, Result<()>> {
         Box::pin(async move {
