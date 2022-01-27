@@ -73,7 +73,6 @@ pub mod iterator;
 #[cfg(test)]
 mod jellyfish_merkle_test;
 pub mod metrics;
-#[cfg(test)]
 pub mod mock_tree_store;
 pub mod node_type;
 pub mod restore;
