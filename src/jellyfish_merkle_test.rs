@@ -28,6 +28,59 @@ fn update_nibble(original_key: &HashValue, n: usize, nibble: u8) -> HashValue {
 }
 
 #[tokio::test]
+async fn test_ics23() {
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+
+    // Tree is initially empty. Root is a null node. We'll insert a key-value pair which creates a
+    // leaf node.
+    let key1 = HashValue::new([1; 32]);
+    let key2 = HashValue::new({
+        let mut bytes = [2; 32];
+        bytes[0] = 1;
+        bytes
+    });
+    let value = ValueBlob::from(vec![1u8, 2u8, 3u8, 4u8]);
+
+    // batch version
+    let (new_root_hash, batch) = tree
+        .batch_put_value_sets(
+            vec![vec![(key1, value.clone()), (key2, value.clone())]],
+            None,
+            0, /* version */
+        )
+        .await
+        .unwrap();
+    assert!(batch.stale_node_index_batch.is_empty());
+
+    db.write_tree_update_batch(batch).await.unwrap();
+
+    let (_value, proof) = tree.get_with_proof(key1, 0).await.unwrap();
+
+    // Convert the JMT SparseMerkleProof into ICS23 tmp proof?
+    use ics23::tmp_jmt::*;
+    let ics23_proof = TestExistenceProof {
+        key: proof.leaf().unwrap().key().to_vec(),
+        value_hash: proof.leaf().unwrap().value_hash().to_vec(),
+        siblings: proof.siblings().iter().map(|s| s.to_vec()).collect(),
+    };
+
+    println!("testing jmt verify");
+    proof.verify(new_root_hash[0], key1, Some(&value)).unwrap();
+
+    println!("testing ics23 verify");
+    ics23_proof
+        .verify(
+            new_root_hash[0].to_vec(),
+            key1.to_vec(),
+            value.hash().to_vec(),
+        )
+        .unwrap();
+
+    panic!();
+}
+
+#[tokio::test]
 async fn test_insert_to_empty_tree() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::new(&db);
