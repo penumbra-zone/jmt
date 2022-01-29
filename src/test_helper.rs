@@ -37,7 +37,7 @@ impl crate::CryptoHash for ValueBlob {
     type Hasher = crate::hash::TestOnlyHasher;
 
     fn hash(&self) -> HashValue {
-        HashValue::sha3_256_of(self.0.as_slice())
+        HashValue::sha256_of(self.0.as_slice())
     }
 }
 

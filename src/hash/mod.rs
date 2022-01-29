@@ -51,7 +51,7 @@
 //! **IMPORTANT:** Do NOT use this for new code unless you know what you are doing.
 //!
 //! ```
-//! use penumbra_jellyfish_merkle::hash::{CryptoHasher, TestOnlyHasher};
+//! use jmt::hash::{CryptoHasher, TestOnlyHasher};
 //!
 //! let mut hasher = TestOnlyHasher::default();
 //! hasher.update("Test message".as_bytes());
@@ -66,18 +66,18 @@ use once_cell::sync::{Lazy, OnceCell};
 use proptest_derive::Arbitrary;
 use rand::{rngs::OsRng, Rng};
 use serde::{de, ser};
+use sha2::{Digest, Sha256};
 use std::{
     self,
-    convert::{AsRef, TryFrom},
+    convert::{AsRef, TryFrom, TryInto},
     fmt,
     str::FromStr,
 };
-use tiny_keccak::{Hasher, Sha3};
 
 /// A prefix used to begin the salt of every diem hashable structure. The salt
 /// consists in this global prefix, concatenated with the specified
 /// serialization name of the struct.
-pub(crate) const DIEM_HASH_PREFIX: &[u8] = b"DIEM::";
+pub(crate) const PENUMBRA_HASH_PREFIX: &[u8] = b"PENUMBRA::";
 
 /// Output value of our hash function. Intentionally opaque for safety and modularity.
 #[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -130,37 +130,27 @@ impl HashValue {
     }
 
     /// Convenience function that computes a `HashValue` internally equal to
-    /// the sha3_256 of a byte buffer. It will handle hasher creation, data
+    /// the sha256 of a byte buffer. It will handle hasher creation, data
     /// feeding and finalization.
     ///
     /// Note this will not result in the `<T as CryptoHash>::hash()` for any
-    /// reasonable struct T, as this computes a sha3 without any ornaments.
-    pub fn sha3_256_of(buffer: &[u8]) -> Self {
-        let mut sha3 = Sha3::v256();
-        sha3.update(buffer);
-        HashValue::from_keccak(sha3)
+    /// reasonable struct T, as this computes a sha256 without any ornaments.
+    pub fn sha256_of(buffer: &[u8]) -> Self {
+        let mut sha2 = Sha256::new();
+        sha2.update(buffer);
+        HashValue::new(sha2.finalize().as_slice().try_into().expect("Wrong length"))
     }
 
     #[cfg(test)]
-    pub fn from_iter_sha3<'a, I>(buffers: I) -> Self
+    pub fn from_iter_sha2<'a, I>(buffers: I) -> Self
     where
         I: IntoIterator<Item = &'a [u8]>,
     {
-        let mut sha3 = Sha3::v256();
+        let mut sha2 = Sha256::new();
         for buffer in buffers {
-            sha3.update(buffer);
+            sha2.update(buffer);
         }
-        HashValue::from_keccak(sha3)
-    }
-
-    fn as_ref_mut(&mut self) -> &mut [u8] {
-        &mut self.hash[..]
-    }
-
-    fn from_keccak(state: Sha3) -> Self {
-        let mut hash = Self::zero();
-        state.finalize(hash.as_ref_mut());
-        hash
+        HashValue::new(sha2.finalize().as_slice().try_into().expect("Wrong length"))
     }
 
     /// Returns the `index`-th bit in the bytes.
@@ -455,7 +445,7 @@ pub trait CryptoHasher: Default + std::io::Write {
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct DefaultHasher {
-    state: Sha3,
+    state: Sha256,
 }
 
 impl DefaultHasher {
@@ -466,15 +456,15 @@ impl DefaultHasher {
     pub fn prefixed_hash(buffer: &[u8]) -> [u8; HashValue::LENGTH] {
         // The salt is initial material we prefix to actual value bytes for
         // domain separation. Its length is variable.
-        let salt: Vec<u8> = [DIEM_HASH_PREFIX, buffer].concat();
+        let salt: Vec<u8> = [PENUMBRA_HASH_PREFIX, buffer].concat();
         // The seed is a fixed-length hash of the salt, thereby preventing
         // suffix attacks on the domain separation bytes.
-        HashValue::sha3_256_of(&salt[..]).hash
+        HashValue::sha256_of(&salt[..]).hash
     }
 
     #[doc(hidden)]
     pub fn new(typename: &[u8]) -> Self {
-        let mut state = Sha3::v256();
+        let mut state = Sha256::new();
         if !typename.is_empty() {
             state.update(&Self::prefixed_hash(typename));
         }
@@ -488,15 +478,19 @@ impl DefaultHasher {
 
     #[doc(hidden)]
     pub fn finish(self) -> HashValue {
-        let mut hasher = HashValue::default();
-        self.state.finalize(hasher.as_ref_mut());
-        hasher
+        HashValue::new(
+            self.state
+                .finalize()
+                .as_slice()
+                .try_into()
+                .expect("Wrong length"),
+        )
     }
 }
 
 impl fmt::Debug for DefaultHasher {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DefaultHasher: state = Sha3")
+        write!(f, "DefaultHasher: state = Sha256")
     }
 }
 #[macro_export]
@@ -633,7 +627,7 @@ pub static GENESIS_BLOCK_ID: Lazy<HashValue> = Lazy::new(|| {
 ///
 /// # Example
 /// ```
-/// use penumbra_jellyfish_merkle::hash::TestOnlyHash;
+/// use jmt::hash::TestOnlyHash;
 ///
 /// b"hello world".test_only_hash();
 /// ```
@@ -644,9 +638,15 @@ pub trait TestOnlyHash {
 
 impl<T: ser::Serialize + ?Sized> TestOnlyHash for T {
     fn test_only_hash(&self) -> HashValue {
-        let bytes = bcs::to_bytes(self).expect("serialize failed during hash.");
-        let mut hasher = TestOnlyHasher::default();
-        hasher.update(&bytes);
-        hasher.finish()
+        HashValue::new(
+            Sha256::digest(
+                bcs::to_bytes(self)
+                    .expect("serialize failed during hash.")
+                    .as_slice(),
+            )
+            .as_slice()
+            .try_into()
+            .expect("Wrong length"),
+        )
     }
 }
