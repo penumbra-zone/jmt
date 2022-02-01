@@ -7,6 +7,15 @@
 #[cfg(test)]
 mod restore_test;
 
+use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use crate::types::{
+    nibble::{
+        nibble_path::{NibbleIterator, NibblePath},
+        Nibble,
+    },
+    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
+    Version,
+};
 use crate::{
     node_type::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
@@ -15,21 +24,9 @@ use crate::{
     NibbleExt, NodeBatch, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
 };
 use anyhow::{bail, ensure, Result};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
-};
-use diem_types::{
-    nibble::{
-        nibble_path::{NibbleIterator, NibblePath},
-        Nibble,
-    },
-    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
-    transaction::Version,
-};
 use mirai_annotations::*;
 use std::sync::Arc;
-use storage_interface::StateSnapshotReceiver;
+//use storage_interface::StateSnapshotReceiver;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ChildInfo<V> {
@@ -689,6 +686,19 @@ where
         self.freeze(0);
         self.store.write_node_batch(&self.frozen_nodes)
     }
+}
+
+/// Taken from `storage-interface` crate.
+pub trait StateSnapshotReceiver<V> {
+    fn add_chunk(
+        &mut self,
+        chunk: Vec<(HashValue, V)>,
+        proof: SparseMerkleRangeProof,
+    ) -> Result<()>;
+
+    fn finish(self) -> Result<()>;
+
+    fn finish_box(self: Box<Self>) -> Result<()>;
 }
 
 impl<V: crate::Value> StateSnapshotReceiver<V> for JellyfishMerkleRestore<V> {

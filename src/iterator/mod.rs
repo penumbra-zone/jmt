@@ -9,16 +9,16 @@
 #[cfg(test)]
 mod iterator_test;
 
+use crate::hash::HashValue;
+use crate::types::{
+    nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
+    Version,
+};
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
     TreeReader,
 };
 use anyhow::{bail, ensure, format_err, Result};
-use diem_crypto::HashValue;
-use diem_types::{
-    nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
-    transaction::Version,
-};
 use std::{marker::PhantomData, sync::Arc};
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
