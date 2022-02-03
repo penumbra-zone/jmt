@@ -2,17 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::test_helper::{
-    arb_existent_kvs_and_nonexistent_keys, arb_kv_pair_with_distinct_last_nibble,
-    arb_tree_with_index, test_get_leaf_count, test_get_range_proof, test_get_with_proof,
-    test_get_with_proof_with_distinct_last_nibble, ValueBlob,
+use crate::{
+    test_helper::{
+        arb_existent_kvs_and_nonexistent_keys, arb_kv_pair_with_distinct_last_nibble,
+        arb_tree_with_index, test_get_leaf_count, test_get_range_proof, test_get_with_proof,
+        test_get_with_proof_with_distinct_last_nibble, ValueBlob,
+    },
+    types::PRE_GENESIS_VERSION,
 };
-use diem_crypto::HashValue;
-use diem_types::{nibble::Nibble, transaction::PRE_GENESIS_VERSION};
+use hash::HashValue;
 use mock_tree_store::MockTreeStore;
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::HashMap;
+use types::nibble::Nibble;
 
 fn update_nibble(original_key: &HashValue, n: usize, nibble: u8) -> HashValue {
     assert!(nibble < 16);

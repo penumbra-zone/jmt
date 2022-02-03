@@ -5,16 +5,17 @@ use super::{
     deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, NodeDecodeError,
     NodeKey,
 };
-use crate::{node_type::NodeType, test_helper::ValueBlob};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
+use crate::{
+    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    node_type::NodeType,
+    test_helper::ValueBlob,
+    types::{
+        nibble::{nibble_path::NibblePath, Nibble},
+        proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
+        Version,
+    },
 };
-use diem_types::{
-    nibble::{nibble_path::NibblePath, Nibble},
-    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
-    transaction::Version,
-};
+
 use proptest::prelude::*;
 use std::{io::Cursor, panic, rc::Rc};
 

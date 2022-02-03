@@ -1,15 +1,16 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::infallible::RwLock;
+use crate::types::Version;
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
     NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter,
 };
-use anyhow::{bail, ensure, Result};
-use diem_infallible::RwLock;
-use diem_types::transaction::Version;
+use anyhow::{bail, ensure, format_err, Result};
+use futures::future::BoxFuture;
+use futures::{stream, StreamExt};
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
-
 pub struct MockTreeStore<V> {
     data: RwLock<(HashMap<NodeKey, Node<V>>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
@@ -47,6 +48,11 @@ where
         }
 
         Ok(node_key_and_node)
+    }
+
+    fn get_node(&self, node_key: &NodeKey) -> Result<Node<V>> {
+        self.get_node_option(node_key)?
+            .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
     }
 }
 

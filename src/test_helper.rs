@@ -1,16 +1,15 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{mock_tree_store::MockTreeStore, node_type::LeafNode, JellyfishMerkleTree};
-use diem_crypto::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    HashValue,
-};
-use diem_crypto_derive::{BCSCryptoHash, CryptoHasher};
-use diem_types::{
+use crate::hash::CryptoHash;
+use crate::hash::HashValue;
+use crate::hash::SPARSE_MERKLE_PLACEHOLDER_HASH;
+use crate::types::{
     proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
-    transaction::Version,
+    Version,
 };
+use crate::{mock_tree_store::MockTreeStore, node_type::LeafNode, JellyfishMerkleTree};
+
 use proptest::{
     collection::{btree_map, hash_map, vec},
     prelude::*,
@@ -22,18 +21,7 @@ use std::{
     ops::Bound,
 };
 
-#[derive(
-    Arbitrary,
-    BCSCryptoHash,
-    Clone,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    CryptoHasher,
-)]
+#[derive(Arbitrary, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ValueBlob(Vec<u8>);
 
 impl From<Vec<u8>> for ValueBlob {
@@ -44,6 +32,14 @@ impl From<Vec<u8>> for ValueBlob {
 
 impl crate::Value for ValueBlob {}
 impl crate::TestValue for ValueBlob {}
+
+impl crate::CryptoHash for ValueBlob {
+    type Hasher = crate::hash::TestOnlyHasher;
+
+    fn hash(&self) -> HashValue {
+        HashValue::sha3_256_of(self.0.as_slice())
+    }
+}
 
 /// Computes the key immediately after `key`.
 pub fn plus_one(key: HashValue) -> HashValue {

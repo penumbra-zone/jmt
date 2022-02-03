@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    hash::HashValue,
     mock_tree_store::MockTreeStore,
-    restore::JellyfishMerkleRestore,
+    restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
     test_helper::{init_mock_db, ValueBlob},
+    types::Version,
     JellyfishMerkleTree, TreeReader,
 };
-use diem_crypto::HashValue;
-use diem_types::transaction::Version;
+
 use proptest::{collection::btree_map, prelude::*};
 use std::{collections::BTreeMap, sync::Arc};
-use storage_interface::StateSnapshotReceiver;
+//use storage_interface::StateSnapshotReceiver;
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]

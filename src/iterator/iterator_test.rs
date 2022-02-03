@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    hash::HashValue,
     iterator::JellyfishMerkleIterator,
     mock_tree_store::MockTreeStore,
     test_helper::{plus_one, ValueBlob},
+    types::Version,
     JellyfishMerkleTree,
 };
 use anyhow::Result;
-use diem_crypto::HashValue;
-use diem_types::transaction::Version;
 use rand::{rngs::StdRng, SeedableRng};
 use std::{collections::BTreeMap, sync::Arc};
 

@@ -72,6 +72,7 @@ pub mod hash;
 pub mod iterator;
 pub mod types;
 
+pub mod infallible;
 pub mod jellyfish_merkle_test;
 pub mod metrics;
 pub mod mock_tree_store;
@@ -91,9 +92,7 @@ use crate::types::{
 };
 use anyhow::{bail, ensure, format_err, Result};
 use node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType};
-#[cfg(any(test, feature = "fuzzing"))]
 use proptest::arbitrary::Arbitrary;
-#[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -137,7 +136,6 @@ pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
 
 /// `TestValue` defines the types of data that can be stored in a Jellyfish Merkle tree and used in
 /// tests.
-#[cfg(any(test, feature = "fuzzing"))]
 pub trait TestValue: Value + Arbitrary + std::fmt::Debug + Eq + PartialEq + 'static {}
 
 /// Node batch that will be written into db atomically with other batches.
@@ -233,7 +231,6 @@ where
     V: Value,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
@@ -535,7 +532,6 @@ where
     /// This is a convenient function that calls
     /// [`put_value_sets`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
     /// `keyed_value_set`.
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn put_value_set(
         &self,
         value_set: Vec<(HashValue, V)>,

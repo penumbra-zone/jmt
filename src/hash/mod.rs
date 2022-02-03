@@ -103,7 +103,6 @@ use bytes::Bytes;
 use hex::FromHex;
 use mirai_annotations::*;
 use once_cell::sync::{Lazy, OnceCell};
-#[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use rand::{rngs::OsRng, Rng};
 use serde::{de, ser};
@@ -121,8 +120,7 @@ use tiny_keccak::{Hasher, Sha3};
 pub(crate) const DIEM_HASH_PREFIX: &[u8] = b"DIEM::";
 
 /// Output value of our hash function. Intentionally opaque for safety and modularity.
-#[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord, Arbitrary)]
 pub struct HashValue {
     hash: [u8; HashValue::LENGTH],
 }
