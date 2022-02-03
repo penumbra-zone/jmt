@@ -4,9 +4,6 @@
 //! NibblePath library simplify operations with nibbles in a compact format for modified sparse
 //! Merkle tree by providing powerful iterators advancing by either bit or nibble.
 
-#[cfg(test)]
-mod nibble_path_test;
-
 use crate::types::nibble::{Nibble, ROOT_NIBBLE_HEIGHT};
 use mirai_annotations::*;
 #[cfg(any(test, feature = "fuzzing"))]
@@ -74,7 +71,7 @@ prop_compose! {
 
 #[cfg(any(test, feature = "fuzzing"))]
 prop_compose! {
-    fn arb_internal_nibble_path()(
+    pub(crate) fn arb_internal_nibble_path()(
         nibble_path in arb_nibble_path().prop_filter(
             "Filter out leaf paths.",
             |p| p.num_nibbles() < ROOT_NIBBLE_HEIGHT,
@@ -144,7 +141,7 @@ impl NibblePath {
     }
 
     /// Get the i-th bit.
-    fn get_bit(&self, i: usize) -> bool {
+    pub(crate) fn get_bit(&self, i: usize) -> bool {
         assert!(i < self.num_nibbles * 4);
         let pos = i / 8;
         let bit = 7 - i % 8;

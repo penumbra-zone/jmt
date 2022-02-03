@@ -9,9 +9,6 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
-#[cfg(test)]
-mod node_type_test;
-
 use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
 use crate::metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES};
 use crate::types::{
@@ -600,6 +597,23 @@ impl InternalNode {
         }
         unreachable!("Impossible to get here without returning even at the lowest level.")
     }
+
+    #[cfg(test)]
+    pub(crate) fn into_legacy_internal(self) -> InternalNode {
+        let mut children = self.children;
+        children.iter_mut().for_each(|(_, mut child)| {
+            if matches!(child.node_type, NodeType::Internal { .. }) {
+                child.node_type = NodeType::InternalLegacy
+            }
+        });
+
+        InternalNode::new_migration(children, false /* leaf_count_migration */)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn children(&self) -> &Children {
+        &self.children
+    }
 }
 
 /// Given a nibble, computes the start position of its `child_half_start` and `sibling_half_start`
@@ -836,7 +850,7 @@ pub enum NodeDecodeError {
 
 /// Helper function to serialize version in a more efficient encoding.
 /// We use a super simple encoding - the high bit is set if more bytes follow.
-fn serialize_u64_varint(mut num: u64, binary: &mut Vec<u8>) {
+pub(crate) fn serialize_u64_varint(mut num: u64, binary: &mut Vec<u8>) {
     for _ in 0..8 {
         let low_bits = num as u8 & 0x7f;
         num >>= 7;
@@ -856,7 +870,7 @@ fn serialize_u64_varint(mut num: u64, binary: &mut Vec<u8>) {
 }
 
 /// Helper function to deserialize versions from above encoding.
-fn deserialize_u64_varint<T>(reader: &mut T) -> Result<u64>
+pub(crate) fn deserialize_u64_varint<T>(reader: &mut T) -> Result<u64>
 where
     T: Read,
 {

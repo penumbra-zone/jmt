@@ -66,9 +66,6 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-#[cfg(test)]
-mod tree_cache_test;
-
 use crate::hash::HashValue;
 use crate::types::{Version, PRE_GENESIS_VERSION};
 use crate::{

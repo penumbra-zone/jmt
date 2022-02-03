@@ -6,9 +6,6 @@
 //! smallest key that is greater or equal to the given key, by performing a depth first traversal
 //! on the tree.
 
-#[cfg(test)]
-mod iterator_test;
-
 use crate::hash::HashValue;
 use crate::types::{
     nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},

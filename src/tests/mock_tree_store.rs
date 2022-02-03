@@ -1,17 +1,19 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::infallible::RwLock;
 use crate::types::Version;
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
     NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter,
 };
 use anyhow::{bail, ensure, format_err, Result};
-use futures::future::BoxFuture;
-use futures::{stream, StreamExt};
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+
+mod rwlock;
+use rwlock::RwLock;
+
 pub struct MockTreeStore<V> {
+    #[allow(clippy::type_complexity)]
     data: RwLock<(HashMap<NodeKey, Node<V>>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
 }
@@ -27,7 +29,7 @@ impl<V> Default for MockTreeStore<V> {
 
 impl<V> TreeReader<V> for MockTreeStore<V>
 where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node<V>>> {
         Ok(self.data.read().0.get(node_key).cloned())
@@ -58,7 +60,7 @@ where
 
 impl<V> TreeWriter<V> for MockTreeStore<V>
 where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Result<()> {
         let mut locked = self.data.write();
@@ -74,7 +76,7 @@ where
 
 impl<V> MockTreeStore<V>
 where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     pub fn new(allow_overwrite: bool) -> Self {
         Self {

@@ -33,71 +33,7 @@
 //! Finally, to prevent format ambiguity within a same type `MyNewStruct` and facilitate protocol
 //! specifications, we use [Binary Canonical Serialization (BCS)](https://docs.rs/bcs/)
 //! as the recommended solution to write Rust values into a hasher.
-//!
-//! # Quick Start
-//!
-//! To obtain a `hash()` method for any new type `MyNewStruct`, it is (strongly) recommended to
-//! use the derive macros of `serde` and `diem_crypto_derive` as follows:
-//! ```
-//! use diem_crypto::hash::CryptoHash;
-//! use diem_crypto_derive::{CryptoHasher, BCSCryptoHash};
-//! use serde::{Deserialize, Serialize};
-//! #[derive(Serialize, Deserialize, CryptoHasher, BCSCryptoHash)]
-//! struct MyNewStruct { /*...*/ }
-//!
-//! let value = MyNewStruct { /*...*/ };
-//! value.hash();
-//! ```
-//!
-//! Under the hood, this will generate a new implementation `MyNewStructHasher` for the trait
-//! `CryptoHasher` and implement the trait `CryptoHash` for `MyNewStruct` using BCS.
-//!
-//! # Implementing New Hashers
-//!
-//! The trait `CryptoHasher` captures the notion of a pre-seeded hash function, aka a "hasher".
-//! New implementations can be defined in two ways.
-//!
-//! ## Derive macro (recommended)
-//!
-//! For any new structure `MyNewStruct` that needs to be hashed, it is recommended to simply
-//! use the derive macro [`CryptoHasher`](https://doc.rust-lang.org/reference/procedural-macros.html).
-//!
-//! ```
-//! use diem_crypto_derive::CryptoHasher;
-//! use serde::Deserialize;
-//! #[derive(Deserialize, CryptoHasher)]
-//! #[serde(rename = "OptionalCustomSerdeName")]
-//! struct MyNewStruct { /*...*/ }
-//! ```
-//!
-//! The macro `CryptoHasher` will define a hasher automatically called `MyNewStructHasher`, and derive a salt
-//! using the name of the type as seen by the Serde library. In the example above, this name
-//! was changed using the Serde parameter `rename`: the salt will be based on the value `OptionalCustomSerdeName`
-//! instead of the default name `MyNewStruct`.
-//!
-//! ## Customized hashers
-//!
-//! **IMPORTANT:** Do NOT use this for new code unless you know what you are doing.
-//!
-//! This library also provides a few customized hashers defined in the code as follows:
-//!
-//! ```
-//! # // To get around that there's no way to doc-test a non-exported macro:
-//! # macro_rules! define_hasher { ($e:expr) => () }
-//! define_hasher! { (MyNewDataHasher, MY_NEW_DATA_HASHER, MY_NEW_DATA_SEED, b"MyUniqueSaltString") }
-//! ```
-//!
-//! # Using a hasher directly
-//!
-//! **IMPORTANT:** Do NOT use this for new code unless you know what you are doing.
-//!
-//! ```
-//! use diem_crypto::hash::{CryptoHasher, TestOnlyHasher};
-//!
-//! let mut hasher = TestOnlyHasher::default();
-//! hasher.update("Test message".as_bytes());
-//! let hash_value = hasher.finish();
-//! ```
+
 #![allow(clippy::integer_arithmetic)]
 use bytes::Bytes;
 use hex::FromHex;
@@ -275,6 +211,20 @@ impl HashValue {
         let bytes = v.to_be_bytes();
         hash[Self::LENGTH - bytes.len()..].copy_from_slice(&bytes[..]);
         Self::new(hash)
+    }
+    /// Returns the `index`-th nibble.
+    pub fn get_nibble(&self, index: usize) -> crate::types::nibble::Nibble {
+        mirai_annotations::precondition!(index < HashValue::LENGTH);
+        crate::types::nibble::Nibble::from(if index % 2 == 0 {
+            self[index / 2] >> 4
+        } else {
+            self[index / 2] & 0x0F
+        })
+    }
+
+    /// Returns the length of common prefix of `self` and `other` in nibbles.
+    pub fn common_prefix_nibbles_len(&self, other: HashValue) -> usize {
+        self.common_prefix_bits_len(other) / 4
     }
 }
 
@@ -669,13 +619,7 @@ pub static GENESIS_BLOCK_ID: Lazy<HashValue> = Lazy::new(|| {
 
 /// Provides a test_only_hash() method that can be used in tests on types that implement
 /// `serde::Serialize`.
-///
-/// # Example
-/// ```
-/// use diem_crypto::hash::TestOnlyHash;
-///
-/// b"hello world".test_only_hash();
-/// ```
+
 pub trait TestOnlyHash {
     /// Generates a hash used only for tests.
     fn test_only_hash(&self) -> HashValue;

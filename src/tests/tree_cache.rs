@@ -1,10 +1,13 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use super::{helper::ValueBlob, mock_tree_store::MockTreeStore};
+
 use crate::{
-    mock_tree_store::MockTreeStore, node_type::Node, test_helper::ValueBlob,
-    types::nibble::nibble_path::NibblePath, NodeKey,
+    hash::HashValue,
+    node_type::{Node, NodeKey},
+    tree_cache::TreeCache,
+    types::{nibble::nibble_path::NibblePath, Version, PRE_GENESIS_VERSION},
 };
 
 fn random_leaf_with_key(next_version: Version) -> (Node<ValueBlob>, NodeKey) {
@@ -17,7 +20,7 @@ fn random_leaf_with_key(next_version: Version) -> (Node<ValueBlob>, NodeKey) {
 #[test]
 fn test_get_node() {
     let next_version = 0;
-    let db = MockTreeStore::default();
+    let db = MockTreeStore::<ValueBlob>::default();
     let cache = TreeCache::new(&db, next_version).unwrap();
 
     let (node, node_key) = random_leaf_with_key(next_version);
@@ -29,7 +32,7 @@ fn test_get_node() {
 #[test]
 fn test_root_node() {
     let next_version = 0;
-    let db = MockTreeStore::default();
+    let db = MockTreeStore::<ValueBlob>::default();
     let mut cache = TreeCache::new(&db, next_version).unwrap();
     assert_eq!(*cache.get_root_node_key(), NodeKey::new_empty_path(0));
 
@@ -43,7 +46,7 @@ fn test_root_node() {
 #[test]
 fn test_pre_genesis() {
     let next_version = 0;
-    let db = MockTreeStore::default();
+    let db = MockTreeStore::<ValueBlob>::default();
     let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
     let (pre_genesis_only_node, _) = random_leaf_with_key(PRE_GENESIS_VERSION);
     db.put_node(pre_genesis_root_key.clone(), pre_genesis_only_node)
@@ -56,7 +59,7 @@ fn test_pre_genesis() {
 #[test]
 fn test_freeze_with_delete() {
     let next_version = 0;
-    let db = MockTreeStore::default();
+    let db = MockTreeStore::<ValueBlob>::default();
     let mut cache = TreeCache::new(&db, next_version).unwrap();
 
     assert_eq!(*cache.get_root_node_key(), NodeKey::new_empty_path(0));

@@ -1,18 +1,17 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use super::mock_tree_store::MockTreeStore;
+use crate::tests::helper::{init_mock_db, ValueBlob};
 use crate::{
     hash::HashValue,
-    mock_tree_store::MockTreeStore,
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
-    test_helper::{init_mock_db, ValueBlob},
     types::Version,
     JellyfishMerkleTree, TreeReader,
 };
 
 use proptest::{collection::btree_map, prelude::*};
 use std::{collections::BTreeMap, sync::Arc};
-//use storage_interface::StateSnapshotReceiver;
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]
@@ -99,7 +98,7 @@ fn assert_success<V>(
     btree: &BTreeMap<HashValue, V>,
     version: Version,
 ) where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     let tree = JellyfishMerkleTree::new(db);
     for (key, value) in btree {
@@ -116,7 +115,7 @@ fn restore_without_interruption<V>(
     target_db: &Arc<MockTreeStore<V>>,
     try_resume: bool,
 ) where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     let (db, source_version) = init_mock_db(&btree.iter().map(|(k, v)| (*k, v.clone())).collect());
     let tree = JellyfishMerkleTree::new(&db);

@@ -8,7 +8,7 @@ pub use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 /// A simple wrapper around the lock() function of a std::sync::RwLock
 /// The only difference is that you don't need to call unwrap() on it.
 #[derive(Debug, Default)]
-pub struct RwLock<T>(StdRwLock<T>);
+pub(super) struct RwLock<T>(StdRwLock<T>);
 
 impl<T> RwLock<T> {
     /// creates a read-write lock
@@ -31,6 +31,7 @@ impl<T> RwLock<T> {
     }
 
     /// return the owned type consuming the lock
+    #[allow(dead_code)]
     pub fn into_inner(self) -> T {
         self.0
             .into_inner()

@@ -4,9 +4,6 @@
 //! This module implements the functionality to restore a `JellyfishMerkleTree` from small chunks
 //! of accounts.
 
-#[cfg(test)]
-mod restore_test;
-
 use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
 use crate::types::{
     nibble::{
@@ -21,7 +18,7 @@ use crate::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
         NodeType,
     },
-    NibbleExt, NodeBatch, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
+    NodeBatch, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
 };
 use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;

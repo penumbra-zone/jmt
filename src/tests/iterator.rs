@@ -1,13 +1,12 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    hash::HashValue,
-    iterator::JellyfishMerkleIterator,
+use super::{
+    helper::{plus_one, ValueBlob},
     mock_tree_store::MockTreeStore,
-    test_helper::{plus_one, ValueBlob},
-    types::Version,
-    JellyfishMerkleTree,
+};
+use crate::{
+    hash::HashValue, iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree,
 };
 use anyhow::Result;
 use rand::{rngs::StdRng, SeedableRng};
@@ -93,7 +92,7 @@ fn test_n_consecutive_addresses(n: usize) {
 
 fn run_tests<V>(db: Arc<MockTreeStore<V>>, btree: &BTreeMap<HashValue, V>, version: Version)
 where
-    V: crate::TestValue,
+    V: crate::tests::TestValue,
 {
     {
         let iter =

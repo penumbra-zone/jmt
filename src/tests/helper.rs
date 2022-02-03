@@ -1,15 +1,16 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use super::mock_tree_store::MockTreeStore;
 use crate::hash::CryptoHash;
 use crate::hash::HashValue;
 use crate::hash::SPARSE_MERKLE_PLACEHOLDER_HASH;
+use crate::tests::TestValue;
 use crate::types::{
     proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
     Version,
 };
-use crate::{mock_tree_store::MockTreeStore, node_type::LeafNode, JellyfishMerkleTree};
-
+use crate::{node_type::LeafNode, JellyfishMerkleTree};
 use proptest::{
     collection::{btree_map, hash_map, vec},
     prelude::*,
@@ -31,7 +32,7 @@ impl From<Vec<u8>> for ValueBlob {
 }
 
 impl crate::Value for ValueBlob {}
-impl crate::TestValue for ValueBlob {}
+impl crate::tests::TestValue for ValueBlob {}
 
 impl crate::CryptoHash for ValueBlob {
     type Hasher = crate::hash::TestOnlyHasher;
@@ -60,7 +61,7 @@ pub fn plus_one(key: HashValue) -> HashValue {
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version.
 pub fn init_mock_db<V>(kvs: &HashMap<HashValue, V>) -> (MockTreeStore<V>, Version)
 where
-    V: crate::TestValue,
+    V: TestValue,
 {
     assert!(!kvs.is_empty());
 
@@ -77,7 +78,7 @@ where
     (db, (kvs.len() - 1) as Version)
 }
 
-pub fn arb_existent_kvs_and_nonexistent_keys<V: crate::TestValue>(
+pub fn arb_existent_kvs_and_nonexistent_keys<V: TestValue>(
     num_kvs: usize,
     num_non_existing_keys: usize,
 ) -> impl Strategy<Value = (HashMap<HashValue, V>, Vec<HashValue>)> {
@@ -96,7 +97,7 @@ pub fn arb_existent_kvs_and_nonexistent_keys<V: crate::TestValue>(
     })
 }
 
-pub fn test_get_with_proof<V: crate::TestValue>(
+pub fn test_get_with_proof<V: TestValue>(
     (existent_kvs, nonexistent_keys): (HashMap<HashValue, V>, Vec<HashValue>),
 ) {
     let (db, version) = init_mock_db(&existent_kvs);
@@ -106,7 +107,7 @@ pub fn test_get_with_proof<V: crate::TestValue>(
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
 }
 
-pub fn arb_kv_pair_with_distinct_last_nibble<V: crate::TestValue>(
+pub fn arb_kv_pair_with_distinct_last_nibble<V: TestValue>(
 ) -> impl Strategy<Value = ((HashValue, V), (HashValue, V))> {
     (
         any::<HashValue>().prop_filter("Can't be 0xffffff...", |key| {
@@ -120,7 +121,7 @@ pub fn arb_kv_pair_with_distinct_last_nibble<V: crate::TestValue>(
         })
 }
 
-pub fn test_get_with_proof_with_distinct_last_nibble<V: crate::TestValue>(
+pub fn test_get_with_proof_with_distinct_last_nibble<V: TestValue>(
     (kv1, kv2): ((HashValue, V), (HashValue, V)),
 ) {
     let mut kvs = HashMap::new();
@@ -133,7 +134,7 @@ pub fn test_get_with_proof_with_distinct_last_nibble<V: crate::TestValue>(
     test_existent_keys_impl(&tree, version, &kvs);
 }
 
-pub fn arb_tree_with_index<V: crate::TestValue>(
+pub fn arb_tree_with_index<V: TestValue>(
     tree_size: usize,
 ) -> impl Strategy<Value = (BTreeMap<HashValue, V>, usize)> {
     btree_map(any::<HashValue>(), any::<V>(), 1..tree_size).prop_flat_map(|btree| {
@@ -142,7 +143,7 @@ pub fn arb_tree_with_index<V: crate::TestValue>(
     })
 }
 
-pub fn test_get_range_proof<V: crate::TestValue>((btree, n): (BTreeMap<HashValue, V>, usize)) {
+pub fn test_get_range_proof<V: TestValue>((btree, n): (BTreeMap<HashValue, V>, usize)) {
     let (db, version) = init_mock_db(&btree.clone().into_iter().collect());
     let tree = JellyfishMerkleTree::new(&db);
 
@@ -155,7 +156,7 @@ pub fn test_get_range_proof<V: crate::TestValue>((btree, n): (BTreeMap<HashValue
     );
 }
 
-fn test_existent_keys_impl<'a, V: crate::TestValue>(
+fn test_existent_keys_impl<'a, V: TestValue>(
     tree: &JellyfishMerkleTree<'a, MockTreeStore<V>, V>,
     version: Version,
     existent_kvs: &HashMap<HashValue, V>,
@@ -169,7 +170,7 @@ fn test_existent_keys_impl<'a, V: crate::TestValue>(
     }
 }
 
-fn test_nonexistent_keys_impl<'a, V: crate::TestValue>(
+fn test_nonexistent_keys_impl<'a, V: TestValue>(
     tree: &JellyfishMerkleTree<'a, MockTreeStore<V>, V>,
     version: Version,
     nonexistent_keys: &[HashValue],
@@ -184,7 +185,7 @@ fn test_nonexistent_keys_impl<'a, V: crate::TestValue>(
 }
 
 /// Checks if we can construct the expected root hash using the entries in the btree and the proof.
-fn verify_range_proof<V: crate::TestValue>(
+fn verify_range_proof<V: TestValue>(
     expected_root_hash: HashValue,
     btree: BTreeMap<HashValue, V>,
     proof: SparseMerkleRangeProof,

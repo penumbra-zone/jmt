@@ -1,14 +1,14 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{
+use crate::node_type::{
     deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, NodeDecodeError,
     NodeKey,
 };
 use crate::{
     hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
     node_type::NodeType,
-    test_helper::ValueBlob,
+    tests::helper::ValueBlob,
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
@@ -19,7 +19,7 @@ use crate::{
 use proptest::prelude::*;
 use std::{io::Cursor, panic, rc::Rc};
 
-type Node = super::Node<crate::test_helper::ValueBlob>;
+type Node = crate::node_type::Node<crate::tests::helper::ValueBlob>;
 
 fn hash_internal(left: HashValue, right: HashValue) -> HashValue {
     SparseMerkleInternalNode::new(left, right).hash()
@@ -48,17 +48,6 @@ fn gen_leaf_keys(
     np.push(nibble);
     let account_key = HashValue::from_slice(np.bytes()).unwrap();
     (NodeKey::new(version, np), account_key)
-}
-
-fn to_legacy_internal(node: InternalNode) -> InternalNode {
-    let mut children = node.children;
-    children.iter_mut().for_each(|(_, mut child)| {
-        if matches!(child.node_type, NodeType::Internal { .. }) {
-            child.node_type = NodeType::InternalLegacy
-        }
-    });
-
-    InternalNode::new_migration(children, false /* leaf_count_migration */)
 }
 
 #[test]
@@ -117,7 +106,7 @@ proptest! {
         let mut vec = vec![];
         input.serialize(&mut vec, false /* persist_leaf_count */).unwrap();
         let deserialized = InternalNode::deserialize(&vec, false /* read_leaf_count */).unwrap();
-        assert_eq!(deserialized, to_legacy_internal(input.clone()));
+        assert_eq!(deserialized, input.clone().into_legacy_internal());
 
         let mut vec = vec![];
         input.serialize(&mut vec, true /* persist_leaf_count */).unwrap();
@@ -815,7 +804,7 @@ struct NaiveInternalNode {
 impl NaiveInternalNode {
     fn from_clever_node(node: &InternalNode) -> Self {
         Self {
-            root: Rc::new(Self::node_for_subtree(0, 16, &node.children)),
+            root: Rc::new(Self::node_for_subtree(0, 16, node.children())),
         }
     }
 
