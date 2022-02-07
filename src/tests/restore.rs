@@ -57,7 +57,7 @@ proptest! {
                     // Sometimes the batch is too small so nothing is written to DB.
                     return Ok(());
                 }
-                Some((_, node)) => node.account_key(),
+                Some((_, node)) => node.key_hash(),
             };
             let remaining_accounts: Vec<_> = all
                 .clone()

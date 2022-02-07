@@ -9,12 +9,15 @@ use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
-use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use crate::{
+    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    KeyHash, RootHash, ValueHash,
+};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SparseMerkleProof<V> {
+pub struct SparseMerkleProof {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
     ///     - If this is `Some(leaf_node)`
     ///         - If `leaf_node.key` equals requested key, this is an inclusion proof and
@@ -29,21 +32,12 @@ pub struct SparseMerkleProof<V> {
     /// All siblings in this proof, including the default ones. Siblings are ordered from the bottom
     /// level to the root level.
     siblings: Vec<HashValue>,
-
-    phantom: PhantomData<V>,
 }
 
-impl<V> SparseMerkleProof<V>
-where
-    V: CryptoHash,
-{
+impl SparseMerkleProof {
     /// Constructs a new `SparseMerkleProof` using leaf and a list of siblings.
     pub fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<HashValue>) -> Self {
-        SparseMerkleProof {
-            leaf,
-            siblings,
-            phantom: PhantomData,
-        }
+        SparseMerkleProof { leaf, siblings }
     }
 
     /// Returns the leaf node in this proof.
@@ -60,11 +54,11 @@ where
     /// `element_value` exists in the Sparse Merkle Tree using the provided proof. Otherwise
     /// verifies the proof is a valid non-inclusion proof that shows this key doesn't exist in the
     /// tree.
-    pub fn verify(
+    pub fn verify<K: AsRef<[u8]>, V: AsRef<[u8]>>(
         &self,
-        expected_root_hash: HashValue,
-        element_key: HashValue,
-        element_value: Option<&V>,
+        expected_root_hash: RootHash,
+        element_key: K,
+        element_value: Option<V>,
     ) -> Result<()> {
         ensure!(
             self.siblings.len() <= HashValue::LENGTH_IN_BITS,
@@ -84,7 +78,7 @@ where
                     leaf.key,
                     element_key
                 );
-                let hash = value.hash();
+                let hash: ValueHash = value.into();
                 ensure!(
                     hash == leaf.value_hash,
                     "Value hashes do not match. Value hash in proof: {:x}. \

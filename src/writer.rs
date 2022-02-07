@@ -9,13 +9,13 @@ use crate::{
     types::Version,
 };
 
-pub trait TreeWriter<V> {
+pub trait TreeWriter {
     /// Writes a node batch into storage.
-    fn write_node_batch(&self, node_batch: &NodeBatch<V>) -> Result<()>;
+    fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()>;
 }
 
 /// Node batch that will be written into db atomically with other batches.
-pub type NodeBatch<V> = BTreeMap<NodeKey, Node<V>>;
+pub type NodeBatch = BTreeMap<NodeKey, Node>;
 /// [`StaleNodeIndex`](struct.StaleNodeIndex.html) batch that will be written into db atomically
 /// with other batches.
 pub type StaleNodeIndexBatch = BTreeSet<StaleNodeIndex>;
@@ -44,8 +44,8 @@ pub struct StaleNodeIndex {
 /// the incremental updates of a tree and pruning indices after applying a write set,
 /// which is a vector of `hashed_account_address` and `new_value` pairs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TreeUpdateBatch<V> {
-    pub node_batch: NodeBatch<V>,
+pub struct TreeUpdateBatch {
+    pub node_batch: NodeBatch,
     pub stale_node_index_batch: StaleNodeIndexBatch,
     pub node_stats: Vec<NodeStats>,
 }

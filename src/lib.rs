@@ -68,8 +68,9 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+use tiny_keccak::Hasher;
 
 use crate::{
     hash::CryptoHash,
@@ -100,5 +101,38 @@ pub struct MissingRootError {
     pub version: Version,
 }
 
-/// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
-pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
+// TODO: reorg
+
+pub type OwnedKey = Vec<u8>;
+pub type OwnedValue = Vec<u8>;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RootHash(pub [u8; 32]);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct KeyHash(pub [u8; 32]);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+
+pub struct ValueHash(pub [u8; 32]);
+
+impl<V: AsRef<[u8]>> From<V> for ValueHash {
+    fn from(value: V) -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"JMT::Value");
+        hasher.update(value.as_ref());
+        Self(*hasher.finalize().as_ref())
+    }
+}
+
+impl<K: AsRef<[u8]>> From<K> for KeyHash {
+    fn from(key: K) -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"JMT::Key");
+        hasher.update(key.as_ref());
+        Self(*hasher.finalize().as_ref())
+    }
+}
+
+mod bytes32ext;
+pub use bytes32ext::Bytes32Ext;

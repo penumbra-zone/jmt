@@ -24,10 +24,7 @@ fn arb_sparse_merkle_sibling() -> impl Strategy<Value = HashValue> {
     ]
 }
 
-impl<V> Arbitrary for SparseMerkleProof<V>
-where
-    V: std::fmt::Debug + CryptoHash,
-{
+impl Arbitrary for SparseMerkleProof {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
