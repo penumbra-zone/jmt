@@ -1,13 +1,15 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::types::Version;
+use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+
+use anyhow::{bail, ensure, format_err, Result};
+
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
+    types::Version,
     NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter,
 };
-use anyhow::{bail, ensure, format_err, Result};
-use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 
 mod rwlock;
 use rwlock::RwLock;

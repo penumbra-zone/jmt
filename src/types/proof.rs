@@ -5,16 +5,17 @@ pub mod definition;
 #[cfg(any(test, feature = "fuzzing"))]
 pub mod proptest_proof;
 
+use std::marker::PhantomData;
+
+#[cfg(any(test, feature = "fuzzing"))]
+use proptest_derive::Arbitrary;
+use serde::{Deserialize, Serialize};
+
+pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
 use crate::hash::{
     CryptoHash, CryptoHasher, EventAccumulatorHasher, HashValue, SparseMerkleInternalHasher,
     TestOnlyHasher, TransactionAccumulatorHasher,
 };
-#[cfg(any(test, feature = "fuzzing"))]
-use proptest_derive::Arbitrary;
-use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
-
-pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
 
 pub struct MerkleTreeInternalNode<H> {
     left_child: HashValue,

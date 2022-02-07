@@ -9,13 +9,12 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
-use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
-use crate::metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES};
-use crate::types::{
-    nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
-    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
-    Version,
+use std::{
+    collections::hash_map::HashMap,
+    io::{prelude::*, Cursor, Read, SeekFrom, Write},
+    mem::size_of,
 };
+
 use anyhow::{ensure, Context, Result};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -25,12 +24,17 @@ use proptest::{collection::hash_map, prelude::*};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::hash_map::HashMap,
-    io::{prelude::*, Cursor, Read, SeekFrom, Write},
-    mem::size_of,
-};
 use thiserror::Error;
+
+use crate::{
+    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
+    types::{
+        nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
+        proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
+        Version,
+    },
+};
 
 /// The unique key of each node.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]

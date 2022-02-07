@@ -35,6 +35,13 @@
 //! as the recommended solution to write Rust values into a hasher.
 
 #![allow(clippy::integer_arithmetic)]
+use std::{
+    self,
+    convert::{AsRef, TryFrom},
+    fmt,
+    str::FromStr,
+};
+
 use bytes::Bytes;
 use hex::FromHex;
 use mirai_annotations::*;
@@ -42,12 +49,6 @@ use once_cell::sync::{Lazy, OnceCell};
 use proptest_derive::Arbitrary;
 use rand::{rngs::OsRng, Rng};
 use serde::{de, ser};
-use std::{
-    self,
-    convert::{AsRef, TryFrom},
-    fmt,
-    str::FromStr,
-};
 use tiny_keccak::{Hasher, Sha3};
 
 /// A prefix used to begin the salt of every diem hashable structure. The salt

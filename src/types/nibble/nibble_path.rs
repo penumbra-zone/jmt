@@ -4,12 +4,14 @@
 //! NibblePath library simplify operations with nibbles in a compact format for modified sparse
 //! Merkle tree by providing powerful iterators advancing by either bit or nibble.
 
-use crate::types::nibble::{Nibble, ROOT_NIBBLE_HEIGHT};
+use std::{fmt, iter::FromIterator};
+
 use mirai_annotations::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::{collection::vec, prelude::*};
 use serde::{Deserialize, Serialize};
-use std::{fmt, iter::FromIterator};
+
+use crate::types::nibble::{Nibble, ROOT_NIBBLE_HEIGHT};
 
 /// NibblePath defines a path in Merkle tree in the unit of nibble (4 bits).
 #[derive(Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]

@@ -4,9 +4,12 @@
 //! All proofs generated in this module are not valid proofs. They are only for the purpose of
 //! testing conversion between Rust and Protobuf.
 
-use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
-use crate::types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof};
 use proptest::{collection::vec, prelude::*};
+
+use crate::{
+    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
+};
 
 fn arb_non_placeholder_sparse_merkle_sibling() -> impl Strategy<Value = HashValue> {
     any::<HashValue>().prop_filter("Filter out placeholder sibling.", |x| {

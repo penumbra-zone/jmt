@@ -1,13 +1,16 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::node_type::{
-    deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, NodeDecodeError,
-    NodeKey,
-};
+use std::{io::Cursor, panic, rc::Rc};
+
+use proptest::prelude::*;
+
 use crate::{
     hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
-    node_type::NodeType,
+    node_type::{
+        deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode,
+        NodeDecodeError, NodeKey, NodeType,
+    },
     tests::helper::ValueBlob,
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -15,9 +18,6 @@ use crate::{
         Version,
     },
 };
-
-use proptest::prelude::*;
-use std::{io::Cursor, panic, rc::Rc};
 
 type Node = crate::node_type::Node<crate::tests::helper::ValueBlob>;
 

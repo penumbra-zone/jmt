@@ -1,3 +1,10 @@
+use std::{
+    collections::{BTreeMap, HashMap},
+    marker::PhantomData,
+};
+
+use anyhow::{bail, ensure, format_err, Result};
+
 use crate::{
     hash::HashValue,
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
@@ -12,12 +19,6 @@ use crate::{
     },
     MissingRootError, TreeReader, TreeUpdateBatch, Value,
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    marker::PhantomData,
-};
-
-use anyhow::{bail, ensure, format_err, Result};
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
 pub struct JellyfishMerkleTree<'a, R, V> {

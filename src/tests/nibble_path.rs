@@ -1,11 +1,12 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use proptest::prelude::*;
+
 use crate::types::nibble::{
     nibble_path::{arb_internal_nibble_path, skip_common_prefix, NibblePath},
     Nibble,
 };
-use proptest::prelude::*;
 
 #[test]
 fn test_nibble_path_fmt() {

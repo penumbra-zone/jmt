@@ -1,5 +1,6 @@
-use crate::node_type::{LeafNode, Node, NodeKey};
 use anyhow::{format_err, Result};
+
+use crate::node_type::{LeafNode, Node, NodeKey};
 
 /// `TreeReader` defines the interface between
 /// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)

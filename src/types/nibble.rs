@@ -7,11 +7,13 @@
 
 pub mod nibble_path;
 
-use crate::hash::HashValue;
+use std::fmt;
+
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use crate::hash::HashValue;
 
 /// The hardcoded maximum height of a state merkle tree in nibbles.
 pub const ROOT_NIBBLE_HEIGHT: usize = HashValue::LENGTH * 2;
@@ -94,9 +96,8 @@ impl Arbitrary for Nibble {
 
 #[cfg(test)]
 mod test {
-    use crate::hash::TestOnlyHash;
-
     use super::*;
+    use crate::hash::TestOnlyHash;
     #[test]
     fn test_common_prefix_nibbles_len() {
         {

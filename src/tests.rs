@@ -1,5 +1,6 @@
-use crate::Value;
 use proptest::prelude::Arbitrary;
+
+use crate::Value;
 
 mod helper;
 mod iterator;
