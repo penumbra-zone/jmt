@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{helper::ValueBlob, mock_tree_store::MockTreeStore};
-
 use crate::{
     hash::HashValue,
     node_type::{Node, NodeKey},

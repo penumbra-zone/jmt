@@ -3,11 +3,13 @@
 
 //! This module has definition of various proofs.
 
-use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
-use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use std::marker::PhantomData;
+
 use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
+
+use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
+use crate::hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.

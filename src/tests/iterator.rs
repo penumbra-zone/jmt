@@ -1,6 +1,11 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{collections::BTreeMap, sync::Arc};
+
+use anyhow::Result;
+use rand::{rngs::StdRng, SeedableRng};
+
 use super::{
     helper::{plus_one, ValueBlob},
     mock_tree_store::MockTreeStore,
@@ -8,9 +13,6 @@ use super::{
 use crate::{
     hash::HashValue, iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree,
 };
-use anyhow::Result;
-use rand::{rngs::StdRng, SeedableRng};
-use std::{collections::BTreeMap, sync::Arc};
 
 #[test]
 fn test_iterator_same_version() {

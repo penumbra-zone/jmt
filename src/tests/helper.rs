@@ -1,25 +1,28 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::mock_tree_store::MockTreeStore;
-use crate::hash::CryptoHash;
-use crate::hash::HashValue;
-use crate::hash::SPARSE_MERKLE_PLACEHOLDER_HASH;
-use crate::tests::TestValue;
-use crate::types::{
-    proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
-    Version,
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    ops::Bound,
 };
-use crate::{node_type::LeafNode, JellyfishMerkleTree};
+
 use proptest::{
     collection::{btree_map, hash_map, vec},
     prelude::*,
 };
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    ops::Bound,
+
+use super::mock_tree_store::MockTreeStore;
+use crate::{
+    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    node_type::LeafNode,
+    tests::TestValue,
+    types::{
+        proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
+        Version,
+    },
+    JellyfishMerkleTree,
 };
 
 #[derive(Arbitrary, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

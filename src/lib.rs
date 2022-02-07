@@ -68,10 +68,13 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
-use crate::hash::CryptoHash;
-use crate::types::{nibble::ROOT_NIBBLE_HEIGHT, Version};
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
+
+use crate::{
+    hash::CryptoHash,
+    types::{nibble::ROOT_NIBBLE_HEIGHT, Version},
+};
 
 pub mod hash;
 pub mod iterator;

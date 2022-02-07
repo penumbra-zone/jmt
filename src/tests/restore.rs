@@ -1,17 +1,18 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{collections::BTreeMap, sync::Arc};
+
+use proptest::{collection::btree_map, prelude::*};
+
 use super::mock_tree_store::MockTreeStore;
-use crate::tests::helper::{init_mock_db, ValueBlob};
 use crate::{
     hash::HashValue,
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
+    tests::helper::{init_mock_db, ValueBlob},
     types::Version,
     JellyfishMerkleTree, TreeReader,
 };
-
-use proptest::{collection::btree_map, prelude::*};
-use std::{collections::BTreeMap, sync::Arc};
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]

@@ -1,11 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use anyhow::Result;
+#[cfg(any(test, feature = "fuzzing"))]
+use proptest_derive::Arbitrary;
+
 use crate::{
     node_type::{Node, NodeKey},
     types::Version,
 };
-use anyhow::Result;
-#[cfg(any(test, feature = "fuzzing"))]
-use proptest_derive::Arbitrary;
-use std::collections::{BTreeMap, BTreeSet};
 
 pub trait TreeWriter<V> {
     /// Writes a node batch into storage.
