@@ -4,14 +4,12 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Result;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use super::{
-    helper::{plus_one, ValueBlob},
-    mock_tree_store::MockTreeStore,
-};
+use super::{helper::plus_one, mock_tree_store::MockTreeStore};
 use crate::{
-    hash::HashValue, iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree,
+    iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree, KeyHash, OwnedKey,
+    OwnedValue,
 };
 
 #[test]
@@ -26,10 +24,13 @@ fn test_iterator_multiple_versions() {
     test_n_leaves_multiple_versions(50);
 }
 
+/*
+// Cannot run this test with internal hashing
 #[test]
 fn test_long_path() {
     test_n_consecutive_addresses(50);
 }
+*/
 
 fn test_n_leaves_same_version(n: usize) {
     let db = Arc::new(MockTreeStore::default());
@@ -39,9 +40,9 @@ fn test_n_leaves_same_version(n: usize) {
 
     let mut btree = BTreeMap::new();
     for i in 0..n {
-        let key = HashValue::random_with_rng(&mut rng);
-        let value = ValueBlob::from(i.to_be_bytes().to_vec());
-        assert_eq!(btree.insert(key, value), None);
+        let key: [u8; 32] = rng.gen();
+        let value = i.to_be_bytes().to_vec();
+        assert_eq!(btree.insert(key.to_vec(), value), None);
     }
 
     let (_root_hash, batch) = tree
@@ -56,13 +57,11 @@ fn test_n_leaves_multiple_versions(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
-    let mut rng = StdRng::from_seed([1; 32]);
-
     let mut btree = BTreeMap::new();
     for i in 0..n {
-        let key = HashValue::random_with_rng(&mut rng);
-        let value = ValueBlob::from(i.to_be_bytes().to_vec());
-        assert_eq!(btree.insert(key, value.clone()), None);
+        let key = format!("key{}", i).into_bytes();
+        let value = i.to_be_bytes().to_vec();
+        assert_eq!(btree.insert(key.clone(), value.clone()), None);
         let (_root_hash, batch) = tree
             .put_value_set(vec![(key, value)], i as Version)
             .unwrap();
@@ -71,17 +70,14 @@ fn test_n_leaves_multiple_versions(n: usize) {
     }
 }
 
+/*
+// Cannot run this test with internal hashing
 fn test_n_consecutive_addresses(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
     let btree: BTreeMap<_, _> = (0..n)
-        .map(|i| {
-            (
-                HashValue::from_u64(i as u64),
-                ValueBlob::from(i.to_be_bytes().to_vec()),
-            )
-        })
+        .map(|i| (HashValue::from_u64(i as u64), i.to_be_bytes().to_vec()))
         .collect();
 
     let (_root_hash, batch) = tree
@@ -91,17 +87,19 @@ fn test_n_consecutive_addresses(n: usize) {
 
     run_tests(db, &btree, 0 /* version */);
 }
+*/
 
-fn run_tests<V>(db: Arc<MockTreeStore<V>>, btree: &BTreeMap<HashValue, V>, version: Version)
-where
-    V: crate::tests::TestValue,
-{
+fn run_tests(db: Arc<MockTreeStore>, btree: &BTreeMap<OwnedKey, OwnedValue>, version: Version) {
     {
         let iter =
-            JellyfishMerkleIterator::new(Arc::clone(&db), version, HashValue::zero()).unwrap();
+            JellyfishMerkleIterator::new(Arc::clone(&db), version, KeyHash([0u8; 32])).unwrap();
         assert_eq!(
             iter.collect::<Result<Vec<_>>>().unwrap(),
-            btree.clone().into_iter().collect::<Vec<_>>(),
+            btree
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (KeyHash::from(k), v))
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -110,17 +108,27 @@ where
             let iter = JellyfishMerkleIterator::new_by_index(Arc::clone(&db), version, i).unwrap();
             assert_eq!(
                 iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i)
+                    .map(|(k, v)| (KeyHash::from(k), v))
+                    .collect::<Vec<_>>(),
             );
         }
 
-        let ith_key = *btree.keys().nth(i).unwrap();
+        let ith_key = btree.keys().nth(i).unwrap().into();
 
         {
             let iter = JellyfishMerkleIterator::new(Arc::clone(&db), version, ith_key).unwrap();
             assert_eq!(
                 iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i)
+                    .map(|(k, v)| (KeyHash::from(k), v))
+                    .collect::<Vec<_>>(),
             );
         }
 
@@ -130,7 +138,12 @@ where
                 JellyfishMerkleIterator::new(Arc::clone(&db), version, ith_key_plus_one).unwrap();
             assert_eq!(
                 iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i + 1).collect::<Vec<_>>(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i + 1)
+                    .map(|(k, v)| (KeyHash::from(k), v))
+                    .collect::<Vec<_>>(),
             );
         }
     }
@@ -142,12 +155,8 @@ where
     }
 
     {
-        let iter = JellyfishMerkleIterator::new(
-            Arc::clone(&db),
-            version,
-            HashValue::new([0xFF; HashValue::LENGTH]),
-        )
-        .unwrap();
+        let iter =
+            JellyfishMerkleIterator::new(Arc::clone(&db), version, KeyHash([0xFF; 32])).unwrap();
         assert_eq!(iter.collect::<Result<Vec<_>>>().unwrap(), vec![]);
     }
 }

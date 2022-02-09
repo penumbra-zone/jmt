@@ -673,13 +673,6 @@ where
             ),
             value,
         );
-        /*
-        let new_leaf_node = Node::new_leaf(
-            HashValue::from_slice(nibble_iter.get_nibble_path().bytes())
-                .expect("LeafNode must have full nibble path."),
-            value,
-        );
-         */
 
         tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
         Ok((node_key, new_leaf_node))

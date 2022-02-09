@@ -7,11 +7,10 @@ use proptest::{collection::btree_map, prelude::*};
 
 use super::mock_tree_store::MockTreeStore;
 use crate::{
-    hash::HashValue,
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
-    tests::helper::{init_mock_db, ValueBlob},
+    tests::helper::init_mock_db,
     types::Version,
-    JellyfishMerkleTree, TreeReader,
+    JellyfishMerkleTree, KeyHash, OwnedKey, OwnedValue, RootHash, TreeReader,
 };
 
 proptest! {
@@ -19,7 +18,7 @@ proptest! {
 
     #[test]
     fn test_restore_without_interruption(
-        btree in btree_map(any::<HashValue>(), any::<ValueBlob>(), 1..1000),
+        btree in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
         let restore_db = Arc::new(MockTreeStore::default());
@@ -29,25 +28,35 @@ proptest! {
 
     #[test]
     fn test_restore_with_interruption(
-        (all, batch1_size) in btree_map(any::<HashValue>(), any::<ValueBlob>(), 2..1000)
+        (all, batch1_size) in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 2..1000)
             .prop_flat_map(|btree| {
                 let len = btree.len();
                 (Just(btree), 1..len)
             })
     ) {
-        let (db, version) = init_mock_db(&all.clone().into_iter().collect());
+        let (db, version) = init_mock_db(
+            &all.clone()
+                .into_iter()
+                .collect()
+        );
         let tree = JellyfishMerkleTree::new(&db);
         let expected_root_hash = tree.get_root_hash(version).unwrap();
         let batch1: Vec<_> = all.clone().into_iter().take(batch1_size).collect();
 
         let restore_db = Arc::new(MockTreeStore::default());
         {
-            let mut restore =
-                JellyfishMerkleRestore::new(Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migraion */).unwrap();
+            let mut restore = JellyfishMerkleRestore::new(
+                Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migraion */
+            ).unwrap();
             let proof = tree
-                .get_range_proof(batch1.last().map(|(key, _value)| *key).unwrap(), version)
+                .get_range_proof(batch1.last().map(|(key, _value)| key.clone()).unwrap(), version)
                 .unwrap();
-            restore.add_chunk(batch1, proof).unwrap();
+            restore.add_chunk(
+                batch1.into_iter()
+                    .map(|(k,v)| (KeyHash::from(k), v))
+                    .collect(),
+                proof
+            ).unwrap();
             // Do not call `finish`.
         }
 
@@ -62,18 +71,24 @@ proptest! {
             let remaining_accounts: Vec<_> = all
                 .clone()
                 .into_iter()
-                .filter(|(k, _v)| *k > rightmost_key)
+                .filter(|(k, _v)| KeyHash::from(k) > rightmost_key)
                 .collect();
 
-            let mut restore =
-                JellyfishMerkleRestore::new(Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migration */).unwrap();
+            let mut restore = JellyfishMerkleRestore::new(
+                 Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migration */
+            ).unwrap();
             let proof = tree
                 .get_range_proof(
-                    remaining_accounts.last().map(|(key, _value)| *key).unwrap(),
+                    remaining_accounts.last().map(|(key, _value)| key.clone()).unwrap(),
                     version,
                 )
                 .unwrap();
-            restore.add_chunk(remaining_accounts, proof).unwrap();
+            restore.add_chunk(
+                remaining_accounts.into_iter()
+                    .map(|(k,v)| (KeyHash::from(k), v))
+                    .collect(),
+                proof
+            ).unwrap();
             restore.finish().unwrap();
         }
 
@@ -82,8 +97,8 @@ proptest! {
 
     #[test]
     fn test_overwrite(
-        btree1 in btree_map(any::<HashValue>(), any::<ValueBlob>(), 1..1000),
-        btree2 in btree_map(any::<HashValue>(), any::<ValueBlob>(), 1..1000),
+        btree1 in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
+        btree2 in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
         let restore_db = Arc::new(MockTreeStore::new(true /* allow_overwrite */));
@@ -93,32 +108,28 @@ proptest! {
     }
 }
 
-fn assert_success<V>(
-    db: &MockTreeStore<V>,
-    expected_root_hash: HashValue,
-    btree: &BTreeMap<HashValue, V>,
+fn assert_success(
+    db: &MockTreeStore,
+    expected_root_hash: RootHash,
+    btree: &BTreeMap<OwnedKey, OwnedValue>,
     version: Version,
-) where
-    V: crate::tests::TestValue,
-{
+) {
     let tree = JellyfishMerkleTree::new(db);
     for (key, value) in btree {
-        assert_eq!(tree.get(*key, version).unwrap(), Some(value.clone()));
+        assert_eq!(tree.get(key, version).unwrap(), Some(value.clone()));
     }
 
     let actual_root_hash = tree.get_root_hash(version).unwrap();
     assert_eq!(actual_root_hash, expected_root_hash);
 }
 
-fn restore_without_interruption<V>(
-    btree: &BTreeMap<HashValue, V>,
+fn restore_without_interruption(
+    btree: &BTreeMap<OwnedKey, OwnedValue>,
     target_version: Version,
-    target_db: &Arc<MockTreeStore<V>>,
+    target_db: &Arc<MockTreeStore>,
     try_resume: bool,
-) where
-    V: crate::tests::TestValue,
-{
-    let (db, source_version) = init_mock_db(&btree.iter().map(|(k, v)| (*k, v.clone())).collect());
+) {
+    let (db, source_version) = init_mock_db(&btree.clone().into_iter().collect());
     let tree = JellyfishMerkleTree::new(&db);
     let expected_root_hash = tree.get_root_hash(source_version).unwrap();
 
@@ -140,9 +151,9 @@ fn restore_without_interruption<V>(
         .unwrap()
     };
     for (key, value) in btree {
-        let proof = tree.get_range_proof(*key, source_version).unwrap();
+        let proof = tree.get_range_proof(key, source_version).unwrap();
         restore
-            .add_chunk(vec![(*key, value.clone())], proof)
+            .add_chunk(vec![(key.into(), value.clone())], proof)
             .unwrap();
     }
     Box::new(restore).finish().unwrap();

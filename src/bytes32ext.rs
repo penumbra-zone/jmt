@@ -2,7 +2,7 @@ use std::ops::Index;
 
 use mirai_annotations::*;
 
-pub trait Bytes32Ext: Index<usize> {
+pub trait Bytes32Ext: Index<usize> + Sized {
     /// Returns the `index`-th nibble.
     fn get_nibble(&self, index: usize) -> crate::types::nibble::Nibble;
     /// Returns the length of common prefix of `self` and `other` in bits.
@@ -15,6 +15,8 @@ pub trait Bytes32Ext: Index<usize> {
     fn common_prefix_nibbles_len(&self, other: &[u8; 32]) -> usize {
         self.common_prefix_bits_len(other) / 4
     }
+    /// Constructs a `HashValue` from an iterator of bits.
+    fn from_bit_iter(iter: impl ExactSizeIterator<Item = bool>) -> Option<Self>;
 }
 
 impl Bytes32Ext for [u8; 32] {
@@ -42,6 +44,21 @@ impl Bytes32Ext for [u8; 32] {
         let pos = index / 2;
         let shift = if index % 2 == 0 { 4 } else { 0 };
         (self[pos] >> shift) & 0x0f
+    }
+
+    /// Constructs a `HashValue` from an iterator of bits.
+    fn from_bit_iter(iter: impl ExactSizeIterator<Item = bool>) -> Option<Self> {
+        if iter.len() != 256 {
+            return None;
+        }
+
+        let mut buf = [0; 32];
+        for (i, bit) in iter.enumerate() {
+            if bit {
+                buf[i / 8] |= 1 << (7 - i % 8);
+            }
+        }
+        Some(buf)
     }
 }
 
