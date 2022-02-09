@@ -11,8 +11,6 @@ use proptest::{
     prelude::*,
 };
 
-
-
 use super::mock_tree_store::MockTreeStore;
 use crate::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
@@ -126,19 +124,24 @@ pub fn arb_tree_with_index(
     })
 }
 
-pub fn test_get_range_proof((btree, n): (BTreeMap<OwnedKey, OwnedValue>, usize)) {
-    let (db, version) = init_mock_db(&btree.clone().into_iter().collect());
+pub fn test_get_range_proof((btree_owned, n): (BTreeMap<OwnedKey, OwnedValue>, usize)) {
+    let (db, version) = init_mock_db(&btree_owned.clone().into_iter().collect());
     let tree = JellyfishMerkleTree::new(&db);
 
-    let nth_key = btree.keys().nth(n).unwrap();
+    let btree_hashed = btree_owned
+        .clone()
+        .into_iter()
+        .map(|(k, v)| (KeyHash::from(k), v))
+        .collect::<BTreeMap<_, _>>();
+    let nth_key_hash = btree_hashed.keys().nth(n).unwrap();
+    let nth_key = btree_owned
+        .keys()
+        .find(|k| KeyHash::from(k) == *nth_key_hash)
+        .unwrap();
     let proof = tree.get_range_proof(nth_key, version).unwrap();
     verify_range_proof(
         tree.get_root_hash(version).unwrap(),
-        btree
-            .into_iter()
-            .take(n + 1)
-            .map(|(k, v)| (KeyHash::from(k), v))
-            .collect(),
+        btree_hashed.into_iter().take(n + 1).collect(),
         proof,
     );
 }

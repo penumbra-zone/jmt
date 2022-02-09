@@ -751,6 +751,8 @@ where
     }
 
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
+    /// 
+    /// TODO-BYTES: this API doesn't really make sense without prehashed keys...
     pub fn get_range_proof<K: AsRef<[u8]>>(
         &self,
         rightmost_key_to_prove: K,
