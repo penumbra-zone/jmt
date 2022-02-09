@@ -96,6 +96,8 @@ impl Arbitrary for Nibble {
 
 #[cfg(test)]
 mod test {
+    // TODO-BYTES: move these testes to Bytes32Ext
+
     use super::*;
     use crate::hash::TestOnlyHash;
     #[test]
@@ -126,7 +128,7 @@ mod test {
         {
             let hash1 = b"hello".test_only_hash();
             let hash2 = b"hello".test_only_hash();
-            assert_eq!(hash1.common_prefix_nibbles_len(hash2), 256 * 2);
+            assert_eq!(hash1.common_prefix_nibbles_len(hash2), 32 * 2);
         }
     }
 
