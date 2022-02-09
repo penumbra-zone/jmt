@@ -7,7 +7,7 @@
 use proptest::{collection::vec, prelude::*};
 
 use crate::{
-    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    hash::{HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
 };
 

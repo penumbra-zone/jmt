@@ -10,7 +10,7 @@ use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;
 
 use crate::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
         NodeType,
@@ -324,7 +324,7 @@ impl JellyfishMerkleRestore {
 
     /// Restores one account.
     fn add_one(&mut self, new_key: KeyHash, new_value: OwnedValue) {
-        let nibble_path = NibblePath::new(new_key.to_vec());
+        let nibble_path = NibblePath::new(new_key.0.to_vec());
         let mut nibbles = nibble_path.nibbles();
 
         for i in 0..ROOT_NIBBLE_HEIGHT {
@@ -400,7 +400,10 @@ impl JellyfishMerkleRestore {
 
         // Next we build the new internal nodes from top to bottom. All these internal node except
         // the bottom one will now have a single internal node child.
-        let common_prefix_len = existing_leaf.key_hash().common_prefix_nibbles_len(new_key);
+        let common_prefix_len = existing_leaf
+            .key_hash()
+            .0
+            .common_prefix_nibbles_len(&new_key.0);
         for _ in num_existing_partial_nodes..common_prefix_len {
             let visited_nibbles = remaining_nibbles.visited_nibbles().collect();
             let next_nibble = remaining_nibbles.next().expect("This nibble must exist.");
@@ -438,7 +441,7 @@ impl JellyfishMerkleRestore {
         self.freeze(self.partial_nodes.len());
 
         // Now we set the new child.
-        let new_child_index = new_key.get_nibble(common_prefix_len);
+        let new_child_index = new_key.0.get_nibble(common_prefix_len);
         assert!(
             new_child_index > existing_child_index,
             "New leaf must be on the right.",
@@ -551,7 +554,7 @@ impl JellyfishMerkleRestore {
         // nontrivial to determine when the loop should stop. So instead we just add these
         // siblings for now and get rid of them in the next step.
         let mut num_visited_right_siblings = 0;
-        for (i, bit) in previous_key.iter_bits().enumerate() {
+        for (i, bit) in previous_key.0.iter_bits().enumerate() {
             if bit {
                 // This node is a right child and there should be a sibling on the left.
                 let sibling = if i >= self.partial_nodes.len() * 4 {
@@ -559,7 +562,7 @@ impl JellyfishMerkleRestore {
                 } else {
                     Self::compute_left_sibling(
                         &self.partial_nodes[i / 4],
-                        previous_key.get_nibble(i / 4),
+                        previous_key.0.get_nibble(i / 4),
                         (3 - i % 4) as u8,
                     )
                 };
@@ -576,7 +579,7 @@ impl JellyfishMerkleRestore {
 
         // Now we remove any extra placeholder siblings at the bottom. We keep removing the last
         // sibling if 1) it's a placeholder 2) it's a sibling on the left.
-        for bit in previous_key.iter_bits().rev() {
+        for bit in previous_key.0.iter_bits().rev() {
             if bit {
                 if *left_siblings.last().expect("This sibling must exist.")
                     == *SPARSE_MERKLE_PLACEHOLDER_HASH

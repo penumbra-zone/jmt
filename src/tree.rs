@@ -1,9 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    convert::TryInto,
+};
 
 use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
-    hash::HashValue,
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     tree_cache::TreeCache,
     types::{
@@ -14,7 +16,8 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    KeyHash, MissingRootError, OwnedKey, OwnedValue, RootHash, TreeReader, TreeUpdateBatch,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedKey, OwnedValue, RootHash, TreeReader,
+    TreeUpdateBatch,
 };
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
@@ -46,8 +49,8 @@ where
     fn get_hash(
         node_key: &NodeKey,
         node: &Node,
-        hash_cache: &Option<&HashMap<NibblePath, HashValue>>,
-    ) -> HashValue {
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
+    ) -> [u8; 32] {
         if let Some(cache) = hash_cache {
             match cache.get(node_key.nibble_path()) {
                 Some(hash) => *hash,
@@ -64,9 +67,9 @@ where
     pub fn batch_put_value_sets(
         &self,
         value_sets: Vec<Vec<(OwnedKey, OwnedValue)>>,
-        node_hashes: Option<Vec<&HashMap<NibblePath, HashValue>>>,
+        node_hashes: Option<Vec<&HashMap<NibblePath, [u8; 32]>>>,
         first_version: Version,
-    ) -> Result<(Vec<HashValue>, TreeUpdateBatch)> {
+    ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         let hash_sets: Vec<_> = match node_hashes {
             Some(hashes) => hashes.into_iter().map(Some).collect(),
@@ -111,7 +114,7 @@ where
         version: Version,
         kvs: &[(KeyHash, OwnedValue)],
         depth: usize,
-        hash_cache: &Option<&HashMap<NibblePath, HashValue>>,
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<(NodeKey, Node)> {
         assert!(!kvs.is_empty());
@@ -130,7 +133,7 @@ where
                 for (left, right) in NibbleRangeIterator::new(kvs, depth) {
                     // Traverse downwards from this internal node recursively by splitting the updates into
                     // each child index
-                    let child_index = kvs[left].0.get_nibble(depth);
+                    let child_index = kvs[left].0 .0.get_nibble(depth);
 
                     let (new_child_node_key, new_child_node) =
                         match internal_node.child(child_index) {
@@ -219,7 +222,7 @@ where
         existing_leaf_node: LeafNode,
         kvs: &[(KeyHash, OwnedValue)],
         depth: usize,
-        hash_cache: &Option<&HashMap<NibblePath, HashValue>>,
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<(NodeKey, Node)> {
         let existing_leaf_key = existing_leaf_node.key_hash();
@@ -229,11 +232,11 @@ where
             tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
             Ok((node_key, new_leaf_node))
         } else {
-            let existing_leaf_bucket = existing_leaf_key.get_nibble(depth);
+            let existing_leaf_bucket = existing_leaf_key.0.get_nibble(depth);
             let mut isolated_existing_leaf = true;
             let mut children = Children::new();
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
-                let child_index = kvs[left].0.get_nibble(depth);
+                let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
                 let (new_child_node_key, new_child_node) = if existing_leaf_bucket == child_index {
                     isolated_existing_leaf = false;
@@ -290,7 +293,7 @@ where
         version: Version,
         kvs: &[(KeyHash, OwnedValue)],
         depth: usize,
-        hash_cache: &Option<&HashMap<NibblePath, HashValue>>,
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<(NodeKey, Node)> {
         if kvs.len() == 1 {
@@ -300,7 +303,7 @@ where
         } else {
             let mut children = Children::new();
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
-                let child_index = kvs[left].0.get_nibble(depth);
+                let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
                 let (new_child_node_key, new_child_node) = self.batch_create_subtree(
                     child_node_key,
@@ -336,7 +339,7 @@ where
         &self,
         value_set: Vec<(OwnedKey, OwnedValue)>,
         version: Version,
-    ) -> Result<(HashValue, TreeUpdateBatch)> {
+    ) -> Result<(RootHash, TreeUpdateBatch)> {
         let (root_hashes, tree_update_batch) =
             self.batch_put_value_sets(vec![value_set], None, version)?;
         assert_eq!(
@@ -394,7 +397,7 @@ where
         &self,
         value_sets: Vec<Vec<(OwnedKey, OwnedValue)>>,
         first_version: Version,
-    ) -> Result<(Vec<HashValue>, TreeUpdateBatch)> {
+    ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             assert!(
@@ -402,9 +405,9 @@ where
                 "Transactions that output empty write set should not be included.",
             );
             let version = first_version + idx as u64;
-            value_set
-                .into_iter()
-                .try_for_each(|(key, value)| self.put(key, value, version, &mut tree_cache))?;
+            value_set.into_iter().try_for_each(|(key, value)| {
+                self.put(key.into(), value, version, &mut tree_cache)
+            })?;
             // Freezes the current cache to make all contents in the current cache immutable.
             tree_cache.freeze();
         }
@@ -420,7 +423,7 @@ where
         version: Version,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<()> {
-        let nibble_path = NibblePath::new(key.to_vec());
+        let nibble_path = NibblePath::new(key.0.to_vec());
 
         // Get the root node. If this is the first operation, it would get the root node from the
         // underlying db. Otherwise it most likely would come from `cache`.
@@ -559,7 +562,7 @@ where
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
         let mut visited_nibble_iter = nibble_iter.visited_nibbles();
-        let existing_leaf_nibble_path = NibblePath::new(existing_leaf_node.key_hash().to_vec());
+        let existing_leaf_nibble_path = NibblePath::new(existing_leaf_node.key_hash().0.to_vec());
         let mut existing_leaf_nibble_iter = existing_leaf_nibble_path.nibbles();
         skip_common_prefix(&mut visited_nibble_iter, &mut existing_leaf_nibble_iter);
 
@@ -650,6 +653,8 @@ where
     }
 
     /// Helper function for creating leaf nodes. Returns the newly created leaf node.
+    ///
+    /// TODO-BYTES: cleanup?
     fn create_leaf_node(
         node_key: NodeKey,
         nibble_iter: &NibbleIterator,
@@ -659,10 +664,22 @@ where
         // Get the underlying bytes of nibble_iter which must be a key, i.e., hashed account address
         // with `HashValue::LENGTH` bytes.
         let new_leaf_node = Node::new_leaf(
+            KeyHash(
+                nibble_iter
+                    .get_nibble_path()
+                    .bytes()
+                    .try_into()
+                    .expect("LeafNode must have full nibble path."),
+            ),
+            value,
+        );
+        /*
+        let new_leaf_node = Node::new_leaf(
             HashValue::from_slice(nibble_iter.get_nibble_path().bytes())
                 .expect("LeafNode must have full nibble path."),
             value,
         );
+         */
 
         tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
         Ok((node_key, new_leaf_node))
@@ -678,7 +695,7 @@ where
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut siblings = vec![];
-        let nibble_path = NibblePath::new(key.to_vec());
+        let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
@@ -715,7 +732,7 @@ where
                 Node::Leaf(leaf_node) => {
                     return Ok((
                         if leaf_node.key_hash() == key {
-                            Some(leaf_node.value().clone())
+                            Some(leaf_node.value().to_vec())
                         } else {
                             None
                         },
@@ -741,11 +758,12 @@ where
     }
 
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
-    pub fn get_range_proof(
+    pub fn get_range_proof<K: AsRef<[u8]>>(
         &self,
-        rightmost_key_to_prove: KeyHash,
+        rightmost_key_to_prove: K,
         version: Version,
     ) -> Result<SparseMerkleRangeProof> {
+        let rightmost_key_to_prove_hash: KeyHash = rightmost_key_to_prove.as_ref().into();
         let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version)?;
         ensure!(account.is_some(), "rightmost_key_to_prove must exist.");
 
@@ -753,7 +771,7 @@ where
             .siblings()
             .iter()
             .rev()
-            .zip(rightmost_key_to_prove.iter_bits())
+            .zip(rightmost_key_to_prove_hash.0.iter_bits())
             .filter_map(|(sibling, bit)| {
                 // We only need to keep the siblings on the right.
                 if !bit {
@@ -782,11 +800,13 @@ where
     }
 
     pub fn get_root_hash(&self, version: Version) -> Result<RootHash> {
-        self.get_root_node(version).map(|n| n.hash())
+        self.get_root_node(version).map(|n| RootHash(n.hash()))
     }
 
     pub fn get_root_hash_option(&self, version: Version) -> Result<Option<RootHash>> {
-        Ok(self.get_root_node_option(version)?.map(|n| n.hash()))
+        Ok(self
+            .get_root_node_option(version)?
+            .map(|n| RootHash(n.hash())))
     }
 
     // TODO: should this be public? seems coupled to tests?

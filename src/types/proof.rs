@@ -10,7 +10,7 @@ use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
-use crate::{hash::CryptoHasher, KeyHash, ValueHash};
+use crate::{KeyHash, ValueHash};
 
 pub struct SparseMerkleInternalNode {
     left_child: [u8; 32],

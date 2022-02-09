@@ -68,14 +68,10 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tiny_keccak::Hasher;
 
-use crate::{
-    hash::CryptoHash,
-    types::{nibble::ROOT_NIBBLE_HEIGHT, Version},
-};
+use crate::types::{nibble::ROOT_NIBBLE_HEIGHT, Version};
 
 pub mod hash;
 pub mod iterator;
