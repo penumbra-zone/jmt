@@ -679,12 +679,11 @@ where
     }
 
     /// Returns the value (if applicable) and the corresponding merkle proof.
-    pub fn get_with_proof<K: AsRef<[u8]>>(
+    pub fn get_with_proof(
         &self,
-        key: K,
+        key: KeyHash,
         version: Version,
     ) -> Result<(Option<OwnedValue>, SparseMerkleProof)> {
-        let key: KeyHash = key.as_ref().into();
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut siblings = vec![];
@@ -751,14 +750,13 @@ where
     }
 
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
-    /// 
+    ///
     /// TODO-BYTES: this API doesn't really make sense without prehashed keys...
-    pub fn get_range_proof<K: AsRef<[u8]>>(
+    pub fn get_range_proof(
         &self,
-        rightmost_key_to_prove: K,
+        rightmost_key_to_prove: KeyHash,
         version: Version,
     ) -> Result<SparseMerkleRangeProof> {
-        let rightmost_key_to_prove_hash: KeyHash = rightmost_key_to_prove.as_ref().into();
         let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version)?;
         ensure!(account.is_some(), "rightmost_key_to_prove must exist.");
 
@@ -766,7 +764,7 @@ where
             .siblings()
             .iter()
             .rev()
-            .zip(rightmost_key_to_prove_hash.0.iter_bits())
+            .zip(rightmost_key_to_prove.0.iter_bits())
             .filter_map(|(sibling, bit)| {
                 // We only need to keep the siblings on the right.
                 if !bit {
@@ -780,7 +778,7 @@ where
         Ok(SparseMerkleRangeProof::new(siblings))
     }
 
-    pub fn get<K: AsRef<[u8]>>(&self, key: K, version: Version) -> Result<Option<OwnedValue>> {
+    pub fn get(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>> {
         Ok(self.get_with_proof(key, version)?.0)
     }
 

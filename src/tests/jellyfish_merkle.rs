@@ -1,13 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-
-
 use proptest::{collection::hash_set, prelude::*};
-use rand::{
-    rngs::{StdRng},
-    Rng, SeedableRng,
-};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::{
     helper::{
@@ -22,11 +17,7 @@ use super::{
     mock_tree_store::MockTreeStore,
 };
 use crate::{
-    types::{
-        Version,
-    },
-    JellyfishMerkleTree, KeyHash, MissingRootError, OwnedKey,
-    TreeUpdateBatch,
+    types::Version, JellyfishMerkleTree, KeyHash, MissingRootError, OwnedKey, TreeUpdateBatch,
 };
 
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
@@ -62,7 +53,7 @@ fn test_insert_to_empty_tree() {
 
     db.write_tree_update_batch(batch).unwrap();
 
-    assert_eq!(tree.get(key, 0).unwrap().unwrap(), value);
+    assert_eq!(tree.get(KeyHash::from(key), 0).unwrap().unwrap(), value);
 }
 
 /*
@@ -542,7 +533,7 @@ fn test_missing_root() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::new(&db);
     let err = tree
-        .get_with_proof(b"testkey", 0)
+        .get_with_proof(KeyHash::from(b"testkey"), 0)
         .err()
         .unwrap()
         .downcast::<MissingRootError>()
@@ -625,9 +616,10 @@ fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     db.write_tree_update_batch(batch).unwrap();
 
     for (k, v) in &kvs {
-        let (value, proof) = tree.get_with_proof(k, 0).unwrap();
+        let keyhash = KeyHash::from(k);
+        let (value, proof) = tree.get_with_proof(KeyHash::from(k), 0).unwrap();
         assert_eq!(value.unwrap(), *v);
-        assert!(proof.verify(roots[0], k, Some(v)).is_ok());
+        assert!(proof.verify(roots[0], keyhash, Some(v)).is_ok());
     }
 }
 
@@ -676,16 +668,26 @@ fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize
 
     for (i, (k, v, _)) in kvs.iter().enumerate() {
         let random_version = rng.gen_range(i..i + num_versions);
-        let (value, proof) = tree.get_with_proof(k, random_version as Version).unwrap();
+        let keyhash = KeyHash::from(k);
+        let (value, proof) = tree
+            .get_with_proof(KeyHash::from(k), random_version as Version)
+            .unwrap();
         assert_eq!(value.unwrap(), *v);
-        assert!(proof.verify(roots[random_version], k, Some(v)).is_ok());
+        assert!(proof
+            .verify(roots[random_version], keyhash, Some(v))
+            .is_ok());
     }
 
     for (i, (k, _, v)) in kvs.iter().enumerate() {
+        let keyhash = KeyHash::from(k);
         let random_version = rng.gen_range(i + num_versions..2 * num_versions);
-        let (value, proof) = tree.get_with_proof(k, random_version as Version).unwrap();
+        let (value, proof) = tree
+            .get_with_proof(KeyHash::from(k), random_version as Version)
+            .unwrap();
         assert_eq!(value.unwrap(), *v);
-        assert!(proof.verify(roots[random_version], k, Some(v)).is_ok());
+        assert!(proof
+            .verify(roots[random_version], keyhash, Some(v))
+            .is_ok());
     }
 }
 

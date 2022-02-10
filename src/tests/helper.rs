@@ -138,7 +138,9 @@ pub fn test_get_range_proof((btree_owned, n): (BTreeMap<OwnedKey, OwnedValue>, u
         .keys()
         .find(|k| KeyHash::from(k) == *nth_key_hash)
         .unwrap();
-    let proof = tree.get_range_proof(nth_key, version).unwrap();
+    let proof = tree
+        .get_range_proof(KeyHash::from(nth_key), version)
+        .unwrap();
     verify_range_proof(
         tree.get_root_hash(version).unwrap(),
         btree_hashed.into_iter().take(n + 1).collect(),
@@ -154,8 +156,9 @@ fn test_existent_keys_impl<'a>(
     let root_hash = tree.get_root_hash(version).unwrap();
 
     for (key, value) in existent_kvs {
-        let (account, proof) = tree.get_with_proof(key, version).unwrap();
-        assert!(proof.verify(root_hash, key, account.as_ref()).is_ok());
+        let keyhash = KeyHash::from(key);
+        let (account, proof) = tree.get_with_proof(KeyHash::from(key), version).unwrap();
+        assert!(proof.verify(root_hash, keyhash, account.as_ref()).is_ok());
         assert_eq!(account.unwrap(), *value);
     }
 }
@@ -168,8 +171,9 @@ fn test_nonexistent_keys_impl<'a>(
     let root_hash = tree.get_root_hash(version).unwrap();
 
     for key in nonexistent_keys {
-        let (account, proof) = tree.get_with_proof(key, version).unwrap();
-        assert!(proof.verify(root_hash, key, account.as_ref()).is_ok());
+        let keyhash = KeyHash::from(key);
+        let (account, proof) = tree.get_with_proof(KeyHash::from(key), version).unwrap();
+        assert!(proof.verify(root_hash, keyhash, account.as_ref()).is_ok());
         assert!(account.is_none());
     }
 }

@@ -50,10 +50,10 @@ impl SparseMerkleProof {
     /// `element_value` exists in the Sparse Merkle Tree using the provided proof. Otherwise
     /// verifies the proof is a valid non-inclusion proof that shows this key doesn't exist in the
     /// tree.
-    pub fn verify<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    pub fn verify<V: AsRef<[u8]>>(
         &self,
         expected_root_hash: RootHash,
-        element_key: K,
+        element_key: KeyHash,
         element_value: Option<V>,
     ) -> Result<()> {
         ensure!(
@@ -62,7 +62,6 @@ impl SparseMerkleProof {
             256,
             self.siblings.len(),
         );
-        let element_key: KeyHash = element_key.into();
 
         match (element_value, self.leaf) {
             (Some(value), Some(leaf)) => {

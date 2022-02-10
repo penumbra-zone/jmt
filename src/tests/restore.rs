@@ -49,7 +49,7 @@ proptest! {
                 Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migraion */
             ).unwrap();
             let proof = tree
-                .get_range_proof(batch1.last().map(|(key, _value)| key.clone()).unwrap(), version)
+                .get_range_proof(batch1.last().map(|(key, _value)| KeyHash::from(key)).unwrap(), version)
                 .unwrap();
             restore.add_chunk(
                 batch1.into_iter()
@@ -79,7 +79,7 @@ proptest! {
             ).unwrap();
             let proof = tree
                 .get_range_proof(
-                    remaining_accounts.last().map(|(key, _value)| key.clone()).unwrap(),
+                    remaining_accounts.last().map(|(key, _value)| KeyHash::from(key)).unwrap(),
                     version,
                 )
                 .unwrap();
@@ -116,7 +116,10 @@ fn assert_success(
 ) {
     let tree = JellyfishMerkleTree::new(db);
     for (key, value) in btree {
-        assert_eq!(tree.get(key, version).unwrap(), Some(value.clone()));
+        assert_eq!(
+            tree.get(KeyHash::from(key), version).unwrap(),
+            Some(value.clone())
+        );
     }
 
     let actual_root_hash = tree.get_root_hash(version).unwrap();
@@ -151,7 +154,9 @@ fn restore_without_interruption(
         .unwrap()
     };
     for (key, value) in btree {
-        let proof = tree.get_range_proof(key, source_version).unwrap();
+        let proof = tree
+            .get_range_proof(KeyHash::from(key), source_version)
+            .unwrap();
         restore
             .add_chunk(vec![(key.into(), value.clone())], proof)
             .unwrap();
