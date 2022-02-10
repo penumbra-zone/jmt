@@ -3,8 +3,8 @@
 
 use rand::{rngs::OsRng, Rng};
 
-use super::mock_tree_store::MockTreeStore;
 use crate::{
+    mock::MockTreeStore,
     node_type::{Node, NodeKey},
     tree_cache::TreeCache,
     types::{nibble::nibble_path::NibblePath, Version, PRE_GENESIS_VERSION},

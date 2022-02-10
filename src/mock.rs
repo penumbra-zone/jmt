@@ -1,6 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! A mock, in-memory tree store useful for testing.
+
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 
 use anyhow::{bail, ensure, format_err, Result};
@@ -14,6 +16,11 @@ use crate::{
 mod rwlock;
 use rwlock::RwLock;
 
+/// A mock, in-memory tree store useful for testing.
+///
+/// The tree store is internally represented with a `HashMap`.  This structure
+/// is exposed for use only by downstream crates' tests, and it should obviously
+/// not be used in production.
 pub struct MockTreeStore {
     data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
