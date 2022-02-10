@@ -73,7 +73,6 @@ use thiserror::Error;
 
 use crate::types::{nibble::ROOT_NIBBLE_HEIGHT, Version};
 
-pub mod hash;
 pub mod iterator;
 pub mod metrics;
 pub mod node_type;
