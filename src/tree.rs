@@ -385,8 +385,6 @@ where
     /// the returned batch, the state `S_{i+1}` is ready to be read from the tree by calling
     /// [`get_with_proof`](struct.JellyfishMerkleTree.html#method.get_with_proof). Anything inside
     /// the batch is not reachable from public interfaces before being committed.
-    ///
-    /// TODO-BYTES: better types here?
     pub fn put_value_sets(
         &self,
         value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
