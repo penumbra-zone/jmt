@@ -49,7 +49,7 @@ pub struct NodeKey {
 
 impl NodeKey {
     /// Creates a new `NodeKey`.
-    pub fn new(version: Version, nibble_path: NibblePath) -> Self {
+    pub(crate) fn new(version: Version, nibble_path: NibblePath) -> Self {
         Self {
             version,
             nibble_path,
@@ -57,29 +57,29 @@ impl NodeKey {
     }
 
     /// A shortcut to generate a node key consisting of a version and an empty nibble path.
-    pub fn new_empty_path(version: Version) -> Self {
+    pub(crate) fn new_empty_path(version: Version) -> Self {
         Self::new(version, NibblePath::new(vec![]))
     }
 
     /// Gets the version.
-    pub fn version(&self) -> Version {
+    pub(crate) fn version(&self) -> Version {
         self.version
     }
 
     /// Gets the nibble path.
-    pub fn nibble_path(&self) -> &NibblePath {
+    pub(crate) fn nibble_path(&self) -> &NibblePath {
         &self.nibble_path
     }
 
     /// Generates a child node key based on this node key.
-    pub fn gen_child_node_key(&self, version: Version, n: Nibble) -> Self {
+    pub(crate) fn gen_child_node_key(&self, version: Version, n: Nibble) -> Self {
         let mut node_nibble_path = self.nibble_path().clone();
         node_nibble_path.push(n);
         Self::new(version, node_nibble_path)
     }
 
     /// Generates parent node key at the same version based on this node key.
-    pub fn gen_parent_node_key(&self) -> Self {
+    pub(crate) fn gen_parent_node_key(&self) -> Self {
         let mut node_nibble_path = self.nibble_path().clone();
         assert!(
             node_nibble_path.pop().is_some(),
@@ -89,7 +89,7 @@ impl NodeKey {
     }
 
     /// Sets the version to the given version.
-    pub fn set_version(&mut self, version: Version) {
+    pub(crate) fn set_version(&mut self, version: Version) {
         self.version = version;
     }
 
@@ -671,7 +671,7 @@ impl LeafNode {
     }
 
     /// Gets the associated value hash.
-    pub fn value_hash(&self) -> ValueHash {
+    pub(crate) fn value_hash(&self) -> ValueHash {
         self.value_hash
     }
 
@@ -726,28 +726,28 @@ impl From<LeafNode> for Node {
 
 impl Node {
     /// Creates the [`Null`](Node::Null) variant.
-    pub fn new_null() -> Self {
+    pub(crate) fn new_null() -> Self {
         Node::Null
     }
 
     /// Creates the [`Internal`](Node::Internal) variant.
     #[cfg(any(test, feature = "fuzzing"))]
-    pub fn new_internal(children: Children) -> Self {
+    pub(crate) fn new_internal(children: Children) -> Self {
         Node::Internal(InternalNode::new(children))
     }
 
     /// Creates the [`Leaf`](Node::Leaf) variant.
-    pub fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
+    pub(crate) fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
         Node::Leaf(LeafNode::new(key_hash, value))
     }
 
     /// Returns `true` if the node is a leaf node.
-    pub fn is_leaf(&self) -> bool {
+    pub(crate) fn is_leaf(&self) -> bool {
         matches!(self, Node::Leaf(_))
     }
 
     /// Returns `NodeType`
-    pub fn node_type(&self) -> NodeType {
+    pub(crate) fn node_type(&self) -> NodeType {
         match self {
             // The returning value will be used to construct a `Child` of a internal node, while an
             // internal node will never have a child of Node::Null.
@@ -758,7 +758,7 @@ impl Node {
     }
 
     /// Returns leaf count if known
-    pub fn leaf_count(&self) -> Option<usize> {
+    pub(crate) fn leaf_count(&self) -> Option<usize> {
         match self {
             Node::Null => Some(0),
             Node::Leaf(_) => Some(1),
@@ -795,7 +795,7 @@ impl Node {
     }
 
     /// Computes the hash of nodes.
-    pub fn hash(&self) -> [u8; 32] {
+    pub(crate) fn hash(&self) -> [u8; 32] {
         match self {
             Node::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
             Node::Internal(internal_node) => internal_node.hash(),

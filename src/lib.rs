@@ -19,38 +19,39 @@
 //! will look like the following figure:
 //!
 //! ```text
-//!                                    .──────────────────────.
-//!                            _.─────'                        `──────.
-//!                       _.──'                                        `───.
-//!                   _.─'                                                  `──.
-//!               _.─'                                                          `──.
-//!             ,'                                                                  `.
-//!          ,─'                                                                      '─.
-//!        ,'                                                                            `.
-//!      ,'                                                                                `.
-//!     ╱                                                                                    ╲
-//!    ╱                                                                                      ╲
-//!   ╱                                                                                        ╲
-//!  ╱                                                                                          ╲
-//! ;                                                                                            :
-//! ;                                                                                            :
-//!;                                                                                              :
-//!│                                                                                              │
-//!+──────────────────────────────────────────────────────────────────────────────────────────────+
-//! .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.
-//!/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \
-//!+----++----++----++----++----++----++----++----++----++----++----++----++----++----++----++----+
-//! (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
-//!  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
-//! (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
-//!  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
-//! (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
-//!  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
-//! (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
-//!  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
-//! (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
-//! ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■
-//! ■: the [`Value`] type this tree stores.
+//!                                     .──────────────────────.
+//!                             _.─────'                        `──────.
+//!                        _.──'                                        `───.
+//!                    _.─'                                                  `──.
+//!                _.─'                                                          `──.
+//!              ,'                                                                  `.
+//!           ,─'                                                                      '─.
+//!         ,'                                                                            `.
+//!       ,'                                                                                `.
+//!      ╱                                                                                    ╲
+//!     ╱                                                                                      ╲
+//!    ╱                                                                                        ╲
+//!   ╱                                                                                          ╲
+//!  ;                                                                                            :
+//!  ;                                                                                            :
+//! ;                                                                                              :
+//! │                                                                                              │
+//! +──────────────────────────────────────────────────────────────────────────────────────────────+
+//!  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.  .''.
+//! /    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \/    \
+//! +----++----++----++----++----++----++----++----++----++----++----++----++----++----++----++----+
+//!  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
+//!   )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
+//!  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
+//!   )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
+//!  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
+//!   )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
+//!  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
+//!   )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )  )
+//!  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  (
+//!  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■  ■
+//!
+//!  ■: the [`Value`] type this tree stores.
 //! ```
 //!
 //! A Jellyfish Merkle Tree consists of [`InternalNode`] and [`LeafNode`]. [`InternalNode`] is like
@@ -71,25 +72,41 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::types::{nibble::ROOT_NIBBLE_HEIGHT, Version};
-
-pub mod iterator;
-pub mod metrics;
-pub mod node_type;
-pub mod restore;
-pub mod types;
-
-pub use reader::*;
-pub use tree::*;
-pub use writer::*;
-
+mod bytes32ext;
+mod iterator;
+mod metrics;
+mod node_type;
 mod reader;
-#[cfg(any(test, feature = "fuzzing"))]
-mod tests;
+mod restore;
 mod tree;
 mod tree_cache;
+mod types;
 mod writer;
 
+use bytes32ext::Bytes32Ext;
+use types::nibble::ROOT_NIBBLE_HEIGHT;
+
+pub use iterator::JellyfishMerkleIterator;
+pub use restore::{JellyfishMerkleRestore, StateSnapshotReceiver};
+pub use tree::JellyfishMerkleTree;
+pub use types::Version;
+
+/// Contains types used to bridge a [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
+/// to the backing storage recording the tree's internal data.
+pub mod storage {
+    pub use node_type::{Node, NodeDecodeError, NodeKey};
+    pub use reader::TreeReader;
+    pub use writer::{
+        NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeUpdateBatch, TreeWriter,
+    };
+
+    use super::*;
+}
+
+#[cfg(any(test, feature = "fuzzing"))]
+mod tests;
+
+/// An error that occurs when the state root for a requested version is missing (e.g., because it was pruned).
 #[derive(Error, Debug)]
 #[error("Missing state root node at version {version}, probably pruned.")]
 pub struct MissingRootError {
@@ -100,20 +117,30 @@ pub struct MissingRootError {
 
 const SPARSE_MERKLE_PLACEHOLDER_HASH: [u8; 32] = *b"SPARSE_MERKLE_PLACEHOLDER_HASH__";
 
+/// An owned value stored in the [`JellyfishMerkleTree`].
 pub type OwnedValue = Vec<u8>;
 
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 
+/// A root of a [`JellyfishMerkleTree`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct RootHash(pub [u8; 32]);
+
+/// A hashed key used to index a [`JellyfishMerkleTree`].
+///
+/// The [`JellyfishMerkleTree`] only stores key hashes, not full keys.  Byte
+/// keys can be converted to a [`KeyHash`] using the provided `From` impl.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct KeyHash(pub [u8; 32]);
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-
+// This needs to be public for the fuzzing/Arbitrary feature, but we don't
+// really want it to be, so #[doc(hidden)] is the next best thing.
+#[doc(hidden)]
 pub struct ValueHash(pub [u8; 32]);
 
 impl<V: AsRef<[u8]>> From<V> for ValueHash {
@@ -135,6 +162,3 @@ impl<K: AsRef<[u8]>> From<K> for KeyHash {
         Self(*hasher.finalize().as_ref())
     }
 }
-
-mod bytes32ext;
-pub use bytes32ext::Bytes32Ext;

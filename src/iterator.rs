@@ -12,11 +12,12 @@ use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
+    storage::TreeReader,
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         Version,
     },
-    KeyHash, OwnedValue, TreeReader,
+    KeyHash, OwnedValue,
 };
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
@@ -91,7 +92,12 @@ impl NodeVisitInfo {
     }
 }
 
-/// The `JellyfishMerkleIterator` implementation.
+/// An iterator over all key-value pairs in a [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
+///
+/// Initialized with a version and a key, the iterator generates all the
+/// key-value pairs in this version of the tree, starting from the smallest key
+/// that is greater or equal to the given key, by performing a depth first
+/// traversal on the tree.
 pub struct JellyfishMerkleIterator<R> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,

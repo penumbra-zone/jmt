@@ -7,6 +7,7 @@ use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
+    storage::{TreeReader, TreeUpdateBatch},
     tree_cache::TreeCache,
     types::{
         nibble::{
@@ -16,7 +17,7 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, TreeReader, TreeUpdateBatch,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash,
 };
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.

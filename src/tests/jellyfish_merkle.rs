@@ -15,6 +15,7 @@ use super::{
 };
 use crate::{
     node_type::{Child, Node, NodeKey, NodeType},
+    storage::{TreeReader, TreeUpdateBatch},
     tests::helper::{
         arb_kv_pair_with_distinct_last_nibble, test_get_with_proof_with_distinct_last_nibble,
     },
@@ -22,7 +23,7 @@ use crate::{
         nibble::{nibble_path::NibblePath, Nibble},
         Version, PRE_GENESIS_VERSION,
     },
-    JellyfishMerkleTree, KeyHash, MissingRootError, TreeReader, TreeUpdateBatch,
+    JellyfishMerkleTree, KeyHash, MissingRootError,
 };
 
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {

@@ -7,8 +7,8 @@ use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
+    storage::{NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
-    NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter,
 };
 
 mod rwlock;

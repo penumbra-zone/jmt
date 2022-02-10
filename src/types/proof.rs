@@ -44,7 +44,7 @@ pub struct SparseMerkleLeafNode {
 }
 
 impl SparseMerkleLeafNode {
-    pub fn new(key_hash: KeyHash, value_hash: ValueHash) -> Self {
+    pub(crate) fn new(key_hash: KeyHash, value_hash: ValueHash) -> Self {
         SparseMerkleLeafNode {
             key_hash,
             value_hash,
@@ -53,10 +53,6 @@ impl SparseMerkleLeafNode {
 
     pub fn key_hash(&self) -> KeyHash {
         self.key_hash
-    }
-
-    pub fn value_hash(&self) -> ValueHash {
-        self.value_hash
     }
 
     pub fn hash(&self) -> [u8; 32] {

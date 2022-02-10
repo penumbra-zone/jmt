@@ -2,8 +2,8 @@ use anyhow::{format_err, Result};
 
 use crate::node_type::{LeafNode, Node, NodeKey};
 
-/// `TreeReader` defines the interface between
-/// [`JellyfishMerkleTree`](struct.JellyfishMerkleTree.html)
+/// Defines the interface between a
+/// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
 /// and underlying storage holding nodes.
 pub trait TreeReader {
     /// Gets node given a node key. Returns error if the node does not exist.
