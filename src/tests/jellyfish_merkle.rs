@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use aes_gcm::aead::Key;
+
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
@@ -303,23 +303,23 @@ fn test_batch_insertion() {
     // Total: 12 nodes
     // ```
     let key1 = KeyHash([0u8; 32]);
-    let value1 = (vec![1u8]);
+    let value1 = vec![1u8];
 
     let key2 = update_nibble(&key1, 0, 2);
-    let value2 = (vec![2u8]);
-    let value2_update = (vec![22u8]);
+    let value2 = vec![2u8];
+    let value2_update = vec![22u8];
 
     let key3 = update_nibble(&key1, 1, 3);
-    let value3 = (vec![3u8]);
+    let value3 = vec![3u8];
 
     let key4 = update_nibble(&key1, 1, 4);
-    let value4 = (vec![4u8]);
+    let value4 = vec![4u8];
 
     let key5 = update_nibble(&key1, 5, 5);
-    let value5 = (vec![5u8]);
+    let value5 = vec![5u8];
 
     let key6 = update_nibble(&key1, 3, 6);
-    let value6 = (vec![6u8]);
+    let value6 = vec![6u8];
 
     let batches = vec![
         vec![(key1, value1)],
@@ -474,13 +474,13 @@ fn test_non_existence() {
     // Total: 7 nodes
     // ```
     let key1 = KeyHash([0u8; 32]);
-    let value1 = (vec![1u8]);
+    let value1 = vec![1u8];
 
     let key2 = update_nibble(&key1, 0, 15);
-    let value2 = (vec![2u8]);
+    let value2 = vec![2u8];
 
     let key3 = update_nibble(&key1, 2, 3);
-    let value3 = (vec![3u8]);
+    let value3 = vec![3u8];
 
     let (roots, batch) = tree
         .batch_put_value_sets(
