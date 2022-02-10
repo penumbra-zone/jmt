@@ -26,7 +26,6 @@ pub struct SparseMerkleProof {
 
     /// All siblings in this proof, including the default ones. Siblings are ordered from the bottom
     /// level to the root level.
-    /// TODO-BYTES: refine this type?
     siblings: Vec<[u8; 32]>,
 }
 

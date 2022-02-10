@@ -639,7 +639,7 @@ pub(crate) fn get_child_and_sibling_half_start(n: Nibble, height: u8) -> (u8, u8
 
 /// Represents a key-value pair in the map.
 ///
-/// Note: this does not store the key itself. (TODO-BYTES: should we change this?)
+/// Note: this does not store the key itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LeafNode {
     /// The hash of the key for this entry.
@@ -652,8 +652,6 @@ pub struct LeafNode {
 
 impl LeafNode {
     /// Creates a new leaf node.
-    ///
-    /// TODO-BYTES: should we hash the key internally?
     pub fn new(key_hash: KeyHash, value: Vec<u8>) -> Self {
         let value_hash = value.as_slice().into();
         Self {
@@ -664,8 +662,6 @@ impl LeafNode {
     }
 
     /// Gets the key hash.
-    ///
-    /// TODO-BYTES: store the key itself?
     pub fn key_hash(&self) -> KeyHash {
         self.key_hash
     }
@@ -680,8 +676,6 @@ impl LeafNode {
         self.value_hash
     }
 
-    // TODO-BYTES: refine type?
-    // TODO-BYTES: should this even be public?
     pub fn hash(&self) -> [u8; 32] {
         SparseMerkleLeafNode::new(self.key_hash, self.value_hash).hash()
     }
@@ -825,7 +819,6 @@ impl Node {
             Some(NodeTag::Internal) => {
                 Ok(Node::Internal(InternalNode::deserialize(&val[1..], true)?))
             }
-            // TODO-BYTES: remove bcs?
             Some(NodeTag::Leaf) => Ok(Node::Leaf(bcs::from_bytes(&val[1..])?)),
             None => Err(NodeDecodeError::UnknownTag { unknown_tag: tag }.into()),
         }

@@ -115,8 +115,6 @@ where
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the smallest key that is greater or equal to
     /// `starting_key`.
-    ///
-    /// TODO-BYTES: key vs hashed key?
     pub fn new(reader: Arc<R>, version: Version, starting_key: KeyHash) -> Result<Self> {
         let mut parent_stack = vec![];
         let mut done = false;
@@ -273,7 +271,6 @@ impl<R> Iterator for JellyfishMerkleIterator<R>
 where
     R: TreeReader,
 {
-    // TODO-BYTES: store keys?
     type Item = Result<(KeyHash, OwnedValue)>;
 
     fn next(&mut self) -> Option<Self::Item> {

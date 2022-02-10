@@ -96,7 +96,7 @@ impl Arbitrary for Nibble {
 
 #[cfg(test)]
 mod test {
-    // TODO-BYTES: move these testes to Bytes32Ext
+    // TODO-BYTES: move these tests to Bytes32Ext
 
     use super::*;
     use crate::hash::TestOnlyHash;

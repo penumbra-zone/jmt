@@ -51,7 +51,6 @@ impl SparseMerkleLeafNode {
         }
     }
 
-    // TODO-BYTES: store key bytes?
     pub fn key_hash(&self) -> KeyHash {
         self.key_hash
     }
@@ -60,7 +59,6 @@ impl SparseMerkleLeafNode {
         self.value_hash
     }
 
-    // TODO-BYTES: refine type?
     pub fn hash(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();

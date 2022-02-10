@@ -99,7 +99,6 @@ pub struct MissingRootError {
 
 // TODO: reorg
 
-pub type OwnedKey = Vec<u8>;
 pub type OwnedValue = Vec<u8>;
 
 #[cfg(any(test, feature = "fuzzing"))]

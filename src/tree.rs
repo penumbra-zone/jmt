@@ -16,8 +16,7 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedKey, OwnedValue, RootHash, TreeReader,
-    TreeUpdateBatch,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, TreeReader, TreeUpdateBatch,
 };
 
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
@@ -62,8 +61,6 @@ where
     }
 
     /// The batch version of `put_value_sets`.
-    ///
-    /// TODO-BYTES: nicer input types?
     pub fn batch_put_value_sets(
         &self,
         value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
@@ -332,8 +329,6 @@ where
     /// This is a convenient function that calls
     /// [`put_value_sets`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
     /// `keyed_value_set`.
-    ///
-    /// TODO-BYTES: better types here?
     pub fn put_value_set(
         &self,
         value_set: Vec<(KeyHash, OwnedValue)>,
@@ -394,7 +389,7 @@ where
     /// TODO-BYTES: better types here?
     pub fn put_value_sets(
         &self,
-        value_sets: Vec<Vec<(OwnedKey, OwnedValue)>>,
+        value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
         first_version: Version,
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
@@ -414,7 +409,6 @@ where
         Ok(tree_cache.into())
     }
 
-    // TODO-BYTES: take key bytes?
     fn put(
         &self,
         key: KeyHash,
@@ -652,8 +646,6 @@ where
     }
 
     /// Helper function for creating leaf nodes. Returns the newly created leaf node.
-    ///
-    /// TODO-BYTES: cleanup?
     fn create_leaf_node(
         node_key: NodeKey,
         nibble_iter: &NibbleIterator,
@@ -749,8 +741,6 @@ where
     }
 
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
-    ///
-    /// TODO-BYTES: this API doesn't really make sense without prehashed keys...
     pub fn get_range_proof(
         &self,
         rightmost_key_to_prove: KeyHash,

@@ -39,8 +39,6 @@ pub fn plus_one(key: KeyHash) -> KeyHash {
 }
 
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version.
-///
-/// TODO-BYTES: store key bytes?
 pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
