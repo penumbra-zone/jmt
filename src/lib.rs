@@ -77,17 +77,17 @@ mod iterator;
 mod metrics;
 mod node_type;
 mod reader;
-mod restore;
 mod tree;
 mod tree_cache;
 mod types;
 mod writer;
 
+pub mod restore;
+
 use bytes32ext::Bytes32Ext;
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 
 pub use iterator::JellyfishMerkleIterator;
-pub use restore::{JellyfishMerkleRestore, StateSnapshotReceiver};
 pub use tree::JellyfishMerkleTree;
 pub use types::Version;
 

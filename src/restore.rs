@@ -1,8 +1,9 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! This module implements the functionality to restore a `JellyfishMerkleTree` from small chunks
-//! of accounts.
+//! This module implements the functionality to restore a
+//! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
+//! key/value pairs.
 
 use std::sync::Arc;
 
