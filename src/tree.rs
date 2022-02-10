@@ -66,7 +66,7 @@ where
     /// TODO-BYTES: nicer input types?
     pub fn batch_put_value_sets(
         &self,
-        value_sets: Vec<Vec<(OwnedKey, OwnedValue)>>,
+        value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
         node_hashes: Option<Vec<&HashMap<NibblePath, [u8; 32]>>>,
         first_version: Version,
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
@@ -86,7 +86,6 @@ where
             let version = first_version + idx as u64;
             let deduped_and_sorted_kvs = value_set
                 .into_iter()
-                .map(|(k, v)| (KeyHash::from(k), v))
                 .collect::<BTreeMap<_, _>>()
                 .into_iter()
                 .collect::<Vec<_>>();
@@ -337,7 +336,7 @@ where
     /// TODO-BYTES: better types here?
     pub fn put_value_set(
         &self,
-        value_set: Vec<(OwnedKey, OwnedValue)>,
+        value_set: Vec<(KeyHash, OwnedValue)>,
         version: Version,
     ) -> Result<(RootHash, TreeUpdateBatch)> {
         let (root_hashes, tree_update_batch) =

@@ -15,7 +15,6 @@ mod rwlock;
 use rwlock::RwLock;
 
 pub struct MockTreeStore {
-    //#[allow(clippy::type_complexity)]
     data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
 }

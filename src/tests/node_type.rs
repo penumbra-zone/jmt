@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use rand::rngs::OsRng;
 
 use crate::{
-    hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::{
         deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, Node,
         NodeDecodeError, NodeKey, NodeType,

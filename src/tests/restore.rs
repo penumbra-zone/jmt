@@ -10,7 +10,7 @@ use crate::{
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
     tests::helper::init_mock_db,
     types::Version,
-    JellyfishMerkleTree, KeyHash, OwnedKey, OwnedValue, RootHash, TreeReader,
+    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, TreeReader,
 };
 
 proptest! {
@@ -18,7 +18,7 @@ proptest! {
 
     #[test]
     fn test_restore_without_interruption(
-        btree in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
+        btree in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
         let restore_db = Arc::new(MockTreeStore::default());
@@ -28,7 +28,7 @@ proptest! {
 
     #[test]
     fn test_restore_with_interruption(
-        (all, batch1_size) in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 2..1000)
+        (all, batch1_size) in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 2..1000)
             .prop_flat_map(|btree| {
                 let len = btree.len();
                 (Just(btree), 1..len)
@@ -49,11 +49,10 @@ proptest! {
                 Arc::clone(&restore_db), version, expected_root_hash, true /* leaf_count_migraion */
             ).unwrap();
             let proof = tree
-                .get_range_proof(batch1.last().map(|(key, _value)| KeyHash::from(key)).unwrap(), version)
+                .get_range_proof(batch1.last().map(|(key, _value)| *key).unwrap(), version)
                 .unwrap();
             restore.add_chunk(
                 batch1.into_iter()
-                    .map(|(k,v)| (KeyHash::from(k), v))
                     .collect(),
                 proof
             ).unwrap();
@@ -71,7 +70,7 @@ proptest! {
             let remaining_accounts: Vec<_> = all
                 .clone()
                 .into_iter()
-                .filter(|(k, _v)| KeyHash::from(k) > rightmost_key)
+                .filter(|(k, _v)| *k > rightmost_key)
                 .collect();
 
             let mut restore = JellyfishMerkleRestore::new(
@@ -79,13 +78,12 @@ proptest! {
             ).unwrap();
             let proof = tree
                 .get_range_proof(
-                    remaining_accounts.last().map(|(key, _value)| KeyHash::from(key)).unwrap(),
+                    remaining_accounts.last().map(|(key, _value)| *key).unwrap(),
                     version,
                 )
                 .unwrap();
             restore.add_chunk(
                 remaining_accounts.into_iter()
-                    .map(|(k,v)| (KeyHash::from(k), v))
                     .collect(),
                 proof
             ).unwrap();
@@ -97,8 +95,8 @@ proptest! {
 
     #[test]
     fn test_overwrite(
-        btree1 in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
-        btree2 in btree_map(any::<OwnedKey>(), any::<OwnedValue>(), 1..1000),
+        btree1 in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
+        btree2 in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
         let restore_db = Arc::new(MockTreeStore::new(true /* allow_overwrite */));
@@ -111,15 +109,12 @@ proptest! {
 fn assert_success(
     db: &MockTreeStore,
     expected_root_hash: RootHash,
-    btree: &BTreeMap<OwnedKey, OwnedValue>,
+    btree: &BTreeMap<KeyHash, OwnedValue>,
     version: Version,
 ) {
     let tree = JellyfishMerkleTree::new(db);
     for (key, value) in btree {
-        assert_eq!(
-            tree.get(KeyHash::from(key), version).unwrap(),
-            Some(value.clone())
-        );
+        assert_eq!(tree.get(*key, version).unwrap(), Some(value.clone()));
     }
 
     let actual_root_hash = tree.get_root_hash(version).unwrap();
@@ -127,7 +122,7 @@ fn assert_success(
 }
 
 fn restore_without_interruption(
-    btree: &BTreeMap<OwnedKey, OwnedValue>,
+    btree: &BTreeMap<KeyHash, OwnedValue>,
     target_version: Version,
     target_db: &Arc<MockTreeStore>,
     try_resume: bool,
@@ -154,11 +149,9 @@ fn restore_without_interruption(
         .unwrap()
     };
     for (key, value) in btree {
-        let proof = tree
-            .get_range_proof(KeyHash::from(key), source_version)
-            .unwrap();
+        let proof = tree.get_range_proof(*key, source_version).unwrap();
         restore
-            .add_chunk(vec![(key.into(), value.clone())], proof)
+            .add_chunk(vec![(*key, value.clone())], proof)
             .unwrap();
     }
     Box::new(restore).finish().unwrap();

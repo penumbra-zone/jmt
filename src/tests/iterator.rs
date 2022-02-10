@@ -8,8 +8,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::{helper::plus_one, mock_tree_store::MockTreeStore};
 use crate::{
-    iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree, KeyHash, OwnedKey,
-    OwnedValue,
+    iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree, KeyHash, OwnedValue,
 };
 
 #[test]
@@ -24,13 +23,10 @@ fn test_iterator_multiple_versions() {
     test_n_leaves_multiple_versions(50);
 }
 
-/*
-// Cannot run this test with internal hashing
 #[test]
 fn test_long_path() {
     test_n_consecutive_addresses(50);
 }
-*/
 
 fn test_n_leaves_same_version(n: usize) {
     let db = Arc::new(MockTreeStore::default());
@@ -40,9 +36,9 @@ fn test_n_leaves_same_version(n: usize) {
 
     let mut btree = BTreeMap::new();
     for i in 0..n {
-        let key: [u8; 32] = rng.gen();
+        let key = KeyHash(rng.gen());
         let value = i.to_be_bytes().to_vec();
-        assert_eq!(btree.insert(key.to_vec(), value), None);
+        assert_eq!(btree.insert(key, value), None);
     }
 
     let (_root_hash, batch) = tree
@@ -50,10 +46,7 @@ fn test_n_leaves_same_version(n: usize) {
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
 
-    let btree = btree
-        .into_iter()
-        .map(|(k, v)| (KeyHash::from(k), v))
-        .collect::<BTreeMap<KeyHash, OwnedValue>>();
+    let btree = btree.into_iter().collect::<BTreeMap<KeyHash, OwnedValue>>();
 
     run_tests(db, &btree, 0 /* version */);
 }
@@ -64,9 +57,9 @@ fn test_n_leaves_multiple_versions(n: usize) {
 
     let mut btree = BTreeMap::new();
     for i in 0..n {
-        let key = format!("key{}", i).into_bytes();
+        let key = format!("key{}", i).into();
         let value = i.to_be_bytes().to_vec();
-        assert_eq!(btree.insert(key.as_slice().into(), value.clone()), None);
+        assert_eq!(btree.insert(key, value.clone()), None);
         let (_root_hash, batch) = tree
             .put_value_set(vec![(key, value)], i as Version)
             .unwrap();
@@ -75,14 +68,16 @@ fn test_n_leaves_multiple_versions(n: usize) {
     }
 }
 
-/*
-// Cannot run this test with internal hashing
 fn test_n_consecutive_addresses(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
     let btree: BTreeMap<_, _> = (0..n)
-        .map(|i| (HashValue::from_u64(i as u64), i.to_be_bytes().to_vec()))
+        .map(|i| {
+            let mut buf = [0u8; 32];
+            buf[24..].copy_from_slice(&(i as u64).to_be_bytes());
+            (KeyHash(buf), i.to_be_bytes().to_vec())
+        })
         .collect();
 
     let (_root_hash, batch) = tree
@@ -92,7 +87,6 @@ fn test_n_consecutive_addresses(n: usize) {
 
     run_tests(db, &btree, 0 /* version */);
 }
-*/
 
 fn run_tests(db: Arc<MockTreeStore>, btree: &BTreeMap<KeyHash, OwnedValue>, version: Version) {
     {

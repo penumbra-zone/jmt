@@ -46,6 +46,27 @@ impl SparseMerkleProof {
         &self.siblings
     }
 
+    /// Verifies an element whose key is `element_key` and value is
+    /// `element_value` exists in the Sparse Merkle Tree using the provided proof.
+    pub fn verify_existence<V: AsRef<[u8]>>(
+        &self,
+        expected_root_hash: RootHash,
+        element_key: KeyHash,
+        element_value: V,
+    ) -> Result<()> {
+        self.verify(expected_root_hash, element_key, Some(element_value))
+    }
+
+    /// Verifies the proof is a valid non-inclusion proof that shows this key doesn't exist in the
+    /// tree.
+    pub fn verify_nonexistence(
+        &self,
+        expected_root_hash: RootHash,
+        element_key: KeyHash,
+    ) -> Result<()> {
+        self.verify(expected_root_hash, element_key, None::<&[u8]>)
+    }
+
     /// If `element_value` is present, verifies an element whose key is `element_key` and value is
     /// `element_value` exists in the Sparse Merkle Tree using the provided proof. Otherwise
     /// verifies the proof is a valid non-inclusion proof that shows this key doesn't exist in the
