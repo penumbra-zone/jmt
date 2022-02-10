@@ -1,52 +1,47 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::Cursor, panic, rc::Rc};
+use std::{convert::TryInto, io::Cursor, panic, rc::Rc};
 
 use proptest::prelude::*;
+use rand::rngs::OsRng;
 
 use crate::{
-    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::{
-        deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode,
+        deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, Node,
         NodeDecodeError, NodeKey, NodeType,
     },
-    tests::helper::ValueBlob,
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
         Version,
     },
+    KeyHash, ValueHash,
 };
 
-type Node = crate::node_type::Node<crate::tests::helper::ValueBlob>;
-
-fn hash_internal(left: HashValue, right: HashValue) -> HashValue {
+fn hash_internal(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
     SparseMerkleInternalNode::new(left, right).hash()
 }
 
-fn hash_leaf(key: HashValue, value_hash: HashValue) -> HashValue {
+fn hash_leaf(key: KeyHash, value_hash: ValueHash) -> [u8; 32] {
     SparseMerkleLeafNode::new(key, value_hash).hash()
 }
 
 // Generate a random node key with 63 nibbles.
 fn random_63nibbles_node_key() -> NodeKey {
-    let mut bytes = HashValue::random().to_vec();
+    let mut bytes: [u8; 32] = OsRng.gen();
     *bytes.last_mut().unwrap() &= 0xf0;
-    NodeKey::new(0 /* version */, NibblePath::new_odd(bytes))
+    NodeKey::new(0 /* version */, NibblePath::new_odd(bytes.to_vec()))
 }
 
 // Generate a pair of leaf node key and account key with a passed-in 63-nibble node key and the last
 // nibble to be appended.
-fn gen_leaf_keys(
-    version: Version,
-    nibble_path: &NibblePath,
-    nibble: Nibble,
-) -> (NodeKey, HashValue) {
+fn gen_leaf_keys(version: Version, nibble_path: &NibblePath, nibble: Nibble) -> (NodeKey, KeyHash) {
     assert_eq!(nibble_path.num_nibbles(), 63);
     let mut np = nibble_path.clone();
     np.push(nibble);
-    let account_key = HashValue::from_slice(np.bytes()).unwrap();
+    let account_key = KeyHash(np.bytes().try_into().unwrap());
     (NodeKey::new(version, np), account_key)
 }
 
@@ -55,9 +50,9 @@ fn test_encode_decode() {
     let internal_node_key = random_63nibbles_node_key();
 
     let leaf1_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(1));
-    let leaf1_node = Node::new_leaf(leaf1_keys.1, ValueBlob::from(vec![0x00]));
+    let leaf1_node = Node::new_leaf(leaf1_keys.1, vec![0x00]);
     let leaf2_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(2));
-    let leaf2_node = Node::new_leaf(leaf2_keys.1, ValueBlob::from(vec![0x01]));
+    let leaf2_node = Node::new_leaf(leaf2_keys.1, vec![0x01]);
 
     let mut children = Children::default();
     children.insert(
@@ -69,10 +64,10 @@ fn test_encode_decode() {
         Child::new(leaf2_node.hash(), 0 /* version */, NodeType::Leaf),
     );
 
-    let account_key = HashValue::random();
+    let account_key = KeyHash(OsRng.gen());
     let nodes = vec![
         Node::new_internal(children),
-        Node::new_leaf(account_key, ValueBlob::from(vec![0x02])),
+        Node::new_leaf(account_key, vec![0x02]),
     ];
     for n in &nodes {
         let v = n.encode().unwrap();
@@ -127,7 +122,7 @@ fn test_internal_validity() {
         let mut children = Children::default();
         children.insert(
             Nibble::from(1),
-            Child::new(HashValue::random(), 0 /* version */, NodeType::Leaf),
+            Child::new(OsRng.gen(), 0 /* version */, NodeType::Leaf),
         );
         InternalNode::new(children);
     });
@@ -137,9 +132,9 @@ fn test_internal_validity() {
 #[test]
 fn test_leaf_hash() {
     {
-        let address = HashValue::random();
-        let blob = ValueBlob::from(vec![0x02]);
-        let value_hash = blob.hash();
+        let address = KeyHash(OsRng.gen());
+        let blob = vec![0x02];
+        let value_hash: ValueHash = blob.as_slice().into();
         let hash = hash_leaf(address, value_hash);
         let leaf_node = Node::new_leaf(address, blob);
         assert_eq!(leaf_node.hash(), hash);
@@ -154,8 +149,8 @@ proptest! {
 
         let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
         let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
 
         children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
@@ -193,8 +188,8 @@ proptest! {
 
         let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
         let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
 
         children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
@@ -271,9 +266,9 @@ proptest! {
         let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
         let leaf3_node_key = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), index3).0;
 
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
-        let hash3 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
+        let hash3 = OsRng.gen();
 
         children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
@@ -324,10 +319,10 @@ proptest! {
         let internal3_node_key = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), 7.into()).0;
         let leaf4_node_key = gen_leaf_keys(3 /* version */, internal_node_key.nibble_path(), index2).0;
 
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
-        let hash3 = HashValue::random();
-        let hash4 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
+        let hash3 = OsRng.gen();
+        let hash4 = OsRng.gen();
         children.insert(index1, Child::new(hash1, 0, NodeType::Leaf));
         children.insert(2.into(), Child::new(hash2, 1, NodeType::InternalLegacy));
         children.insert(7.into(), Child::new(hash3, 2, NodeType::InternalLegacy));
@@ -443,8 +438,8 @@ fn test_internal_hash_and_proof() {
 
         let index1 = Nibble::from(4);
         let index2 = Nibble::from(15);
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
         let child1_node_key = gen_leaf_keys(
             0, /* version */
             internal_node_key.nibble_path(),
@@ -582,8 +577,8 @@ fn test_internal_hash_and_proof() {
 
         let index1 = Nibble::from(0);
         let index2 = Nibble::from(7);
-        let hash1 = HashValue::random();
-        let hash2 = HashValue::random();
+        let hash1 = OsRng.gen();
+        let hash2 = OsRng.gen();
         let child1_node_key = gen_leaf_keys(
             0, /* version */
             internal_node_key.nibble_path(),
@@ -744,7 +739,7 @@ impl BinaryTreeNode {
         })
     }
 
-    fn hash(&self) -> HashValue {
+    fn hash(&self) -> [u8; 32] {
         match self {
             BinaryTreeNode::Internal(node) => node.hash,
             BinaryTreeNode::Child(node) => node.hash,
@@ -772,7 +767,7 @@ struct BinaryTreeInternalNode {
     width: u8,
     left: Rc<BinaryTreeNode>,
     right: Rc<BinaryTreeNode>,
-    hash: HashValue,
+    hash: [u8; 32],
 }
 
 impl BinaryTreeInternalNode {
@@ -793,7 +788,7 @@ impl BinaryTreeInternalNode {
 struct BinaryTreeChildNode {
     version: Version,
     index: u8,
-    hash: HashValue,
+    hash: [u8; 32],
     is_leaf: bool,
 }
 
@@ -841,7 +836,7 @@ impl NaiveInternalNode {
         &self,
         node_key: &NodeKey,
         n: u8,
-    ) -> (Option<NodeKey>, Vec<HashValue>) {
+    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
         let mut current_node = Rc::clone(&self.root);
         let mut siblings = Vec::new();
 

@@ -11,6 +11,7 @@
 
 use std::{
     collections::hash_map::HashMap,
+    convert::TryFrom,
     io::{prelude::*, Cursor, Read, SeekFrom, Write},
     mem::size_of,
 };
@@ -27,13 +28,14 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    hash::{CryptoHash, HashValue, SPARSE_MERKLE_PLACEHOLDER_HASH},
+    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
         Version,
     },
+    KeyHash, ValueHash,
 };
 
 /// The unique key of each node.
@@ -165,7 +167,7 @@ impl Arbitrary for NodeType {
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct Child {
     /// The hash value of this child node.
-    pub hash: HashValue,
+    pub hash: [u8; 32],
     /// `version`, the `nibble_path` of the ['NodeKey`] of this [`InternalNode`] the child belongs
     /// to and the child's index constitute the [`NodeKey`] to uniquely identify this child node
     /// from the storage. Used by `[`NodeKey::gen_child_node_key`].
@@ -176,7 +178,7 @@ pub struct Child {
 }
 
 impl Child {
-    pub fn new(hash: HashValue, version: Version, node_type: NodeType) -> Self {
+    pub fn new(hash: [u8; 32], version: Version, node_type: NodeType) -> Self {
         Self {
             hash,
             version,
@@ -338,7 +340,7 @@ impl InternalNode {
         }
     }
 
-    pub fn hash(&self) -> HashValue {
+    pub fn hash(&self) -> [u8; 32] {
         self.merkle_hash(
             0,  /* start index */
             16, /* the number of leaves in the subtree of which we want the hash of root */
@@ -415,13 +417,13 @@ impl InternalNode {
             let remaining = len - pos;
 
             ensure!(
-                remaining >= size_of::<HashValue>(),
+                remaining >= size_of::<[u8; 32]>(),
                 "not enough bytes left, children: {}, bytes: {}",
                 existence_bitmap.count_ones(),
                 remaining
             );
-            let hash = HashValue::from_slice(&reader.get_ref()[pos..pos + size_of::<HashValue>()])?;
-            reader.seek(SeekFrom::Current(size_of::<HashValue>() as i64))?;
+            let hash = <[u8; 32]>::try_from(&reader.get_ref()[pos..pos + size_of::<[u8; 32]>()])?;
+            reader.seek(SeekFrom::Current(size_of::<[u8; 32]>() as i64))?;
 
             let child_bit = 1 << next_child;
             let node_type = if (leaf_bitmap & child_bit) != 0 {
@@ -488,7 +490,7 @@ impl InternalNode {
         start: u8,
         width: u8,
         (existence_bitmap, leaf_bitmap): (u16, u16),
-    ) -> HashValue {
+    ) -> [u8; 32] {
         // Given a bit [start, 1 << nibble_height], return the value of that range.
         let (range_existence_bitmap, range_leaf_bitmap) =
             Self::range_bitmaps(start, width, (existence_bitmap, leaf_bitmap));
@@ -548,7 +550,7 @@ impl InternalNode {
         &self,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<HashValue>) {
+    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
         let mut siblings = vec![];
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
 
@@ -635,54 +637,53 @@ pub(crate) fn get_child_and_sibling_half_start(n: Nibble, height: u8) -> (u8, u8
     (child_half_start, sibling_half_start)
 }
 
-/// Represents an account.
+/// Represents a key-value pair in the map.
+///
+/// Note: this does not store the key itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct LeafNode<V> {
-    // The hashed account address associated with this leaf node.
-    account_key: HashValue,
-    // The hash of the value.
-    value_hash: HashValue,
-    // The value stored in the leaf, associated with `account_key`.
-    value: V,
+pub struct LeafNode {
+    /// The hash of the key for this entry.
+    key_hash: KeyHash,
+    /// The hash of the value for this entry.
+    value_hash: ValueHash,
+    /// The value associated with the key.
+    value: Vec<u8>,
 }
 
-impl<V> LeafNode<V>
-where
-    V: crate::Value,
-{
+impl LeafNode {
     /// Creates a new leaf node.
-    pub fn new(account_key: HashValue, value: V) -> Self {
-        let value_hash = value.hash();
+    pub fn new(key_hash: KeyHash, value: Vec<u8>) -> Self {
+        let value_hash = value.as_slice().into();
         Self {
-            account_key,
+            key_hash,
             value_hash,
             value,
         }
     }
 
-    /// Gets the account key, the hashed account address.
-    pub fn account_key(&self) -> HashValue {
-        self.account_key
+    /// Gets the key hash.
+    pub fn key_hash(&self) -> KeyHash {
+        self.key_hash
     }
 
     /// Gets the associated value itself.
-    pub fn value(&self) -> &V {
-        &self.value
+    pub fn value(&self) -> &[u8] {
+        self.value.as_ref()
     }
 
     /// Gets the associated value hash.
-    pub fn value_hash(&self) -> HashValue {
+    pub fn value_hash(&self) -> ValueHash {
         self.value_hash
     }
 
-    pub fn hash(&self) -> HashValue {
-        SparseMerkleLeafNode::new(self.account_key, self.value_hash).hash()
+    pub fn hash(&self) -> [u8; 32] {
+        SparseMerkleLeafNode::new(self.key_hash, self.value_hash).hash()
     }
 }
 
-impl<V> From<LeafNode<V>> for SparseMerkleLeafNode {
-    fn from(leaf_node: LeafNode<V>) -> Self {
-        Self::new(leaf_node.account_key, leaf_node.value_hash)
+impl From<LeafNode> for SparseMerkleLeafNode {
+    fn from(leaf_node: LeafNode) -> Self {
+        Self::new(leaf_node.key_hash, leaf_node.value_hash)
     }
 }
 
@@ -697,16 +698,16 @@ enum NodeTag {
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Node<V> {
+pub enum Node {
     /// Represents `null`.
     Null,
     /// A wrapper of [`InternalNode`].
     Internal(InternalNode),
     /// A wrapper of [`LeafNode`].
-    Leaf(LeafNode<V>),
+    Leaf(LeafNode),
 }
 
-impl<V> From<InternalNode> for Node<V> {
+impl From<InternalNode> for Node {
     fn from(node: InternalNode) -> Self {
         Node::Internal(node)
     }
@@ -718,16 +719,13 @@ impl From<InternalNode> for Children {
     }
 }
 
-impl<V> From<LeafNode<V>> for Node<V> {
-    fn from(node: LeafNode<V>) -> Self {
+impl From<LeafNode> for Node {
+    fn from(node: LeafNode) -> Self {
         Node::Leaf(node)
     }
 }
 
-impl<V> Node<V>
-where
-    V: crate::Value,
-{
+impl Node {
     /// Creates the [`Null`](Node::Null) variant.
     pub fn new_null() -> Self {
         Node::Null
@@ -740,8 +738,8 @@ where
     }
 
     /// Creates the [`Leaf`](Node::Leaf) variant.
-    pub fn new_leaf(account_key: HashValue, value: V) -> Self {
-        Node::Leaf(LeafNode::new(account_key, value))
+    pub fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
+        Node::Leaf(LeafNode::new(key_hash, value))
     }
 
     /// Returns `true` if the node is a leaf node.
@@ -798,7 +796,7 @@ where
     }
 
     /// Computes the hash of nodes.
-    pub fn hash(&self) -> HashValue {
+    pub fn hash(&self) -> [u8; 32] {
         match self {
             Node::Null => *SPARSE_MERKLE_PLACEHOLDER_HASH,
             Node::Internal(internal_node) => internal_node.hash(),
@@ -807,7 +805,7 @@ where
     }
 
     /// Recovers from serialized bytes in physical storage.
-    pub fn decode(val: &[u8]) -> Result<Node<V>> {
+    pub fn decode(val: &[u8]) -> Result<Node> {
         if val.is_empty() {
             return Err(NodeDecodeError::EmptyInput.into());
         }

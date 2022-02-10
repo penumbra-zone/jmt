@@ -6,18 +6,17 @@
 //! smallest key that is greater or equal to the given key, by performing a depth first traversal
 //! on the tree.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
-    hash::HashValue,
     node_type::{Child, InternalNode, Node, NodeKey},
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         Version,
     },
-    TreeReader,
+    KeyHash, OwnedValue, TreeReader,
 };
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
@@ -93,7 +92,7 @@ impl NodeVisitInfo {
 }
 
 /// The `JellyfishMerkleIterator` implementation.
-pub struct JellyfishMerkleIterator<R, V> {
+pub struct JellyfishMerkleIterator<R> {
     /// The storage engine from which we can read nodes using node keys.
     reader: Arc<R>,
 
@@ -107,24 +106,21 @@ pub struct JellyfishMerkleIterator<R, V> {
     /// `self.parent_stack` is empty. But in case of a tree with a single leaf, we need this
     /// additional bit.
     done: bool,
-
-    phantom_value: PhantomData<V>,
 }
 
-impl<R, V> JellyfishMerkleIterator<R, V>
+impl<R> JellyfishMerkleIterator<R>
 where
-    R: TreeReader<V>,
-    V: crate::Value,
+    R: TreeReader,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the smallest key that is greater or equal to
     /// `starting_key`.
-    pub fn new(reader: Arc<R>, version: Version, starting_key: HashValue) -> Result<Self> {
+    pub fn new(reader: Arc<R>, version: Version, starting_key: KeyHash) -> Result<Self> {
         let mut parent_stack = vec![];
         let mut done = false;
 
         let mut current_node_key = NodeKey::new_empty_path(version);
-        let nibble_path = NibblePath::new(starting_key.to_vec());
+        let nibble_path = NibblePath::new(starting_key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
         while let Node::Internal(internal_node) = reader.get_node(&current_node_key)? {
@@ -160,7 +156,6 @@ where
                         version,
                         parent_stack,
                         done,
-                        phantom_value: PhantomData,
                     });
                 }
             }
@@ -169,7 +164,7 @@ where
         match reader.get_node(&current_node_key)? {
             Node::Internal(_) => unreachable!("Should have reached the bottom of the tree."),
             Node::Leaf(leaf_node) => {
-                if leaf_node.account_key() < starting_key {
+                if leaf_node.key_hash() < starting_key {
                     Self::cleanup_stack(&mut parent_stack);
                     if parent_stack.is_empty() {
                         done = true;
@@ -184,7 +179,6 @@ where
             version,
             parent_stack,
             done,
-            phantom_value: PhantomData,
         })
     }
 
@@ -215,7 +209,6 @@ where
                 version,
                 parent_stack,
                 done: true,
-                phantom_value: PhantomData,
             });
         }
 
@@ -235,7 +228,6 @@ where
                         version,
                         parent_stack,
                         done: false,
-                        phantom_value: PhantomData,
                     });
                 }
                 Node::Internal(internal_node) => {
@@ -275,12 +267,11 @@ where
     }
 }
 
-impl<R, V> Iterator for JellyfishMerkleIterator<R, V>
+impl<R> Iterator for JellyfishMerkleIterator<R>
 where
-    R: TreeReader<V>,
-    V: crate::Value,
+    R: TreeReader,
 {
-    type Item = Result<(HashValue, V)>;
+    type Item = Result<(KeyHash, OwnedValue)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -296,7 +287,7 @@ where
                     // true in `new`). Return the node and mark `self.done` so next time we return
                     // None.
                     self.done = true;
-                    return Some(Ok((leaf_node.account_key(), leaf_node.value().clone())));
+                    return Some(Ok((leaf_node.key_hash(), leaf_node.value().to_vec())));
                 }
                 Ok(Node::Internal(_)) => {
                     // This means `starting_key` is bigger than every key in this tree, or we have
@@ -329,7 +320,7 @@ where
                     self.parent_stack.push(visit_info);
                 }
                 Ok(Node::Leaf(leaf_node)) => {
-                    let ret = (leaf_node.account_key(), leaf_node.value().clone());
+                    let ret = (leaf_node.key_hash(), leaf_node.value().to_vec());
                     Self::cleanup_stack(&mut self.parent_stack);
                     return Some(Ok(ret));
                 }

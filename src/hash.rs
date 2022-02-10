@@ -588,34 +588,36 @@ define_hasher! {
     (TestOnlyHasher, TEST_ONLY_HASHER, TEST_ONLY_SEED, b"")
 }
 
-fn create_literal_hash(word: &str) -> HashValue {
-    let mut s = word.as_bytes().to_vec();
-    assert!(s.len() <= HashValue::LENGTH);
-    s.resize(HashValue::LENGTH, 0);
-    HashValue::from_slice(&s).expect("Cannot fail")
+// TODO: const fn?
+fn create_literal_hash(word: &str) -> [u8; 32] {
+    let len = word.as_bytes().len();
+    let mut bytes = [0; 32];
+    assert!(len <= bytes.len());
+    bytes[0..len].copy_from_slice(word.as_bytes());
+    bytes
 }
 
 /// Placeholder hash of `Accumulator`.
-pub static ACCUMULATOR_PLACEHOLDER_HASH: Lazy<HashValue> =
+pub static ACCUMULATOR_PLACEHOLDER_HASH: Lazy<[u8; 32]> =
     Lazy::new(|| create_literal_hash("ACCUMULATOR_PLACEHOLDER_HASH"));
 
 /// Placeholder hash of `SparseMerkleTree`.
-pub static SPARSE_MERKLE_PLACEHOLDER_HASH: Lazy<HashValue> =
+pub static SPARSE_MERKLE_PLACEHOLDER_HASH: Lazy<[u8; 32]> =
     Lazy::new(|| create_literal_hash("SPARSE_MERKLE_PLACEHOLDER_HASH"));
 
 /// Block id reserved as the id of parent block of the genesis block.
-pub static PRE_GENESIS_BLOCK_ID: Lazy<HashValue> =
+pub static PRE_GENESIS_BLOCK_ID: Lazy<[u8; 32]> =
     Lazy::new(|| create_literal_hash("PRE_GENESIS_BLOCK_ID"));
 
 /// Genesis block id is used as a parent of the very first block executed by the executor.
-pub static GENESIS_BLOCK_ID: Lazy<HashValue> = Lazy::new(|| {
+pub static GENESIS_BLOCK_ID: Lazy<[u8; 32]> = Lazy::new(|| {
     // This maintains the invariant that block.id() == block.hash(), for
     // the genesis block and allows us to (de/)serialize it consistently
-    HashValue::new([
+    [
         0x5e, 0x10, 0xba, 0xd4, 0x5b, 0x35, 0xed, 0x92, 0x9c, 0xd6, 0xd2, 0xc7, 0x09, 0x8b, 0x13,
         0x5d, 0x02, 0xdd, 0x25, 0x9a, 0xe8, 0x8a, 0x8d, 0x09, 0xf4, 0xeb, 0x5f, 0xba, 0xe9, 0xa6,
         0xf6, 0xe4,
-    ])
+    ]
 });
 
 /// Provides a test_only_hash() method that can be used in tests on types that implement

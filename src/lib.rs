@@ -68,13 +68,10 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{
-    hash::CryptoHash,
-    types::{nibble::ROOT_NIBBLE_HEIGHT, Version},
-};
+use crate::types::{nibble::ROOT_NIBBLE_HEIGHT, Version};
 
 pub mod hash;
 pub mod iterator;
@@ -100,5 +97,43 @@ pub struct MissingRootError {
     pub version: Version,
 }
 
-/// `Value` defines the types of data that can be stored in a Jellyfish Merkle tree.
-pub trait Value: Clone + CryptoHash + Serialize + DeserializeOwned {}
+// TODO: reorg
+
+pub type OwnedValue = Vec<u8>;
+
+#[cfg(any(test, feature = "fuzzing"))]
+use proptest_derive::Arbitrary;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+pub struct RootHash(pub [u8; 32]);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+pub struct KeyHash(pub [u8; 32]);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+
+pub struct ValueHash(pub [u8; 32]);
+
+impl<V: AsRef<[u8]>> From<V> for ValueHash {
+    fn from(value: V) -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"JMT::Value");
+        hasher.update(value.as_ref());
+        Self(*hasher.finalize().as_ref())
+    }
+}
+
+impl<K: AsRef<[u8]>> From<K> for KeyHash {
+    fn from(key: K) -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"JMT::Key");
+        hasher.update(key.as_ref());
+        Self(*hasher.finalize().as_ref())
+    }
+}
+
+mod bytes32ext;
+pub use bytes32ext::Bytes32Ext;
