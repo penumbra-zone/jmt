@@ -6,14 +6,12 @@ use std::collections::HashMap;
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use super::{
-    helper::{
-        arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
-        test_get_range_proof, test_get_with_proof,
-    },
-    mock_tree_store::MockTreeStore,
+use super::helper::{
+    arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
+    test_get_range_proof, test_get_with_proof,
 };
 use crate::{
+    mock::MockTreeStore,
     node_type::{Child, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
     tests::helper::{

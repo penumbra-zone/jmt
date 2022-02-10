@@ -82,6 +82,7 @@ mod tree_cache;
 mod types;
 mod writer;
 
+pub mod mock;
 pub mod restore;
 
 use bytes32ext::Bytes32Ext;

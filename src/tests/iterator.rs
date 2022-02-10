@@ -6,9 +6,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use anyhow::Result;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use super::{helper::plus_one, mock_tree_store::MockTreeStore};
+use super::helper::plus_one;
 use crate::{
-    iterator::JellyfishMerkleIterator, types::Version, JellyfishMerkleTree, KeyHash, OwnedValue,
+    iterator::JellyfishMerkleIterator, mock::MockTreeStore, types::Version, JellyfishMerkleTree,
+    KeyHash, OwnedValue,
 };
 
 #[test]

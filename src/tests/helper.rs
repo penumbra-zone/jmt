@@ -11,8 +11,8 @@ use proptest::{
     prelude::*,
 };
 
-use super::mock_tree_store::MockTreeStore;
 use crate::{
+    mock::MockTreeStore,
     node_type::LeafNode,
     types::{
         proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},

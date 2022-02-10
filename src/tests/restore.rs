@@ -5,13 +5,12 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use proptest::{collection::btree_map, prelude::*};
 
-use super::mock_tree_store::MockTreeStore;
 use crate::{
+    mock::MockTreeStore,
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
     storage::TreeReader,
     tests::helper::init_mock_db,
-    types::Version,
-    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
+    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, Version,
 };
 
 proptest! {
