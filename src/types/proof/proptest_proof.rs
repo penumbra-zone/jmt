@@ -7,20 +7,20 @@
 use proptest::{collection::vec, prelude::*};
 
 use crate::{
-    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn arb_non_placeholder_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
     any::<[u8; 32]>().prop_filter("Filter out placeholder sibling.", |x| {
-        *x != *SPARSE_MERKLE_PLACEHOLDER_HASH
+        *x != SPARSE_MERKLE_PLACEHOLDER_HASH
     })
 }
 
 fn arb_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
     prop_oneof![
         arb_non_placeholder_sparse_merkle_sibling(),
-        Just(*SPARSE_MERKLE_PLACEHOLDER_HASH),
+        Just(SPARSE_MERKLE_PLACEHOLDER_HASH),
     ]
 }
 

@@ -10,7 +10,6 @@ use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;
 
 use crate::{
-    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
         NodeType,
@@ -24,7 +23,7 @@ use crate::{
         Version,
     },
     Bytes32Ext, KeyHash, NodeBatch, OwnedValue, RootHash, TreeReader, TreeWriter,
-    ROOT_NIBBLE_HEIGHT,
+    ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 //use storage_interface::StateSnapshotReceiver;
 
@@ -558,7 +557,7 @@ impl JellyfishMerkleRestore {
             if bit {
                 // This node is a right child and there should be a sibling on the left.
                 let sibling = if i >= self.partial_nodes.len() * 4 {
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH
+                    SPARSE_MERKLE_PLACEHOLDER_HASH
                 } else {
                     Self::compute_left_sibling(
                         &self.partial_nodes[i / 4],
@@ -582,7 +581,7 @@ impl JellyfishMerkleRestore {
         for bit in previous_key.0.iter_bits().rev() {
             if bit {
                 if *left_siblings.last().expect("This sibling must exist.")
-                    == *SPARSE_MERKLE_PLACEHOLDER_HASH
+                    == SPARSE_MERKLE_PLACEHOLDER_HASH
                 {
                     left_siblings.pop();
                 } else {
@@ -627,7 +626,7 @@ impl JellyfishMerkleRestore {
                     (*hash.as_ref().expect("The hash must be known."), false)
                 }
                 Some(ChildInfo::Leaf { node }) => (node.hash(), true),
-                None => (*SPARSE_MERKLE_PLACEHOLDER_HASH, true),
+                None => (SPARSE_MERKLE_PLACEHOLDER_HASH, true),
             }
         } else {
             let (left_hash, left_is_leaf) =
@@ -635,9 +634,9 @@ impl JellyfishMerkleRestore {
             let (right_hash, right_is_leaf) =
                 Self::compute_left_sibling_impl(&children[num_children / 2..]);
 
-            if left_hash == *SPARSE_MERKLE_PLACEHOLDER_HASH && right_is_leaf {
+            if left_hash == SPARSE_MERKLE_PLACEHOLDER_HASH && right_is_leaf {
                 (right_hash, true)
-            } else if left_is_leaf && right_hash == *SPARSE_MERKLE_PLACEHOLDER_HASH {
+            } else if left_is_leaf && right_hash == SPARSE_MERKLE_PLACEHOLDER_HASH {
                 (left_hash, true)
             } else {
                 (

@@ -8,13 +8,8 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::{
     helper::{
-        arb_existent_kvs_and_nonexistent_keys,
-        arb_tree_with_index,
-        test_get_leaf_count,
-        test_get_range_proof,
-        test_get_with_proof,
-        // Disabled because of internal hashing
-        //test_get_with_proof_with_distinct_last_nibble,
+        arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
+        test_get_range_proof, test_get_with_proof,
     },
     mock_tree_store::MockTreeStore,
 };
