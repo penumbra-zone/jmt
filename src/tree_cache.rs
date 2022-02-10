@@ -73,9 +73,11 @@ use anyhow::{bail, Result};
 use crate::{
     metrics::DIEM_JELLYFISH_STORAGE_READS,
     node_type::{Node, NodeKey},
+    storage::{
+        NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
+    },
     types::{Version, PRE_GENESIS_VERSION},
-    NodeBatch, NodeStats, RootHash, StaleNodeIndex, StaleNodeIndexBatch, TreeReader,
-    TreeUpdateBatch,
+    RootHash,
 };
 
 /// `FrozenTreeCache` is used as a field of `TreeCache` storing all the nodes and values that

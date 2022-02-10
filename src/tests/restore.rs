@@ -8,9 +8,10 @@ use proptest::{collection::btree_map, prelude::*};
 use super::mock_tree_store::MockTreeStore;
 use crate::{
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
+    storage::TreeReader,
     tests::helper::init_mock_db,
     types::Version,
-    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, TreeReader,
+    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
 };
 
 proptest! {

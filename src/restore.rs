@@ -14,6 +14,7 @@ use crate::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
         NodeType,
     },
+    storage::{NodeBatch, TreeReader, TreeWriter},
     types::{
         nibble::{
             nibble_path::{NibbleIterator, NibblePath},
@@ -22,10 +23,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, NodeBatch, OwnedValue, RootHash, TreeReader, TreeWriter,
-    ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, OwnedValue, RootHash, ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
-//use storage_interface::StateSnapshotReceiver;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ChildInfo {
@@ -105,6 +104,9 @@ impl InternalInfo {
     }
 }
 
+/// Implements the functionality to restore a
+/// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
+/// key-value pairs.
 pub struct JellyfishMerkleRestore {
     /// The underlying storage.
     store: Arc<dyn TreeWriter>,
@@ -679,7 +681,7 @@ impl JellyfishMerkleRestore {
     }
 }
 
-/// Taken from `storage-interface` crate.
+/// The interface used with [`JellyfishMerkleRestore`], taken from the Diem `storage-interface` crate.
 pub trait StateSnapshotReceiver {
     fn add_chunk(
         &mut self,
