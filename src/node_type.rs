@@ -28,14 +28,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
         Version,
     },
-    KeyHash, ValueHash,
+    KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// The unique key of each node.
@@ -496,7 +495,7 @@ impl InternalNode {
             Self::range_bitmaps(start, width, (existence_bitmap, leaf_bitmap));
         if range_existence_bitmap == 0 {
             // No child under this subtree
-            *SPARSE_MERKLE_PLACEHOLDER_HASH
+            SPARSE_MERKLE_PLACEHOLDER_HASH
         } else if width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
         {
             // Only 1 leaf child under this subtree or reach the lowest level
@@ -798,7 +797,7 @@ impl Node {
     /// Computes the hash of nodes.
     pub fn hash(&self) -> [u8; 32] {
         match self {
-            Node::Null => *SPARSE_MERKLE_PLACEHOLDER_HASH,
+            Node::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
             Node::Internal(internal_node) => internal_node.hash(),
             Node::Leaf(leaf_node) => leaf_node.hash(),
         }

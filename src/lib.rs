@@ -99,6 +99,8 @@ pub struct MissingRootError {
 
 // TODO: reorg
 
+const SPARSE_MERKLE_PLACEHOLDER_HASH: [u8; 32] = *b"SPARSE_MERKLE_PLACEHOLDER_HASH__";
+
 pub type OwnedValue = Vec<u8>;
 
 #[cfg(any(test, feature = "fuzzing"))]

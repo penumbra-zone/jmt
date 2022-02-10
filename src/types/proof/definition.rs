@@ -7,7 +7,7 @@ use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
-use crate::{hash::SPARSE_MERKLE_PLACEHOLDER_HASH, Bytes32Ext, KeyHash, RootHash, ValueHash};
+use crate::{Bytes32Ext, KeyHash, RootHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
@@ -129,7 +129,7 @@ impl SparseMerkleProof {
 
         let current_hash = self
             .leaf
-            .map_or(*SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
+            .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
         let actual_root_hash = self
             .siblings
             .iter()

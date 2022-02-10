@@ -7,7 +7,6 @@ use proptest::prelude::*;
 use rand::rngs::OsRng;
 
 use crate::{
-    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::{
         deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, Node,
         NodeDecodeError, NodeKey, NodeType,
@@ -17,7 +16,7 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
         Version,
     },
-    KeyHash, ValueHash,
+    KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn hash_internal(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
@@ -208,15 +207,15 @@ proptest! {
         //             /   \
         //        leaf1     leaf2
         let hash_x1 = hash_internal(hash1, hash2);
-        let hash_x2 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1);
+        let hash_x2 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1);
 
-        let root_hash = hash_internal(hash_x2, *SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let root_hash = hash_internal(hash_x2, SPARSE_MERKLE_PLACEHOLDER_HASH);
         assert_eq!(internal_node.hash(), root_hash);
 
         for i in 0..4 {
             prop_assert_eq!(
                 internal_node.get_child_with_siblings(&internal_node_key, i.into()),
-                (None, vec![*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
+                (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
@@ -226,8 +225,8 @@ proptest! {
                 (
                     Some(leaf1_node_key.clone()),
                     vec![
-                        *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                        *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                        SPARSE_MERKLE_PLACEHOLDER_HASH,
+                        SPARSE_MERKLE_PLACEHOLDER_HASH,
                         hash2
                     ]
                 )
@@ -240,8 +239,8 @@ proptest! {
                 (
                     Some(leaf2_node_key.clone()),
                     vec![
-                        *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                        *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                        SPARSE_MERKLE_PLACEHOLDER_HASH,
+                        SPARSE_MERKLE_PLACEHOLDER_HASH,
                         hash1
                     ]
                 )
@@ -344,10 +343,10 @@ proptest! {
         //              /         \
         //          internal2      internal3
         //
-        let hash_x1 = hash_internal(hash2, *SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let hash_x1 = hash_internal(hash2, SPARSE_MERKLE_PLACEHOLDER_HASH);
         let hash_x2 = hash_internal(hash1, hash_x1);
-        let hash_x3 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash3);
-        let hash_x4 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
+        let hash_x3 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash3);
+        let hash_x4 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
         let hash_x5 = hash_internal(hash_x2, hash_x4);
         let root_hash = hash_internal(hash_x5, hash4);
         assert_eq!(internal_node.hash(), root_hash);
@@ -370,7 +369,7 @@ proptest! {
                     hash4,
                     hash_x4,
                     hash1,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                 ]
             )
         );
@@ -401,7 +400,7 @@ proptest! {
                 vec![
                     hash4,
                     hash_x2,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash3,
                 ]
             )
@@ -414,8 +413,8 @@ proptest! {
                 vec![
                     hash4,
                     hash_x2,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                 ]
             )
         );
@@ -477,12 +476,12 @@ fn test_internal_hash_and_proof() {
         //          /               \
         // non-leaf1             non-leaf2
         //
-        let hash_x1 = hash_internal(hash1, *SPARSE_MERKLE_PLACEHOLDER_HASH);
-        let hash_x2 = hash_internal(hash_x1, *SPARSE_MERKLE_PLACEHOLDER_HASH);
-        let hash_x3 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2);
-        let hash_x4 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash2);
-        let hash_x5 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4);
-        let hash_x6 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x5);
+        let hash_x1 = hash_internal(hash1, SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let hash_x2 = hash_internal(hash_x1, SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let hash_x3 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2);
+        let hash_x4 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash2);
+        let hash_x5 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4);
+        let hash_x6 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x5);
         let root_hash = hash_internal(hash_x3, hash_x6);
         assert_eq!(internal_node.hash(), root_hash);
 
@@ -499,9 +498,9 @@ fn test_internal_hash_and_proof() {
                 Some(child1_node_key),
                 vec![
                     hash_x6,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH
                 ]
             )
         );
@@ -512,8 +511,8 @@ fn test_internal_hash_and_proof() {
                 None,
                 vec![
                     hash_x6,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash1
                 ]
             )
@@ -521,10 +520,7 @@ fn test_internal_hash_and_proof() {
         for i in 6..8 {
             assert_eq!(
                 internal_node.get_child_with_siblings(&internal_node_key, i.into()),
-                (
-                    None,
-                    vec![hash_x6, *SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1]
-                )
+                (None, vec![hash_x6, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
@@ -538,10 +534,7 @@ fn test_internal_hash_and_proof() {
         for i in 12..14 {
             assert_eq!(
                 internal_node.get_child_with_siblings(&internal_node_key, i.into()),
-                (
-                    None,
-                    vec![hash_x3, *SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4]
-                )
+                (None, vec![hash_x3, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4])
             );
         }
         assert_eq!(
@@ -550,8 +543,8 @@ fn test_internal_hash_and_proof() {
                 None,
                 vec![
                     hash_x3,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash2
                 ]
             )
@@ -562,9 +555,9 @@ fn test_internal_hash_and_proof() {
                 Some(child2_node_key),
                 vec![
                     hash_x3,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH
                 ]
             )
         );
@@ -617,12 +610,12 @@ fn test_internal_hash_and_proof() {
         //           /               \
         //  non-leaf1                 non-leaf2
 
-        let hash_x1 = hash_internal(hash1, *SPARSE_MERKLE_PLACEHOLDER_HASH);
-        let hash_x2 = hash_internal(hash_x1, *SPARSE_MERKLE_PLACEHOLDER_HASH);
-        let hash_x3 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash2);
-        let hash_x4 = hash_internal(*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
+        let hash_x1 = hash_internal(hash1, SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let hash_x2 = hash_internal(hash_x1, SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let hash_x3 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash2);
+        let hash_x4 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
         let hash_x5 = hash_internal(hash_x2, hash_x4);
-        let root_hash = hash_internal(hash_x5, *SPARSE_MERKLE_PLACEHOLDER_HASH);
+        let root_hash = hash_internal(hash_x5, SPARSE_MERKLE_PLACEHOLDER_HASH);
         assert_eq!(internal_node.hash(), root_hash);
 
         assert_eq!(
@@ -630,10 +623,10 @@ fn test_internal_hash_and_proof() {
             (
                 Some(child1_node_key),
                 vec![
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash_x4,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                 ]
             )
         );
@@ -643,9 +636,9 @@ fn test_internal_hash_and_proof() {
             (
                 None,
                 vec![
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash_x4,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash1,
                 ]
             )
@@ -654,20 +647,14 @@ fn test_internal_hash_and_proof() {
         for i in 2..4 {
             assert_eq!(
                 internal_node.get_child_with_siblings(&internal_node_key, i.into()),
-                (
-                    None,
-                    vec![*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4, hash_x1]
-                )
+                (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4, hash_x1])
             );
         }
 
         for i in 4..6 {
             assert_eq!(
                 internal_node.get_child_with_siblings(&internal_node_key, i.into()),
-                (
-                    None,
-                    vec![*SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2, hash_x3]
-                )
+                (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2, hash_x3])
             );
         }
 
@@ -676,9 +663,9 @@ fn test_internal_hash_and_proof() {
             (
                 None,
                 vec![
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash_x2,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash2
                 ]
             )
@@ -689,10 +676,10 @@ fn test_internal_hash_and_proof() {
             (
                 Some(child2_node_key),
                 vec![
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                     hash_x2,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
-                    *SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
+                    SPARSE_MERKLE_PLACEHOLDER_HASH,
                 ]
             )
         );
@@ -743,7 +730,7 @@ impl BinaryTreeNode {
         match self {
             BinaryTreeNode::Internal(node) => node.hash,
             BinaryTreeNode::Child(node) => node.hash,
-            BinaryTreeNode::Null => *SPARSE_MERKLE_PLACEHOLDER_HASH,
+            BinaryTreeNode::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
         }
     }
 }

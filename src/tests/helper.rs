@@ -13,13 +13,12 @@ use proptest::{
 
 use super::mock_tree_store::MockTreeStore;
 use crate::{
-    hash::SPARSE_MERKLE_PLACEHOLDER_HASH,
     node_type::LeafNode,
     types::{
         proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
+    Bytes32Ext, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// Computes the key immediately after `key`.
@@ -305,7 +304,7 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
     match kvs.iter().position(|(key, _value)| key[0]) {
         Some(0) => {
             // Every key starts with a 1-bit, i.e., they are all in the right subtree.
-            left_hash = *SPARSE_MERKLE_PLACEHOLDER_HASH;
+            left_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
             right_hash = compute_root_hash_impl(reduce(&kvs));
         }
         Some(index) => {
@@ -316,7 +315,7 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
         None => {
             // Every key starts with a 0-bit, i.e., they are all in the left subtree.
             left_hash = compute_root_hash_impl(reduce(&kvs));
-            right_hash = *SPARSE_MERKLE_PLACEHOLDER_HASH;
+            right_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
         }
     }
 
