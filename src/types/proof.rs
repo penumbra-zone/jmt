@@ -1,9 +1,11 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod definition;
+//! Merkle proof types.
+
+pub(crate) mod definition;
 #[cfg(any(test, feature = "fuzzing"))]
-pub mod proptest_proof;
+pub(crate) mod proptest_proof;
 
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
 use crate::{KeyHash, ValueHash};
 
-pub struct SparseMerkleInternalNode {
+pub(crate) struct SparseMerkleInternalNode {
     left_child: [u8; 32],
     right_child: [u8; 32],
 }
@@ -51,11 +53,11 @@ impl SparseMerkleLeafNode {
         }
     }
 
-    pub fn key_hash(&self) -> KeyHash {
+    pub(crate) fn key_hash(&self) -> KeyHash {
         self.key_hash
     }
 
-    pub fn hash(&self) -> [u8; 32] {
+    pub(crate) fn hash(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
         hasher.update(b"JMT::LeafNode");
