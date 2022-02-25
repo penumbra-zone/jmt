@@ -86,6 +86,7 @@ mod writer;
 
 pub mod mock;
 pub mod restore;
+pub mod sync;
 
 use bytes32ext::Bytes32Ext;
 #[cfg(feature = "ics23")]

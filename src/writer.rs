@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
+use futures::future::BoxFuture;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 
@@ -14,7 +15,10 @@ use crate::{
 /// to the underlying storage holding nodes.
 pub trait TreeWriter {
     /// Writes a node batch into storage.
-    fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()>;
+    fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
+        &'a mut self,
+        node_batch: &'n NodeBatch,
+    ) -> BoxFuture<'future, Result<()>>;
 }
 
 /// Node batch that will be written into db atomically with other batches.
