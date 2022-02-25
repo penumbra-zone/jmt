@@ -31,7 +31,7 @@ pub struct SparseMerkleProof {
 
 impl SparseMerkleProof {
     /// Constructs a new `SparseMerkleProof` using leaf and a list of siblings.
-    pub fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<[u8; 32]>) -> Self {
+    pub(crate) fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<[u8; 32]>) -> Self {
         SparseMerkleProof { leaf, siblings }
     }
 
@@ -190,7 +190,7 @@ pub struct SparseMerkleRangeProof {
 
 impl SparseMerkleRangeProof {
     /// Constructs a new `SparseMerkleRangeProof`.
-    pub fn new(right_siblings: Vec<[u8; 32]>) -> Self {
+    pub(crate) fn new(right_siblings: Vec<[u8; 32]>) -> Self {
         Self { right_siblings }
     }
 

@@ -90,6 +90,7 @@ use types::nibble::ROOT_NIBBLE_HEIGHT;
 
 pub use iterator::JellyfishMerkleIterator;
 pub use tree::JellyfishMerkleTree;
+pub use types::proof;
 pub use types::Version;
 
 /// Contains types used to bridge a [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
