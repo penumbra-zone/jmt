@@ -73,6 +73,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod bytes32ext;
+#[cfg(feature = "ics23")]
+mod ics23_impl;
 mod iterator;
 mod metrics;
 mod node_type;
