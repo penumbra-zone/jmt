@@ -4,12 +4,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Result;
+use futures::StreamExt;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::helper::plus_one;
 use crate::{
-    iterator::JellyfishMerkleIterator, mock::MockTreeStore, types::Version, JellyfishMerkleTree,
-    KeyHash, OwnedValue,
+    iterator::JellyfishMerkleStream, mock::MockTreeStore, types::Version, JellyfishMerkleTree,
+    KeyHash, OwnedValue, ValueHash,
 };
 
 #[test]
@@ -29,7 +30,7 @@ fn test_long_path() {
     test_n_consecutive_addresses(50);
 }
 
-fn test_n_leaves_same_version(n: usize) {
+async fn test_n_leaves_same_version(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
@@ -44,15 +45,16 @@ fn test_n_leaves_same_version(n: usize) {
 
     let (_root_hash, batch) = tree
         .put_value_set(btree.clone().into_iter().collect(), 0 /* version */)
+        .await
         .unwrap();
-    db.write_tree_update_batch(batch).unwrap();
+    db.write_tree_update_batch(batch).await.unwrap();
 
     let btree = btree.into_iter().collect::<BTreeMap<KeyHash, OwnedValue>>();
 
     run_tests(db, &btree, 0 /* version */);
 }
 
-fn test_n_leaves_multiple_versions(n: usize) {
+async fn test_n_leaves_multiple_versions(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
@@ -63,13 +65,14 @@ fn test_n_leaves_multiple_versions(n: usize) {
         assert_eq!(btree.insert(key, value.clone()), None);
         let (_root_hash, batch) = tree
             .put_value_set(vec![(key, value)], i as Version)
+            .await
             .unwrap();
-        db.write_tree_update_batch(batch).unwrap();
+        db.write_tree_update_batch(batch).await.unwrap();
         run_tests(Arc::clone(&db), &btree, i as Version);
     }
 }
 
-fn test_n_consecutive_addresses(n: usize) {
+async fn test_n_consecutive_addresses(n: usize) {
     let db = Arc::new(MockTreeStore::default());
     let tree = JellyfishMerkleTree::new(&*db);
 
@@ -83,61 +86,123 @@ fn test_n_consecutive_addresses(n: usize) {
 
     let (_root_hash, batch) = tree
         .put_value_set(btree.clone().into_iter().collect(), 0 /* version */)
+        .await
         .unwrap();
-    db.write_tree_update_batch(batch).unwrap();
+    db.write_tree_update_batch(batch).await.unwrap();
 
     run_tests(db, &btree, 0 /* version */);
 }
 
-fn run_tests(db: Arc<MockTreeStore>, btree: &BTreeMap<KeyHash, OwnedValue>, version: Version) {
+async fn run_tests(
+    db: Arc<MockTreeStore>,
+    btree: &BTreeMap<KeyHash, OwnedValue>,
+    version: Version,
+) {
     {
-        let iter =
-            JellyfishMerkleIterator::new(Arc::clone(&db), version, KeyHash([0u8; 32])).unwrap();
+        let iter = JellyfishMerkleStream::new(Arc::clone(&db), version, KeyHash([0u8; 32]))
+            .await
+            .unwrap();
         assert_eq!(
-            iter.collect::<Result<Vec<_>>>().unwrap(),
-            btree.clone().into_iter().collect::<Vec<_>>(),
+            iter.collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()
+                .unwrap(),
+            btree
+                .clone()
+                .into_iter()
+                .map(|(x, y)| (x, ValueHash::from(y)))
+                .collect::<Vec<_>>(),
         );
     }
 
     for i in 0..btree.len() {
         {
-            let iter = JellyfishMerkleIterator::new_by_index(Arc::clone(&db), version, i).unwrap();
+            let iter = JellyfishMerkleStream::new_by_index(Arc::clone(&db), version, i)
+                .await
+                .unwrap();
             assert_eq!(
-                iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                iter.collect::<Vec<Result<_>>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()
+                    .unwrap(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i)
+                    .map(|(x, y)| (x, ValueHash::from(y)))
+                    .collect::<Vec<_>>(),
             );
         }
 
         let ith_key = *btree.keys().nth(i).unwrap();
 
         {
-            let iter = JellyfishMerkleIterator::new(Arc::clone(&db), version, ith_key).unwrap();
+            let iter = JellyfishMerkleStream::new(Arc::clone(&db), version, ith_key)
+                .await
+                .unwrap();
             assert_eq!(
-                iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                iter.collect::<Vec<Result<_>>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()
+                    .unwrap(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i)
+                    .map(|(x, y)| (x, ValueHash::from(y)))
+                    .collect::<Vec<_>>(),
             );
         }
 
         {
             let ith_key_plus_one = plus_one(ith_key);
-            let iter =
-                JellyfishMerkleIterator::new(Arc::clone(&db), version, ith_key_plus_one).unwrap();
+            let iter = JellyfishMerkleStream::new(Arc::clone(&db), version, ith_key_plus_one)
+                .await
+                .unwrap();
             assert_eq!(
-                iter.collect::<Result<Vec<_>>>().unwrap(),
-                btree.clone().into_iter().skip(i + 1).collect::<Vec<_>>(),
+                iter.collect::<Vec<Result<_>>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()
+                    .unwrap(),
+                btree
+                    .clone()
+                    .into_iter()
+                    .skip(i + 1)
+                    .map(|(x, y)| (x, ValueHash::from(y)))
+                    .collect::<Vec<_>>(),
             );
         }
     }
 
     {
-        let iter =
-            JellyfishMerkleIterator::new_by_index(Arc::clone(&db), version, btree.len()).unwrap();
-        assert_eq!(iter.collect::<Result<Vec<_>>>().unwrap(), vec![]);
+        let iter = JellyfishMerkleStream::new_by_index(Arc::clone(&db), version, btree.len())
+            .await
+            .unwrap();
+        assert_eq!(
+            iter.collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()
+                .unwrap(),
+            vec![]
+        );
     }
 
     {
-        let iter =
-            JellyfishMerkleIterator::new(Arc::clone(&db), version, KeyHash([0xFF; 32])).unwrap();
-        assert_eq!(iter.collect::<Result<Vec<_>>>().unwrap(), vec![]);
+        let iter = JellyfishMerkleStream::new(Arc::clone(&db), version, KeyHash([0xFF; 32]))
+            .await
+            .unwrap();
+        assert_eq!(
+            iter.collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()
+                .unwrap(),
+            vec![]
+        );
     }
 }

@@ -6,7 +6,7 @@ use crate::node_type::{LeafNode, Node, NodeKey};
 /// Defines the interface between a
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
 /// and underlying storage holding nodes.
-pub trait TreeReader {
+pub trait TreeReader: Send + Sync {
     /// Gets node given a node key. Returns `None` if the node does not exist.
     fn get_node_option<'future, 'a: 'future, 'n: 'future>(
         &'a self,
@@ -22,7 +22,7 @@ pub trait TreeReader {
 }
 
 /// Internal helper: Gets node given a node key. Returns error if the node does not exist.
-async fn get_node_async<R: TreeReader>(reader: &R, node_key: &NodeKey) -> Result<Node> {
+pub async fn get_node_async<R: TreeReader>(reader: &R, node_key: &NodeKey) -> Result<Node> {
     reader
         .get_node_option(node_key)
         .await?

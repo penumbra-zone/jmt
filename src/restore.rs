@@ -8,7 +8,9 @@
 use std::sync::Arc;
 
 use anyhow::{bail, ensure, Result};
+use futures::future::{BoxFuture, FutureExt};
 use mirai_annotations::*;
+use tokio::sync::RwLock;
 
 use crate::{
     node_type::{
@@ -110,7 +112,7 @@ impl InternalInfo {
 /// key-value pairs.
 pub struct JellyfishMerkleRestore {
     /// The underlying storage.
-    store: Arc<dyn TreeWriter>,
+    store: Arc<RwLock<dyn TreeWriter>>,
 
     /// The version of the tree we are restoring.
     version: Version,
@@ -165,28 +167,29 @@ pub struct JellyfishMerkleRestore {
 }
 
 impl JellyfishMerkleRestore {
-    pub fn new<D: 'static + TreeReader + TreeWriter>(
-        store: Arc<D>,
+    pub async fn new<D: 'static + TreeReader + TreeWriter>(
+        store: Arc<RwLock<D>>,
         version: Version,
         expected_root_hash: RootHash,
         leaf_count_migration: bool,
     ) -> Result<Self> {
         let tree_reader = Arc::clone(&store);
-        let (partial_nodes, previous_leaf) =
-            if let Some((node_key, leaf_node)) = tree_reader.get_rightmost_leaf()? {
-                // TODO: confirm rightmost leaf is at the desired version
-                // If the system crashed in the middle of the previous restoration attempt, we need
-                // to recover the partial nodes to the state right before the crash.
-                (
-                    Self::recover_partial_nodes(tree_reader.as_ref(), version, node_key)?,
-                    Some(leaf_node),
-                )
-            } else {
-                (
-                    vec![InternalInfo::new_empty(NodeKey::new_empty_path(version))],
-                    None,
-                )
-            };
+        let (partial_nodes, previous_leaf) = if let Some((node_key, leaf_node)) =
+            tree_reader.read().await.get_rightmost_leaf().await?
+        {
+            // TODO: confirm rightmost leaf is at the desired version
+            // If the system crashed in the middle of the previous restoration attempt, we need
+            // to recover the partial nodes to the state right before the crash.
+            (
+                Self::recover_partial_nodes(&*tree_reader.read().await, version, node_key).await?,
+                Some(leaf_node),
+            )
+        } else {
+            (
+                vec![InternalInfo::new_empty(NodeKey::new_empty_path(version))],
+                None,
+            )
+        };
 
         Ok(Self {
             store,
@@ -201,7 +204,7 @@ impl JellyfishMerkleRestore {
     }
 
     pub fn new_overwrite<D: 'static + TreeWriter>(
-        store: Arc<D>,
+        store: Arc<RwLock<D>>,
         version: Version,
         expected_root_hash: RootHash,
         leaf_count_migration: bool,
@@ -220,7 +223,7 @@ impl JellyfishMerkleRestore {
 
     /// Recovers partial nodes from storage. We do this by looking at all the ancestors of the
     /// rightmost leaf. The ones do not exist in storage are the partial nodes.
-    fn recover_partial_nodes(
+    async fn recover_partial_nodes(
         store: &dyn TreeReader,
         version: Version,
         rightmost_leaf_node_key: NodeKey,
@@ -235,7 +238,7 @@ impl JellyfishMerkleRestore {
         // is not a partial node. Go to the parent node and repeat until we see a node that does
         // not exist. This node and all its ancestors will be the partial nodes.
         let mut node_key = rightmost_leaf_node_key.gen_parent_node_key();
-        while store.get_node_option(&node_key)?.is_some() {
+        while store.get_node_option(&node_key).await?.is_some() {
             node_key = node_key.gen_parent_node_key();
         }
 
@@ -253,7 +256,7 @@ impl JellyfishMerkleRestore {
 
             for i in 0..previous_child_index.unwrap_or(16) {
                 let child_node_key = node_key.gen_child_node_key(version, (i as u8).into());
-                if let Some(node) = store.get_node_option(&child_node_key)? {
+                if let Some(node) = store.get_node_option(&child_node_key).await? {
                     let child_info = match node {
                         Node::Internal(internal_node) => ChildInfo::Internal {
                             hash: Some(internal_node.hash()),
@@ -295,7 +298,7 @@ impl JellyfishMerkleRestore {
     /// Restores a chunk of accounts. This function will verify that the given chunk is correct
     /// using the proof and root hash, then write things to storage. If the chunk is invalid, an
     /// error will be returned and nothing will be written to storage.
-    fn add_chunk_impl(
+    async fn add_chunk_impl(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof,
@@ -318,7 +321,11 @@ impl JellyfishMerkleRestore {
         self.verify(proof)?;
 
         // Write the frozen nodes to storage.
-        self.store.write_node_batch(&self.frozen_nodes)?;
+        self.store
+            .write()
+            .await
+            .write_node_batch(&self.frozen_nodes)
+            .await?;
         self.frozen_nodes.clear();
 
         Ok(())
@@ -652,7 +659,7 @@ impl JellyfishMerkleRestore {
 
     /// Finishes the restoration process. This tells the code that there is no more account,
     /// otherwise we can not freeze the rightmost leaf and its ancestors.
-    fn finish_impl(mut self) -> Result<()> {
+    async fn finish_impl(mut self) -> Result<()> {
         // Deal with the special case when the entire tree has a single leaf.
         if self.partial_nodes.len() == 1 {
             let mut num_children = 0;
@@ -671,44 +678,54 @@ impl JellyfishMerkleRestore {
                     let node_key = NodeKey::new_empty_path(self.version);
                     assert!(self.frozen_nodes.is_empty());
                     self.frozen_nodes.insert(node_key, node.into());
-                    self.store.write_node_batch(&self.frozen_nodes)?;
+                    self.store
+                        .write()
+                        .await
+                        .write_node_batch(&self.frozen_nodes)
+                        .await?;
                     return Ok(());
                 }
             }
         }
 
         self.freeze(0);
-        self.store.write_node_batch(&self.frozen_nodes)
+        self.store
+            .write()
+            .await
+            .write_node_batch(&self.frozen_nodes)
+            .await?;
+
+        Ok(())
     }
 }
 
 /// The interface used with [`JellyfishMerkleRestore`], taken from the Diem `storage-interface` crate.
 pub trait StateSnapshotReceiver {
-    fn add_chunk(
-        &mut self,
+    fn add_chunk<'future, 'a: 'future>(
+        &'a mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof,
-    ) -> Result<()>;
+    ) -> BoxFuture<'future, Result<()>>;
 
-    fn finish(self) -> Result<()>;
+    fn finish(self) -> BoxFuture<'static, Result<()>>;
 
-    fn finish_box(self: Box<Self>) -> Result<()>;
+    fn finish_box(self: Box<Self>) -> BoxFuture<'static, Result<()>>;
 }
 
 impl StateSnapshotReceiver for JellyfishMerkleRestore {
-    fn add_chunk(
-        &mut self,
+    fn add_chunk<'future, 'a: 'future>(
+        &'a mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof,
-    ) -> Result<()> {
-        self.add_chunk_impl(chunk, proof)
+    ) -> BoxFuture<'future, Result<()>> {
+        self.add_chunk_impl(chunk, proof).boxed()
     }
 
-    fn finish(self) -> Result<()> {
-        self.finish_impl()
+    fn finish(self) -> BoxFuture<'static, Result<()>> {
+        self.finish_impl().boxed()
     }
 
-    fn finish_box(self: Box<Self>) -> Result<()> {
-        self.finish_impl()
+    fn finish_box(self: Box<Self>) -> BoxFuture<'static, Result<()>> {
+        self.finish_impl().boxed()
     }
 }

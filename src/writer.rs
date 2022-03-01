@@ -13,7 +13,7 @@ use crate::{
 /// Defines the interface used to write a batch of updates from a
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
 /// to the underlying storage holding nodes.
-pub trait TreeWriter {
+pub trait TreeWriter: Send + Sync {
     /// Writes a node batch into storage.
     fn write_node_batch<'future, 'a: 'future, 'n: 'future>(
         &'a mut self,

@@ -6,7 +6,9 @@ use std::{
 use anyhow::{bail, ensure, format_err, Result};
 
 use crate::{
+    bytes32ext::Bytes32Ext,
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
+    reader::get_node_async,
     storage::{TreeReader, TreeUpdateBatch},
     tree_cache::TreeCache,
     types::{
@@ -133,7 +135,7 @@ where
                 for (left, right) in NibbleRangeIterator::new(kvs, depth) {
                     // Traverse downwards from this internal node recursively by splitting the updates into
                     // each child index
-                    let child_index = kvs[left].0.get_nibble(depth);
+                    let child_index = kvs[left].0 .0.get_nibble(depth);
 
                     let (new_child_node_key, new_child_node) =
                         match internal_node.child(child_index) {
@@ -226,18 +228,18 @@ where
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<(NodeKey, Node)> {
-        let existing_leaf_key = existing_leaf_node.account_key();
+        let existing_leaf_key = existing_leaf_node.key_hash();
 
         if kvs.len() == 1 && kvs[0].0 == existing_leaf_key {
             let new_leaf_node = Node::new_leaf(existing_leaf_key, kvs[0].1.clone());
             tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
             Ok((node_key, new_leaf_node))
         } else {
-            let existing_leaf_bucket = existing_leaf_key.get_nibble(depth);
+            let existing_leaf_bucket = existing_leaf_key.0.get_nibble(depth);
             let mut isolated_existing_leaf = true;
             let mut children = Children::new();
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
-                let child_index = kvs[left].0.get_nibble(depth);
+                let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
                 let (new_child_node_key, new_child_node) = if existing_leaf_bucket == child_index {
                     isolated_existing_leaf = false;
@@ -304,7 +306,7 @@ where
         } else {
             let mut children = Children::new();
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
-                let child_index = kvs[left].0.get_nibble(depth);
+                let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
                 let (new_child_node_key, new_child_node) = self.batch_create_subtree(
                     child_node_key,
@@ -420,7 +422,7 @@ where
         version: Version,
         tree_cache: &mut TreeCache<'a, R>,
     ) -> Result<()> {
-        let nibble_path = NibblePath::new(key.to_vec());
+        let nibble_path = NibblePath::new(key.0.to_vec());
 
         // Get the root node. If this is the first operation, it would get the root node from the
         // underlying db. Otherwise it most likely would come from `cache`.
@@ -566,7 +568,7 @@ where
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
         let mut visited_nibble_iter = nibble_iter.visited_nibbles();
-        let existing_leaf_nibble_path = NibblePath::new(existing_leaf_node.account_key().to_vec());
+        let existing_leaf_nibble_path = NibblePath::new(existing_leaf_node.key_hash().0.to_vec());
         let mut existing_leaf_nibble_iter = existing_leaf_nibble_path.nibbles();
         skip_common_prefix(&mut visited_nibble_iter, &mut existing_leaf_nibble_iter);
 
@@ -689,7 +691,7 @@ where
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut siblings = vec![];
-        let nibble_path = NibblePath::new(key.to_vec());
+        let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
@@ -727,8 +729,8 @@ where
                 }
                 Node::Leaf(leaf_node) => {
                     return Ok((
-                        if leaf_node.account_key() == key {
-                            Some(leaf_node.value().clone())
+                        if leaf_node.key_hash() == key {
+                            Some(leaf_node.value().to_vec())
                         } else {
                             None
                         },
@@ -766,7 +768,7 @@ where
             .siblings()
             .iter()
             .rev()
-            .zip(rightmost_key_to_prove.iter_bits())
+            .zip(rightmost_key_to_prove.0.iter_bits())
             .filter_map(|(sibling, bit)| {
                 // We only need to keep the siblings on the right.
                 if !bit {

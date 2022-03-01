@@ -77,23 +77,24 @@ mod bytes32ext;
 mod ics23_impl;
 mod iterator;
 mod metrics;
-mod node_type;
-mod reader;
 mod tree;
-mod tree_cache;
 mod types;
-mod writer;
 
 pub mod mock;
+pub mod node_type;
+pub mod reader;
 pub mod restore;
 pub mod sync;
+pub mod tree_cache;
+pub mod writer;
 
 use bytes32ext::Bytes32Ext;
+use types::nibble::ROOT_NIBBLE_HEIGHT;
+
 #[cfg(feature = "ics23")]
 pub use ics23_impl::ics23_spec;
-pub use iterator::JellyfishMerkleIterator;
+pub use iterator::JellyfishMerkleStream;
 pub use tree::JellyfishMerkleTree;
-use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;
 
