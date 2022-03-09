@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use ics23;
 
 use crate::{storage::TreeReader, JellyfishMerkleTree, Version};
 
@@ -74,10 +73,35 @@ where
                 prehash_value: ics23::HashOp::Sha256.into(),
                 length: ics23::LengthOp::NoPrefix.into(),
                 prefix: b"JMT::LeafNode".to_vec(),
-                prefix_prehash_key: b"JMT::Key".to_vec(),
-                prefix_prehash_value: b"JMT::Value".to_vec(),
             }),
         })
+    }
+}
+
+pub fn ics23_spec() -> ics23::ProofSpec {
+    ics23::ProofSpec {
+        leaf_spec: Some(ics23::LeafOp {
+            hash: ics23::HashOp::Sha256.into(),
+            prehash_key: ics23::HashOp::Sha256.into(),
+            prehash_value: ics23::HashOp::Sha256.into(),
+            length: ics23::LengthOp::NoPrefix.into(),
+            prefix: b"JMT::LeafNode".to_vec(),
+        }),
+        inner_spec: Some(ics23::InnerSpec {
+            // This is the only field we're sure about
+            hash: ics23::HashOp::Sha256.into(),
+            // These fields are apparently used for neighbor tests in range proofs,
+            // and could be wrong:
+            child_order: vec![0, 1], //where exactly does this need to be true?
+            min_prefix_length: 16,   //what is this?
+            max_prefix_length: 48,   //and this?
+            child_size: 32,
+            empty_child: vec![], //check JMT repo to determine if special value used here
+        }),
+        // TODO: check this
+        min_depth: 0,
+        // TODO:
+        max_depth: 64,
     }
 }
 
@@ -115,7 +139,7 @@ mod tests {
 
         assert!(ics23::verify_membership(
             &commitment_proof,
-            &ics23::jmt_spec(),
+            &ics23_spec(),
             &new_root_hash.0.to_vec(),
             b"key",
             b"value",
@@ -150,7 +174,7 @@ mod tests {
 
         assert!(ics23::verify_membership(
             &commitment_proof,
-            &ics23::jmt_spec(),
+            &ics23_spec(),
             &root_hash,
             format!("key{}", MAX_VERSION).as_bytes(),
             format!("value{}", MAX_VERSION).as_bytes(),
