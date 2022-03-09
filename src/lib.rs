@@ -88,10 +88,11 @@ pub mod mock;
 pub mod restore;
 
 use bytes32ext::Bytes32Ext;
-use types::nibble::ROOT_NIBBLE_HEIGHT;
-
+#[cfg(feature = "ics23")]
+pub use ics23_impl::ics23_spec;
 pub use iterator::JellyfishMerkleIterator;
 pub use tree::JellyfishMerkleTree;
+use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;
 
@@ -151,7 +152,6 @@ impl<V: AsRef<[u8]>> From<V> for ValueHash {
     fn from(value: V) -> Self {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
-        hasher.update(b"JMT::Value");
         hasher.update(value.as_ref());
         Self(*hasher.finalize().as_ref())
     }
@@ -161,7 +161,6 @@ impl<K: AsRef<[u8]>> From<K> for KeyHash {
     fn from(key: K) -> Self {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
-        hasher.update(b"JMT::Key");
         hasher.update(key.as_ref());
         Self(*hasher.finalize().as_ref())
     }

@@ -13,8 +13,7 @@ edition = "2018"
 default = ["ics23"]
 
 [dependencies]
-ics23 = { git = "https://github.com/penumbra-zone/ics23" , optional = true }
-
+ics23 = { version = "0.7" , optional = true }
 anyhow = "1.0.38"
 async-recursion = "1"
 byteorder = "1.4.3"
