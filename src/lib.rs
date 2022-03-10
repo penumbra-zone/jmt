@@ -78,6 +78,7 @@ mod ics23_impl;
 mod iterator;
 mod metrics;
 mod node_type;
+mod overlay;
 mod reader;
 mod tree;
 mod tree_cache;
@@ -93,6 +94,7 @@ use types::nibble::ROOT_NIBBLE_HEIGHT;
 #[cfg(feature = "ics23")]
 pub use ics23_impl::ics23_spec;
 pub use iterator::JellyfishMerkleStream;
+pub use overlay::WriteOverlay;
 pub use tree::JellyfishMerkleTree;
 pub use types::proof;
 pub use types::Version;
