@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Bytes32Ext, KeyHash, OwnedValue};
 
 /// The hardcoded maximum height of a state merkle tree in nibbles.
-pub const ROOT_NIBBLE_HEIGHT: usize = 256 * 2;
+pub const ROOT_NIBBLE_HEIGHT: usize = 32 * 2;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Nibble(u8);
