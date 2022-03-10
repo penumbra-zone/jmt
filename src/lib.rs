@@ -84,7 +84,6 @@ pub mod mock;
 pub mod node_type;
 pub mod reader;
 pub mod restore;
-pub mod sync;
 pub mod tree_cache;
 pub mod writer;
 
