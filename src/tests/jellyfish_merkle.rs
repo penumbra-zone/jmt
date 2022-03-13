@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use tokio::runtime::Runtime;
 
 use super::helper::{
     arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
@@ -684,7 +685,7 @@ async fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) 
 #[tokio::test]
 async fn test_1000_keys() {
     let seed: &[_] = &[1, 2, 3, 4];
-    many_keys_get_proof_and_verify_tree_root(seed, 1000);
+    many_keys_get_proof_and_verify_tree_root(seed, 1000).await;
 }
 
 async fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize) {
@@ -747,32 +748,45 @@ async fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions:
     }
 }
 
-#[test]
-fn test_1000_versions() {
+#[tokio::test]
+async fn test_1000_versions() {
     let seed: &[_] = &[1, 2, 3, 4];
-    many_versions_get_proof_and_verify_tree_root(seed, 1000);
+    many_versions_get_proof_and_verify_tree_root(seed, 1000).await;
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]
 
+
     #[test]
     fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
-        async { test_get_with_proof((existent_kvs, nonexistent_keys)).await };
+        let rt = Runtime::new().unwrap();
+        rt.block_on(
+            test_get_with_proof((existent_kvs, nonexistent_keys))
+        );
     }
 
     #[test]
     fn proptest_get_with_proof_with_distinct_last_nibble((kv1, kv2) in arb_kv_pair_with_distinct_last_nibble()) {
-        async { test_get_with_proof_with_distinct_last_nibble((kv1, kv2)).await };
+        let rt = Runtime::new().unwrap();
+        rt.block_on(
+            test_get_with_proof_with_distinct_last_nibble((kv1, kv2))
+        );
     }
 
     #[test]
     fn proptest_get_range_proof((btree, n) in arb_tree_with_index(1000)) {
-        async { test_get_range_proof((btree, n)).await };
+        let rt = Runtime::new().unwrap();
+        rt.block_on(
+            test_get_range_proof((btree, n))
+        );
     }
 
     #[test]
     fn proptest_get_leaf_count(keys in hash_set(any::<KeyHash>(), 1..1000)) {
-        async { test_get_leaf_count(keys).await };
+        let rt = Runtime::new().unwrap();
+        rt.block_on(
+            test_get_leaf_count(keys)
+        );
     }
 }

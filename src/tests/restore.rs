@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use proptest::{collection::btree_map, prelude::*};
-use tokio::sync::RwLock;
+use tokio::{runtime::Runtime, sync::RwLock};
 
 use crate::{
     mock::MockTreeStore,
@@ -22,9 +22,12 @@ proptest! {
         btree in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
+        let rt = Runtime::new().unwrap();
         let restore_db = Arc::new(RwLock::new(MockTreeStore::default()));
         // For this test, restore everything without interruption.
-        restore_without_interruption(&btree, target_version, &restore_db, true);
+        rt.block_on(
+            restore_without_interruption(&btree, target_version, &restore_db, true)
+        )
     }
 
     #[test]
@@ -110,10 +113,13 @@ proptest! {
         btree2 in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
         target_version in 0u64..2000,
     ) {
-        let restore_db = Arc::new(RwLock::new(MockTreeStore::new(true /* allow_overwrite */)));
-        restore_without_interruption(&btree1, target_version, &restore_db, true);
-        // overwrite, an entirely different tree
-        restore_without_interruption(&btree2, target_version, &restore_db, false);
+        let rt = Runtime::new().unwrap();
+        rt.block_on( async move {
+            let restore_db = Arc::new(RwLock::new(MockTreeStore::new(true /* allow_overwrite */)));
+            restore_without_interruption(&btree1, target_version, &restore_db, true).await;
+            // overwrite, an entirely different tree
+            restore_without_interruption(&btree2, target_version, &restore_db, false).await;
+        })
     }
 }
 
@@ -174,5 +180,6 @@ async fn restore_without_interruption(
         expected_root_hash,
         btree,
         target_version,
-    );
+    )
+    .await;
 }

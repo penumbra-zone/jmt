@@ -80,8 +80,8 @@ pub async fn test_get_with_proof(
     let (db, version) = init_mock_db(&existent_kvs).await;
     let tree = JellyfishMerkleTree::new(&db);
 
-    test_existent_keys_impl(&tree, version, &existent_kvs);
-    test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
+    test_existent_keys_impl(&tree, version, &existent_kvs).await;
+    test_nonexistent_keys_impl(&tree, version, &nonexistent_keys).await;
 }
 
 pub fn arb_kv_pair_with_distinct_last_nibble(
@@ -106,7 +106,7 @@ pub async fn test_get_with_proof_with_distinct_last_nibble(
     let (db, version) = init_mock_db(&kvs).await;
     let tree = JellyfishMerkleTree::new(&db);
 
-    test_existent_keys_impl(&tree, version, &kvs);
+    test_existent_keys_impl(&tree, version, &kvs).await;
 }
 
 pub fn arb_tree_with_index(

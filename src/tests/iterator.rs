@@ -13,21 +13,21 @@ use crate::{
     KeyHash, OwnedValue, ValueHash,
 };
 
-#[test]
-fn test_iterator_same_version() {
+#[tokio::test]
+async fn test_iterator_same_version() {
     for i in (1..100).step_by(11) {
-        test_n_leaves_same_version(i);
+        test_n_leaves_same_version(i).await;
     }
 }
 
-#[test]
-fn test_iterator_multiple_versions() {
-    test_n_leaves_multiple_versions(50);
+#[tokio::test]
+async fn test_iterator_multiple_versions() {
+    test_n_leaves_multiple_versions(50).await;
 }
 
-#[test]
-fn test_long_path() {
-    test_n_consecutive_addresses(50);
+#[tokio::test]
+async fn test_long_path() {
+    test_n_consecutive_addresses(50).await;
 }
 
 async fn test_n_leaves_same_version(n: usize) {
@@ -51,7 +51,7 @@ async fn test_n_leaves_same_version(n: usize) {
 
     let btree = btree.into_iter().collect::<BTreeMap<KeyHash, OwnedValue>>();
 
-    run_tests(db, &btree, 0 /* version */);
+    run_tests(db, &btree, 0 /* version */).await;
 }
 
 async fn test_n_leaves_multiple_versions(n: usize) {
@@ -68,7 +68,7 @@ async fn test_n_leaves_multiple_versions(n: usize) {
             .await
             .unwrap();
         db.write_tree_update_batch(batch).await.unwrap();
-        run_tests(Arc::clone(&db), &btree, i as Version);
+        run_tests(Arc::clone(&db), &btree, i as Version).await;
     }
 }
 
@@ -90,7 +90,7 @@ async fn test_n_consecutive_addresses(n: usize) {
         .unwrap();
     db.write_tree_update_batch(batch).await.unwrap();
 
-    run_tests(db, &btree, 0 /* version */);
+    run_tests(db, &btree, 0 /* version */).await;
 }
 
 async fn run_tests(
