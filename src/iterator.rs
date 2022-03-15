@@ -22,7 +22,7 @@ use crate::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         Version,
     },
-    KeyHash, ValueHash,
+    KeyHash, OwnedValue,
 };
 
 /// `NodeVisitInfo` keeps track of the status of an internal node during the iteration process. It
@@ -341,7 +341,7 @@ impl<R> futures::Stream for JellyfishMerkleStream<R>
 where
     R: TreeReader + Send + Sync + 'static,
 {
-    type Item = Result<(KeyHash, ValueHash)>;
+    type Item = Result<(KeyHash, OwnedValue)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {
@@ -358,7 +358,7 @@ where
                     self.done = true;
                     return Poll::Ready(Some(Ok((
                         leaf_node.key_hash(),
-                        ValueHash::from(leaf_node.value()),
+                        OwnedValue::from(leaf_node.value()),
                     ))));
                 }
                 Ok(Node::Internal(_)) => {
@@ -381,7 +381,7 @@ where
                     self.parent_stack.push(visit_info);
                 }
                 Ok(Node::Leaf(leaf_node)) => {
-                    let ret = (leaf_node.key_hash(), ValueHash::from(leaf_node.value()));
+                    let ret = (leaf_node.key_hash(), OwnedValue::from(leaf_node.value()));
                     Self::cleanup_stack(&mut self.parent_stack);
                     return Poll::Ready(Some(Ok(ret)));
                 }

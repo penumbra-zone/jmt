@@ -10,7 +10,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use super::helper::plus_one;
 use crate::{
     iterator::JellyfishMerkleStream, mock::MockTreeStore, types::Version, JellyfishMerkleTree,
-    KeyHash, OwnedValue, ValueHash,
+    KeyHash, OwnedValue,
 };
 
 #[tokio::test]
@@ -108,11 +108,7 @@ async fn run_tests(
                 .into_iter()
                 .collect::<Result<Vec<_>>>()
                 .unwrap(),
-            btree
-                .clone()
-                .into_iter()
-                .map(|(x, y)| (x, ValueHash::from(y)))
-                .collect::<Vec<_>>(),
+            btree.clone().into_iter().collect::<Vec<_>>(),
         );
     }
 
@@ -127,12 +123,7 @@ async fn run_tests(
                     .into_iter()
                     .collect::<Result<Vec<_>>>()
                     .unwrap(),
-                btree
-                    .clone()
-                    .into_iter()
-                    .skip(i)
-                    .map(|(x, y)| (x, ValueHash::from(y)))
-                    .collect::<Vec<_>>(),
+                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
             );
         }
 
@@ -148,12 +139,7 @@ async fn run_tests(
                     .into_iter()
                     .collect::<Result<Vec<_>>>()
                     .unwrap(),
-                btree
-                    .clone()
-                    .into_iter()
-                    .skip(i)
-                    .map(|(x, y)| (x, ValueHash::from(y)))
-                    .collect::<Vec<_>>(),
+                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
             );
         }
 
@@ -172,7 +158,7 @@ async fn run_tests(
                     .clone()
                     .into_iter()
                     .skip(i + 1)
-                    .map(|(x, y)| (x, ValueHash::from(y)))
+                    .map(|(x, y)| (x, y))
                     .collect::<Vec<_>>(),
             );
         }
