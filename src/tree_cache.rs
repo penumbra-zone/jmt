@@ -141,11 +141,11 @@ where
     R: 'a + TreeReader,
 {
     /// Constructs a new `TreeCache` instance.
-    pub fn new(reader: &'a R, next_version: Version) -> Result<Self> {
+    pub async fn new(reader: &'a R, next_version: Version) -> Result<TreeCache<'a, R>> {
         let mut node_cache = HashMap::new();
         let root_node_key = if next_version == 0 {
             let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
-            let pre_genesis_root = reader.get_node_option(&pre_genesis_root_key)?;
+            let pre_genesis_root = reader.get_node_option(&pre_genesis_root_key).await?;
 
             match pre_genesis_root {
                 Some(_) => {
@@ -178,14 +178,14 @@ where
     }
 
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
-    pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
+    pub async fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             node.clone()
         } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
             node.clone()
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
-            self.reader.get_node(node_key)?
+            self.reader.get_node_option(node_key).await?.unwrap()
         })
     }
 
@@ -229,10 +229,11 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze(&mut self) {
+    pub async fn freeze(&mut self) {
         let root_node_key = self.get_root_node_key();
         let root_hash = self
             .get_node(root_node_key)
+            .await
             .unwrap_or_else(|_| unreachable!("Root node with key {:?} must exist", root_node_key))
             .hash();
         self.frozen_cache.root_hashes.push(RootHash(root_hash));

@@ -4,16 +4,16 @@ use crate::{storage::TreeReader, JellyfishMerkleTree, Version};
 
 impl<'a, R> JellyfishMerkleTree<'a, R>
 where
-    R: 'a + TreeReader,
+    R: 'a + TreeReader + Sync,
 {
     /// Returns the value and an [`ics23::ExistenceProof`].
-    pub fn get_with_ics23_proof(
+    pub async fn get_with_ics23_proof(
         &self,
         key: Vec<u8>,
         version: Version,
     ) -> Result<ics23::ExistenceProof> {
         let key_hash = key.as_slice().into();
-        let (value, proof) = self.get_with_proof(key_hash, version)?;
+        let (value, proof) = self.get_with_proof(key_hash, version).await?;
         let value = value.ok_or_else(|| {
             anyhow!(
                 "Requested proof of inclusion for non-existent key {:?}",
@@ -110,8 +110,8 @@ mod tests {
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash};
 
-    #[test]
-    fn test_jmt_ics23_existence() {
+    #[tokio::test]
+    async fn test_jmt_ics23_existence() {
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
 
@@ -128,10 +128,10 @@ mod tests {
             kvs.push((overlap_key, b"bogus value".to_vec()));
         }
 
-        let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
-        db.write_tree_update_batch(batch).unwrap();
+        let (new_root_hash, batch) = tree.put_value_set(kvs, 0).await.unwrap();
+        db.write_tree_update_batch(batch).await.unwrap();
 
-        let existence_proof = tree.get_with_ics23_proof(b"key".to_vec(), 0).unwrap();
+        let existence_proof = tree.get_with_ics23_proof(b"key".to_vec(), 0).await.unwrap();
 
         let commitment_proof = ics23::CommitmentProof {
             proof: Some(ics23::commitment_proof::Proof::Exist(existence_proof)),
@@ -146,8 +146,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_jmt_ics23_existence_random_keys() {
+    #[tokio::test]
+    async fn test_jmt_ics23_existence_random_keys() {
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
 
@@ -158,19 +158,21 @@ mod tests {
             let value = format!("value{}", version).into_bytes();
             let (_root, batch) = tree
                 .put_value_set(vec![(key.as_slice().into(), value)], version)
+                .await
                 .unwrap();
-            db.write_tree_update_batch(batch).unwrap();
+            db.write_tree_update_batch(batch).await.unwrap();
         }
 
         let existence_proof = tree
             .get_with_ics23_proof(format!("key{}", MAX_VERSION).into_bytes(), MAX_VERSION)
+            .await
             .unwrap();
 
         let commitment_proof = ics23::CommitmentProof {
             proof: Some(ics23::commitment_proof::Proof::Exist(existence_proof)),
         };
 
-        let root_hash = tree.get_root_hash(MAX_VERSION).unwrap().0.to_vec();
+        let root_hash = tree.get_root_hash(MAX_VERSION).await.unwrap().0.to_vec();
 
         assert!(ics23::verify_membership(
             &commitment_proof,

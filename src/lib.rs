@@ -88,11 +88,12 @@ pub mod mock;
 pub mod restore;
 
 use bytes32ext::Bytes32Ext;
+use types::nibble::ROOT_NIBBLE_HEIGHT;
+
 #[cfg(feature = "ics23")]
 pub use ics23_impl::ics23_spec;
-pub use iterator::JellyfishMerkleIterator;
+pub use iterator::JellyfishMerkleStream;
 pub use tree::JellyfishMerkleTree;
-use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;
 

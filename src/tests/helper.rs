@@ -38,7 +38,7 @@ pub fn plus_one(key: KeyHash) -> KeyHash {
 }
 
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version.
-pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Version) {
+pub async fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
@@ -47,8 +47,9 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
             .put_value_set(vec![(key, value)], i as Version)
+            .await
             .unwrap();
-        db.write_tree_update_batch(write_batch).unwrap();
+        db.write_tree_update_batch(write_batch).await.unwrap();
     }
 
     (db, (kvs.len() - 1) as Version)
@@ -73,14 +74,14 @@ pub fn arb_existent_kvs_and_nonexistent_keys(
     })
 }
 
-pub fn test_get_with_proof(
+pub async fn test_get_with_proof(
     (existent_kvs, nonexistent_keys): (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>),
 ) {
-    let (db, version) = init_mock_db(&existent_kvs);
+    let (db, version) = init_mock_db(&existent_kvs).await;
     let tree = JellyfishMerkleTree::new(&db);
 
-    test_existent_keys_impl(&tree, version, &existent_kvs);
-    test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
+    test_existent_keys_impl(&tree, version, &existent_kvs).await;
+    test_nonexistent_keys_impl(&tree, version, &nonexistent_keys).await;
 }
 
 pub fn arb_kv_pair_with_distinct_last_nibble(
@@ -95,17 +96,17 @@ pub fn arb_kv_pair_with_distinct_last_nibble(
         })
 }
 
-pub fn test_get_with_proof_with_distinct_last_nibble(
+pub async fn test_get_with_proof_with_distinct_last_nibble(
     (kv1, kv2): ((KeyHash, OwnedValue), (KeyHash, OwnedValue)),
 ) {
     let mut kvs = HashMap::new();
     kvs.insert(kv1.0, kv1.1);
     kvs.insert(kv2.0, kv2.1);
 
-    let (db, version) = init_mock_db(&kvs);
+    let (db, version) = init_mock_db(&kvs).await;
     let tree = JellyfishMerkleTree::new(&db);
 
-    test_existent_keys_impl(&tree, version, &kvs);
+    test_existent_keys_impl(&tree, version, &kvs).await;
 }
 
 pub fn arb_tree_with_index(
@@ -117,43 +118,43 @@ pub fn arb_tree_with_index(
     })
 }
 
-pub fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) {
-    let (db, version) = init_mock_db(&btree.clone().into_iter().collect());
+pub async fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) {
+    let (db, version) = init_mock_db(&btree.clone().into_iter().collect()).await;
     let tree = JellyfishMerkleTree::new(&db);
 
     let nth_key = btree.keys().nth(n).unwrap();
 
-    let proof = tree.get_range_proof(*nth_key, version).unwrap();
+    let proof = tree.get_range_proof(*nth_key, version).await.unwrap();
     verify_range_proof(
-        tree.get_root_hash(version).unwrap(),
+        tree.get_root_hash(version).await.unwrap(),
         btree.into_iter().take(n + 1).collect(),
         proof,
     );
 }
 
-fn test_existent_keys_impl<'a>(
+async fn test_existent_keys_impl<'a>(
     tree: &JellyfishMerkleTree<'a, MockTreeStore>,
     version: Version,
     existent_kvs: &HashMap<KeyHash, OwnedValue>,
 ) {
-    let root_hash = tree.get_root_hash(version).unwrap();
+    let root_hash = tree.get_root_hash(version).await.unwrap();
 
     for (key, value) in existent_kvs {
-        let (account, proof) = tree.get_with_proof(*key, version).unwrap();
+        let (account, proof) = tree.get_with_proof(*key, version).await.unwrap();
         assert!(proof.verify(root_hash, *key, account.as_ref()).is_ok());
         assert_eq!(account.unwrap(), *value);
     }
 }
 
-fn test_nonexistent_keys_impl<'a>(
+async fn test_nonexistent_keys_impl<'a>(
     tree: &JellyfishMerkleTree<'a, MockTreeStore>,
     version: Version,
     nonexistent_keys: &[KeyHash],
 ) {
-    let root_hash = tree.get_root_hash(version).unwrap();
+    let root_hash = tree.get_root_hash(version).await.unwrap();
 
     for key in nonexistent_keys {
-        let (account, proof) = tree.get_with_proof(*key, version).unwrap();
+        let (account, proof) = tree.get_with_proof(*key, version).await.unwrap();
         assert!(proof.verify(root_hash, *key, account.as_ref()).is_ok());
         assert!(account.is_none());
     }
@@ -322,9 +323,12 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
     SparseMerkleInternalNode::new(left_hash, right_hash).hash()
 }
 
-pub fn test_get_leaf_count(keys: HashSet<KeyHash>) {
+pub async fn test_get_leaf_count(keys: HashSet<KeyHash>) {
     let kvs = keys.into_iter().map(|k| (k, vec![])).collect();
-    let (db, version) = init_mock_db(&kvs);
+    let (db, version) = init_mock_db(&kvs).await;
     let tree = JellyfishMerkleTree::new(&db);
-    assert_eq!(tree.get_leaf_count(version).unwrap().unwrap(), kvs.len())
+    assert_eq!(
+        tree.get_leaf_count(version).await.unwrap().unwrap(),
+        kvs.len()
+    )
 }
