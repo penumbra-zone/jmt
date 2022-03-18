@@ -24,12 +24,18 @@ impl<R> WriteOverlay<R>
 where
     R: TreeReader + Sync,
 {
+    /// Use this [`Version`] with [`Self::new`] to specify that the writes
+    /// should be committed with version `0`.
+    pub const PRE_GENESIS_VERSION: Version = u64::MAX;
+
     /// Constructs a new [`WriteOverlay`] with the given `reader` and `version`.
     ///
     /// All reads performed with `get` will use `version` when querying the
     /// underlying backing store.  The buffered writes created with `put` will
     /// be written as `version + 1`, so `version` should probably be the latest
     /// version if `commit` will be called.
+    ///
+    /// To initialize an empty tree, use [`Self::PRE_GENESIS_VERSION`] here.
     pub fn new(reader: R, version: Version) -> Self {
         Self {
             reader,
@@ -70,7 +76,9 @@ where
         W: TreeWriter + Sync,
     {
         let overlay = std::mem::replace(&mut self.overlay, Default::default());
-        let new_version = self.version + 1;
+        // We use wrapping_add here so that we can write `new_version = 0` by
+        // overflowing `PRE_GENESIS_VERSION`.
+        let new_version = self.version.wrapping_add(1);
         let (root_hash, batch) = self
             .tree()
             .put_value_set(overlay.into_iter().collect(), new_version)
