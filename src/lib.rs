@@ -140,11 +140,11 @@ pub struct RootHash(pub [u8; 32]);
 ///
 /// The [`JellyfishMerkleTree`] only stores key hashes, not full keys.  Byte
 /// keys can be converted to a [`KeyHash`] using the provided `From` impl.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct KeyHash(pub [u8; 32]);
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 // This needs to be public for the fuzzing/Arbitrary feature, but we don't
 // really want it to be, so #[doc(hidden)] is the next best thing.
@@ -165,6 +165,55 @@ impl<K: AsRef<[u8]>> From<K> for KeyHash {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
         hasher.update(key.as_ref());
-        Self(*hasher.finalize().as_ref())
+        let key_hash = Self(*hasher.finalize().as_ref());
+        // Adding a tracing event here allows cross-referencing the key hash
+        // with the original key bytes when looking through logs.
+        tracing::debug!(?key_hash, key = ?EscapedByteSlice(key.as_ref()));
+        key_hash
+    }
+}
+
+impl std::fmt::Debug for KeyHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("KeyHash")
+            .field(&hex::encode(&self.0))
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ValueHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ValueHash")
+            .field(&hex::encode(&self.0))
+            .finish()
+    }
+}
+
+struct EscapedByteSlice<'a>(&'a [u8]);
+
+impl<'a> std::fmt::Debug for EscapedByteSlice<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "b\"")?;
+        for &b in self.0 {
+            // https://doc.rust-lang.org/reference/tokens.html#byte-escapes
+            if b == b'\n' {
+                write!(f, "\\n")?;
+            } else if b == b'\r' {
+                write!(f, "\\r")?;
+            } else if b == b'\t' {
+                write!(f, "\\t")?;
+            } else if b == b'\\' || b == b'"' {
+                write!(f, "\\{}", b as char)?;
+            } else if b == b'\0' {
+                write!(f, "\\0")?;
+            // ASCII printable
+            } else if b >= 0x20 && b < 0x7f {
+                write!(f, "{}", b as char)?;
+            } else {
+                write!(f, "\\x{:02x}", b)?;
+            }
+        }
+        write!(f, "\"")?;
+        Ok(())
     }
 }
