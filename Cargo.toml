@@ -28,6 +28,8 @@ thiserror = "1.0.24"
 prometheus = "0.13"
 bcs = "0.1.2"
 sha2 = "0.10"
+hex = "0.4"
+tracing = "0.1"
 
 [dev-dependencies]
 rand = { version = "0.8.3" }
