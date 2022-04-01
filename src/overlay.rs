@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use tracing::instrument;
 
 use crate::{
     storage::{TreeReader, TreeWriter},
@@ -51,11 +52,22 @@ where
     /// Gets a value by key.
     ///
     /// This method reflects the results of any pending writes made by `put`.
+    #[instrument(name = "WriteOverlay::get", skip(self, key))]
     pub async fn get(&self, key: KeyHash) -> Result<Option<OwnedValue>> {
         if let Some(value) = self.overlay.get(&key) {
+            tracing::trace!(?key, value = ?hex::encode(&value), "read from cache");
             Ok(Some(value.clone()))
         } else {
-            self.tree().get(key, self.version).await
+            let value = self.tree().get(key, self.version).await?;
+
+            match &value {
+                Some(value) => {
+                    tracing::trace!(version = ?self.version, ?key, value = ?hex::encode(&value), "read from tree")
+                }
+                None => tracing::trace!(version = ?self.version, ?key, "key not found in tree"),
+            }
+
+            Ok(value)
         }
     }
 
@@ -63,7 +75,9 @@ where
     ///
     /// Assuming it is not overwritten by a subsequent `put`, the value will be
     /// written to the tree when `commit` is called.
+    #[instrument(name = "WriteOverlay::put", skip(self, key, value))]
     pub fn put(&mut self, key: KeyHash, value: OwnedValue) {
+        tracing::trace!(?key, value = ?hex::encode(&value));
         *self.overlay.entry(key).or_default() = value;
     }
 
@@ -71,6 +85,7 @@ where
     /// `writer` and returning the new [`RootHash`] and [`Version`].
     ///
     /// The overlay will then point at the newly written state and tree version.
+    #[instrument(name = "WriteOverlay::commit", skip(self, writer))]
     pub async fn commit<W>(&mut self, mut writer: W) -> Result<(RootHash, Version)>
     where
         W: TreeWriter + Sync,
@@ -79,12 +94,14 @@ where
         // We use wrapping_add here so that we can write `new_version = 0` by
         // overflowing `PRE_GENESIS_VERSION`.
         let new_version = self.version.wrapping_add(1);
+        tracing::trace!(old_version = ?self.version, new_version, ?overlay);
         let (root_hash, batch) = self
             .tree()
             .put_value_set(overlay.into_iter().collect(), new_version)
             .await?;
 
         writer.write_node_batch(&batch.node_batch).await?;
+        tracing::trace!(?root_hash, "wrote node batch to backing store");
 
         // Now that we've successfully written the new nodes, update the version.
         self.version = new_version;
