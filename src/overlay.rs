@@ -21,14 +21,16 @@ pub struct WriteOverlay<R> {
     version: Version,
 }
 
+impl<R> WriteOverlay<R> {
+    /// Use this [`Version`] with [`Self::new`] to specify that the writes
+    /// should be committed with version `0`.
+    pub const PRE_GENESIS_VERSION: Version = u64::MAX;
+}
+
 impl<R> WriteOverlay<R>
 where
     R: TreeReader + Sync,
 {
-    /// Use this [`Version`] with [`Self::new`] to specify that the writes
-    /// should be committed with version `0`.
-    pub const PRE_GENESIS_VERSION: Version = u64::MAX;
-
     /// Constructs a new [`WriteOverlay`] with the given `reader` and `version`.
     ///
     /// All reads performed with `get` will use `version` when querying the
