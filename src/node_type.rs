@@ -62,7 +62,7 @@ impl NodeKey {
     }
 
     /// Gets the version.
-    pub(crate) fn version(&self) -> Version {
+    pub fn version(&self) -> Version {
         self.version
     }
 
