@@ -5,7 +5,7 @@ use tracing::instrument;
 
 use crate::{
     storage::{TreeReader, TreeWriter},
-    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, Version,
+    JellyfishMerkleTree, KeyHash, MissingRootError, OwnedValue, RootHash, Version,
 };
 
 // There's some similarity between the OverlayTree and the TreeCache, but it's
@@ -60,16 +60,22 @@ where
             tracing::trace!(?key, value = ?hex::encode(&value), "read from cache");
             Ok(Some(value.clone()))
         } else {
-            let value = self.tree().get(key, self.version).await?;
-
-            match &value {
-                Some(value) => {
-                    tracing::trace!(version = ?self.version, ?key, value = ?hex::encode(&value), "read from tree")
+            match self.tree().get(key, self.version).await {
+                Ok(Some(value)) => {
+                    tracing::trace!(version = ?self.version, ?key, value = ?hex::encode(&value), "read from tree");
+                    Ok(Some(value))
                 }
-                None => tracing::trace!(version = ?self.version, ?key, "key not found in tree"),
+                Ok(None) => {
+                    tracing::trace!(version = ?self.version, ?key, "key not found in tree");
+                    Ok(None)
+                }
+                // This allows for using the Overlay on an empty database without errors
+                Err(e) if e.downcast_ref::<MissingRootError>().is_some() => {
+                    tracing::trace!(version = ?self.version, "no data available at this version");
+                    Ok(None)
+                }
+                Err(e) => Err(e),
             }
-
-            Ok(value)
         }
     }
 
