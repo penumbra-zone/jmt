@@ -165,7 +165,7 @@ impl<K: AsRef<[u8]>> From<K> for KeyHash {
         let key_hash = Self(*hasher.finalize().as_ref());
         // Adding a tracing event here allows cross-referencing the key hash
         // with the original key bytes when looking through logs.
-        tracing::debug!(?key_hash, key = ?EscapedByteSlice(key.as_ref()));
+        tracing::debug!(key = ?EscapedByteSlice(key.as_ref()), ?key_hash);
         key_hash
     }
 }
