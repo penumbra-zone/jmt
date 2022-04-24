@@ -132,7 +132,7 @@ pub type OwnedValue = Vec<u8>;
 use proptest_derive::Arbitrary;
 
 /// A root of a [`JellyfishMerkleTree`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct RootHash(pub [u8; 32]);
 
@@ -184,6 +184,14 @@ impl std::fmt::Debug for KeyHash {
 impl std::fmt::Debug for ValueHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("ValueHash")
+            .field(&hex::encode(&self.0))
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RootHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RootHash")
             .field(&hex::encode(&self.0))
             .finish()
     }
