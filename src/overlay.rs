@@ -89,6 +89,17 @@ where
         *self.overlay.entry(key).or_default() = value;
     }
 
+    /// Deletes a key from the overlay.
+    ///
+    /// Assuming it is not overwritten by a subsequent `put`, the value will not be
+    /// written to the tree when `commit` is called, and any previous value will be
+    /// erased.
+    #[instrument(name = "WriteOverlay::del", skip(self, key))]
+    pub fn del(&mut self, key: KeyHash) {
+        tracing::trace!(?key);
+        self.overlay.remove(&key);
+    }
+
     /// Clears the overlay, committing all pending writes to the provided
     /// `writer` and returning the new [`RootHash`] and [`Version`].
     ///
@@ -107,6 +118,8 @@ where
             .tree()
             .put_value_set(overlay.into_iter().collect(), new_version)
             .await?;
+
+        // TODO: determine deletions and modify JMT appropriately?
 
         writer.write_node_batch(&batch.node_batch).await?;
         tracing::trace!(?root_hash, "wrote node batch to backing store");
