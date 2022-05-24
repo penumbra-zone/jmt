@@ -51,6 +51,25 @@ where
         JellyfishMerkleTree::new(&self.reader)
     }
 
+    async fn get_from_tree(&self, key: KeyHash) -> Result<Option<OwnedValue>> {
+        match self.tree().get(key, self.version).await {
+            Ok(Some(value)) => {
+                tracing::trace!(version = ?self.version, ?key, value = ?hex::encode(&value), "read from tree");
+                Ok(Some(value))
+            }
+            Ok(None) => {
+                tracing::trace!(version = ?self.version, ?key, "key not found in tree");
+                Ok(None)
+            }
+            // This allows for using the Overlay on an empty database without errors
+            Err(e) if e.downcast_ref::<MissingRootError>().is_some() => {
+                tracing::trace!(version = ?self.version, "no data available at this version");
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Gets a value by key.
     ///
     /// This method reflects the results of any pending writes made by `put`.
@@ -60,23 +79,25 @@ where
             tracing::trace!(?key, value = ?hex::encode(&value), "read from cache");
             Ok(Some(value.clone()))
         } else {
-            match self.tree().get(key, self.version).await {
-                Ok(Some(value)) => {
-                    tracing::trace!(version = ?self.version, ?key, value = ?hex::encode(&value), "read from tree");
-                    Ok(Some(value))
-                }
-                Ok(None) => {
-                    tracing::trace!(version = ?self.version, ?key, "key not found in tree");
-                    Ok(None)
-                }
-                // This allows for using the Overlay on an empty database without errors
-                Err(e) if e.downcast_ref::<MissingRootError>().is_some() => {
-                    tracing::trace!(version = ?self.version, "no data available at this version");
-                    Ok(None)
-                }
-                Err(e) => Err(e),
-            }
+            self.get_from_tree(key).await
         }
+    }
+
+    /// Gets a value by key alongside an ICS23 existence proof of that value.
+    ///
+    /// This method does *not* reflect results of any pending writes to the WriteOverlay.
+    #[instrument(name = "WriteOverlay::get_with_proof", skip(self, key))]
+    pub async fn get_with_proof(
+        &mut self,
+        key: Vec<u8>,
+    ) -> Result<Option<(OwnedValue, ics23::ExistenceProof)>> {
+        let value = self.get_from_tree(key.clone().into()).await?;
+        if value.is_none() {
+            return Ok(None);
+        }
+        let proof = self.tree().get_with_ics23_proof(key, self.version).await?;
+
+        Ok(Some((value.unwrap(), proof)))
     }
 
     /// Puts a key/value pair in the overlay.
