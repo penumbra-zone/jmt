@@ -79,6 +79,24 @@ where
         }
     }
 
+    /// Gets a value by key alongside an ICS23 existence proof of that value.
+    ///
+    /// This method does *not* reflect results of any pending writes to the WriteOverlay. An error
+    /// will be returned if the key exists in the WriteOverlay, or if the key does not exist in the
+    /// tree.
+    #[instrument(name = "WriteOverlay::get_with_proof", skip(self, key))]
+    pub async fn get_with_proof(
+        &mut self,
+        key: Vec<u8>,
+    ) -> Result<(OwnedValue, ics23::ExistenceProof)> {
+        if self.overlay.contains_key(&key.clone().into()) {
+            return Err(anyhow::anyhow!("key is not yet committed to tree"));
+        }
+        let proof = self.tree().get_with_ics23_proof(key, self.version).await?;
+
+        Ok((proof.value.clone(), proof))
+    }
+
     /// Puts a key/value pair in the overlay.
     ///
     /// Assuming it is not overwritten by a subsequent `put`, the value will be
