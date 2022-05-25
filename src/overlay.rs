@@ -86,7 +86,7 @@ where
     /// tree.
     #[instrument(name = "WriteOverlay::get_with_proof", skip(self, key))]
     pub async fn get_with_proof(
-        &mut self,
+        &self,
         key: Vec<u8>,
     ) -> Result<(OwnedValue, ics23::ExistenceProof)> {
         if self.overlay.contains_key(&key.clone().into()) {
