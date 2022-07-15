@@ -524,6 +524,53 @@ impl InternalNode {
         }
     }
 
+    /// Gets the child without its corresponding siblings (like using
+    /// [`get_child_with_siblings`](InternalNode::get_child_with_siblings) and dropping the
+    /// siblings, but more efficient).
+    pub fn get_child_without_siblings(&self, node_key: &NodeKey, n: Nibble) -> Option<NodeKey> {
+        let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
+
+        // Nibble height from 3 to 0.
+        for h in (0..4).rev() {
+            // Get the number of children of the internal node that each subtree at this height
+            // covers.
+            let width = 1 << h;
+            let child_half_start = get_child_half_start(n, h);
+
+            let (range_existence_bitmap, range_leaf_bitmap) =
+                Self::range_bitmaps(child_half_start, width, (existence_bitmap, leaf_bitmap));
+
+            if range_existence_bitmap == 0 {
+                // No child in this range.
+                return None;
+            } else if width == 1
+                || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+            {
+                // Return the only 1 leaf child under this subtree or reach the lowest level
+                // Even this leaf child is not the n-th child, it should be returned instead of
+                // `None` because it's existence indirectly proves the n-th child doesn't exist.
+                // Please read proof format for details.
+                let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
+
+                let only_child_version = self
+                    .child(only_child_index)
+                    // Should be guaranteed by the self invariants, but these are not easy to express at the moment
+                    .with_context(|| {
+                        format!(
+                            "Corrupted internal node: child_bitmap indicates \
+                                     the existence of a non-exist child at index {:x}",
+                            only_child_index
+                        )
+                    })
+                    .unwrap()
+                    .version;
+
+                return Some(node_key.gen_child_node_key(only_child_version, only_child_index));
+            }
+        }
+        unreachable!("Impossible to get here without returning even at the lowest level.")
+    }
+
     /// Gets the child and its corresponding siblings that are necessary to generate the proof for
     /// the `n`-th child. If it is an existence proof, the returned child must be the `n`-th
     /// child; otherwise, the returned child may be another child. See inline explanation for
@@ -633,6 +680,14 @@ pub(crate) fn get_child_and_sibling_half_start(n: Nibble, height: u8) -> (u8, u8
     let sibling_half_start = child_half_start ^ (1 << height);
 
     (child_half_start, sibling_half_start)
+}
+
+/// Given a nibble, computes the start position of its `child_half_start` at `height` level.
+pub(crate) fn get_child_half_start(n: Nibble, height: u8) -> u8 {
+    // Get the index of the first child belonging to the same subtree whose root, let's say `r` is
+    // at `height` that the n-th child belongs to.
+    // Note: `child_half_start` will be always equal to `n` at height 0.
+    (0xff << height) & u8::from(n)
 }
 
 /// Represents a key-value pair in the map.
