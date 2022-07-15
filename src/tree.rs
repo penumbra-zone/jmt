@@ -755,6 +755,62 @@ where
         bail!("Jellyfish Merkle tree has cyclic graph inside.");
     }
 
+    async fn get_without_proof(
+        &self,
+        key: KeyHash,
+        version: Version,
+    ) -> Result<Option<OwnedValue>> {
+        // Empty tree just returns proof with no sibling hash.
+        let mut next_node_key = NodeKey::new_empty_path(version);
+        let nibble_path = NibblePath::new(key.0.to_vec());
+        let mut nibble_iter = nibble_path.nibbles();
+
+        // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
+        // in the tree structure.
+        for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
+            let next_node = get_node_async(self.reader, &next_node_key)
+                .await
+                .map_err(|err| {
+                    if nibble_depth == 0 {
+                        MissingRootError { version }.into()
+                    } else {
+                        err
+                    }
+                })?;
+            match next_node {
+                Node::Internal(internal_node) => {
+                    let queried_child_index = nibble_iter
+                        .next()
+                        .ok_or_else(|| format_err!("ran out of nibbles"))?;
+                    let child_node_key = internal_node
+                        .get_child_without_siblings(&next_node_key, queried_child_index);
+                    next_node_key = match child_node_key {
+                        Some(node_key) => node_key,
+                        None => return Ok(None),
+                    };
+                }
+                Node::Leaf(leaf_node) => {
+                    return Ok(if leaf_node.key_hash() == key {
+                        Some(leaf_node.value().to_vec())
+                    } else {
+                        None
+                    });
+                }
+                Node::Null => {
+                    if nibble_depth == 0 {
+                        return Ok(None);
+                    } else {
+                        bail!(
+                            "Non-root null node exists with node key {:?}",
+                            next_node_key
+                        );
+                    }
+                }
+            }
+        }
+        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+    }
+
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
     pub async fn get_range_proof(
         &self,
@@ -782,8 +838,12 @@ where
         Ok(SparseMerkleRangeProof::new(siblings))
     }
 
+    /// Returns the value (if applicable), without any proof.
+    ///
+    /// Equivalent to [`get_with_proof`](JellyfishMerkleTree::get_with_proof) and dropping the
+    /// proof, but more efficient.
     pub async fn get(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>> {
-        Ok(self.get_with_proof(key, version).await?.0)
+        self.get_without_proof(key, version).await
     }
 
     async fn get_root_node(&self, version: Version) -> Result<Node> {
