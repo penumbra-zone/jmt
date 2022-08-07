@@ -17,7 +17,7 @@ use crate::{
 /// tree, and overlays the effect of those writes on the tree state for reading.
 pub struct WriteOverlay<R> {
     reader: R,
-    overlay: HashMap<KeyHash, OwnedValue>,
+    overlay: HashMap<KeyHash, Option<OwnedValue>>,
     version: Version,
 }
 
@@ -56,9 +56,14 @@ where
     /// This method reflects the results of any pending writes made by `put`.
     #[instrument(name = "WriteOverlay::get", skip(self, key))]
     pub async fn get(&self, key: KeyHash) -> Result<Option<OwnedValue>> {
-        if let Some(value) = self.overlay.get(&key) {
-            tracing::trace!(?key, value = ?hex::encode(&value), "read from cache");
-            Ok(Some(value.clone()))
+        if let Some(option_value) = self.overlay.get(&key) {
+            if let Some(value) = option_value {
+                tracing::trace!(?key, value = ?hex::encode(&value), "read from cache");
+                Ok(Some(value.clone()))
+            } else {
+                tracing::trace!(?key, value = None::<&str>, "read from cache (deleted)");
+                Ok(None)
+            }
         } else {
             match self.tree().get(key, self.version).await {
                 Ok(Some(value)) => {
@@ -102,8 +107,12 @@ where
     /// Assuming it is not overwritten by a subsequent `put`, the value will be
     /// written to the tree when `commit` is called.
     #[instrument(name = "WriteOverlay::put", skip(self, key, value))]
-    pub fn put(&mut self, key: KeyHash, value: OwnedValue) {
-        tracing::trace!(?key, value = ?hex::encode(&value));
+    pub fn put(&mut self, key: KeyHash, value: Option<OwnedValue>) {
+        if let Some(value) = value {
+            tracing::trace!(?key, value = ?hex::encode(&value));
+        } else {
+            tracing::trace!(?key, value = None::<&str>);
+        }
         *self.overlay.entry(key).or_default() = value;
     }
 

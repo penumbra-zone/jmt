@@ -66,7 +66,7 @@ where
     /// The batch version of `put_value_sets`.
     pub async fn batch_put_value_sets(
         &self,
-        value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
+        value_sets: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
         node_hashes: Option<Vec<&HashMap<NibblePath, [u8; 32]>>>,
         first_version: Version,
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
@@ -114,7 +114,7 @@ where
         &self,
         mut node_key: NodeKey,
         version: Version,
-        kvs: &[(KeyHash, OwnedValue)],
+        kvs: &[(KeyHash, Option<OwnedValue>)],
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
@@ -223,7 +223,7 @@ where
         node_key: NodeKey,
         version: Version,
         existing_leaf_node: LeafNode,
-        kvs: &[(KeyHash, OwnedValue)],
+        kvs: &[(KeyHash, Option<OwnedValue>)],
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
@@ -294,7 +294,7 @@ where
         &self,
         node_key: NodeKey,
         version: Version,
-        kvs: &[(KeyHash, OwnedValue)],
+        kvs: &[(KeyHash, Option<OwnedValue>)],
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
@@ -338,7 +338,7 @@ where
     /// `keyed_value_set`.
     pub async fn put_value_set(
         &self,
-        value_set: Vec<(KeyHash, OwnedValue)>,
+        value_set: Vec<(KeyHash, Option<OwnedValue>)>,
         version: Version,
     ) -> Result<(RootHash, TreeUpdateBatch)> {
         let (root_hashes, tree_update_batch) = self
@@ -395,7 +395,7 @@ where
     /// the batch is not reachable from public interfaces before being committed.
     pub async fn put_value_sets(
         &self,
-        value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
+        value_sets: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version).await?;
@@ -418,7 +418,7 @@ where
     async fn put(
         &self,
         key: KeyHash,
-        value: OwnedValue,
+        value: Option<OwnedValue>,
         version: Version,
         tree_cache: &mut TreeCache<'a, R>,
     ) -> Result<()> {
@@ -454,7 +454,7 @@ where
         node_key: NodeKey,
         version: Version,
         nibble_iter: &mut NibbleIterator<'future>,
-        value: OwnedValue,
+        value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<'cache, R>,
     ) -> Result<(NodeKey, Node)> {
         let node = tree_cache.get_node(&node_key).await?;
@@ -508,7 +508,7 @@ where
         internal_node: InternalNode,
         version: Version,
         nibble_iter: &mut NibbleIterator<'future>,
-        value: OwnedValue,
+        value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<'cache, R>,
     ) -> Result<(NodeKey, Node)> {
         // We always delete the existing internal node here because it will not be referenced anyway
@@ -556,7 +556,7 @@ where
         existing_leaf_node: LeafNode,
         version: Version,
         nibble_iter: &mut NibbleIterator,
-        value: OwnedValue,
+        value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<(NodeKey, Node)> {
         // We are on a leaf node but trying to insert another node, so we may diverge.

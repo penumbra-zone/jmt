@@ -120,12 +120,12 @@ mod tests {
 
         // For testing, insert multiple values into the tree
         let mut kvs = Vec::new();
-        kvs.push((key_hash, b"value".to_vec()));
+        kvs.push((key_hash, Some(b"value".to_vec())));
         // make sure we have some sibling nodes, through carefully constructed k/v entries that will have overlapping paths
         for i in 1..4 {
             let mut overlap_key = KeyHash([0; 32]);
             overlap_key.0[0..i].copy_from_slice(&key_hash.0[0..i]);
-            kvs.push((overlap_key, b"bogus value".to_vec()));
+            kvs.push((overlap_key, Some(b"bogus value".to_vec())));
         }
 
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).await.unwrap();
@@ -157,7 +157,7 @@ mod tests {
             let key = format!("key{}", version).into_bytes();
             let value = format!("value{}", version).into_bytes();
             let (_root, batch) = tree
-                .put_value_set(vec![(key.as_slice().into(), value)], version)
+                .put_value_set(vec![(key.as_slice().into(), Some(value))], version)
                 .await
                 .unwrap();
             db.write_tree_update_batch(batch).await.unwrap();

@@ -39,7 +39,7 @@ async fn test_n_leaves_same_version(n: usize) {
     let mut btree = BTreeMap::new();
     for i in 0..n {
         let key = KeyHash(rng.gen());
-        let value = i.to_be_bytes().to_vec();
+        let value = Some(i.to_be_bytes().to_vec());
         assert_eq!(btree.insert(key, value), None);
     }
 
@@ -49,7 +49,9 @@ async fn test_n_leaves_same_version(n: usize) {
         .unwrap();
     db.write_tree_update_batch(batch).await.unwrap();
 
-    let btree = btree.into_iter().collect::<BTreeMap<KeyHash, OwnedValue>>();
+    let btree = btree
+        .into_iter()
+        .collect::<BTreeMap<KeyHash, Option<OwnedValue>>>();
 
     run_tests(db, &btree, 0 /* version */).await;
 }
@@ -61,7 +63,7 @@ async fn test_n_leaves_multiple_versions(n: usize) {
     let mut btree = BTreeMap::new();
     for i in 0..n {
         let key = format!("key{}", i).into();
-        let value = i.to_be_bytes().to_vec();
+        let value = Some(i.to_be_bytes().to_vec());
         assert_eq!(btree.insert(key, value.clone()), None);
         let (_root_hash, batch) = tree
             .put_value_set(vec![(key, value)], i as Version)
@@ -80,7 +82,7 @@ async fn test_n_consecutive_addresses(n: usize) {
         .map(|i| {
             let mut buf = [0u8; 32];
             buf[24..].copy_from_slice(&(i as u64).to_be_bytes());
-            (KeyHash(buf), i.to_be_bytes().to_vec())
+            (KeyHash(buf), Some(i.to_be_bytes().to_vec()))
         })
         .collect();
 
@@ -95,7 +97,7 @@ async fn test_n_consecutive_addresses(n: usize) {
 
 async fn run_tests(
     db: Arc<MockTreeStore>,
-    btree: &BTreeMap<KeyHash, OwnedValue>,
+    btree: &BTreeMap<KeyHash, Option<OwnedValue>>,
     version: Version,
 ) {
     {
@@ -108,7 +110,12 @@ async fn run_tests(
                 .into_iter()
                 .collect::<Result<Vec<_>>>()
                 .unwrap(),
-            btree.clone().into_iter().collect::<Vec<_>>(),
+            btree
+                .clone()
+                .into_iter()
+                // Remove all k-v pairs whose value is `None`, because they have been logically deleted
+                .filter_map(|(k, v)| v.map(move |v| (k, v)))
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -123,7 +130,12 @@ async fn run_tests(
                     .into_iter()
                     .collect::<Result<Vec<_>>>()
                     .unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                btree
+                    .clone()
+                    .into_iter() // Remove all k-v pairs whose value is `None`, because they have been logically deleted
+                    .filter_map(|(k, v)| v.map(move |v| (k, v)))
+                    .skip(i)
+                    .collect::<Vec<_>>(),
             );
         }
 
@@ -139,7 +151,12 @@ async fn run_tests(
                     .into_iter()
                     .collect::<Result<Vec<_>>>()
                     .unwrap(),
-                btree.clone().into_iter().skip(i).collect::<Vec<_>>(),
+                btree
+                    .clone()
+                    .into_iter() // Remove all k-v pairs whose value is `None`, because they have been logically deleted
+                    .filter_map(|(k, v)| v.map(move |v| (k, v)))
+                    .skip(i)
+                    .collect::<Vec<_>>(),
             );
         }
 
@@ -157,6 +174,8 @@ async fn run_tests(
                 btree
                     .clone()
                     .into_iter()
+                    // Remove all k-v pairs whose value is `None`, because they have been logically deleted
+                    .filter_map(|(k, v)| v.map(move |v| (k, v)))
                     .skip(i + 1)
                     .map(|(x, y)| (x, y))
                     .collect::<Vec<_>>(),

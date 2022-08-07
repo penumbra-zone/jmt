@@ -49,7 +49,7 @@ async fn test_insert_to_empty_tree() {
     // batch version
     let (_new_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key.into(), value.clone())]],
+            vec![vec![(key.into(), Some(value.clone()))]],
             None,
             0, /* version */
         )
@@ -83,7 +83,7 @@ async fn test_insert_to_pre_genesis() {
     // batch version
     let (_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             0, /* version */
         )
@@ -112,7 +112,7 @@ async fn test_insert_at_leaf_with_internal_created() {
 
     let (_root0_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key1, value1.clone())]],
+            vec![vec![(key1, Some(value1.clone()))]],
             None,
             0, /* version */
         )
@@ -130,7 +130,7 @@ async fn test_insert_at_leaf_with_internal_created() {
 
     let (_root1_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             1, /* version */
         )
@@ -203,7 +203,7 @@ async fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let (_root0_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key1, value1.clone())]],
+            vec![vec![(key1, Some(value1.clone()))]],
             None,
             0, /* version */
         )
@@ -219,7 +219,7 @@ async fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let (_root1_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             1, /* version */
         )
@@ -302,7 +302,7 @@ async fn test_insert_at_leaf_with_multiple_internals_created() {
     let value2_update = vec![5u8, 6u8];
     let (_root2_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2_update.clone())]],
+            vec![vec![(key2, Some(value2_update.clone()))]],
             None,
             2, /* version */
         )
@@ -364,13 +364,13 @@ async fn test_batch_insertion() {
     let value6 = vec![6u8];
 
     let batches = vec![
-        vec![(key1, value1)],
-        vec![(key2, value2)],
-        vec![(key3, value3)],
-        vec![(key4, value4)],
-        vec![(key5, value5)],
-        vec![(key6, value6)],
-        vec![(key2, value2_update)],
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key6, Some(value6))],
+        vec![(key2, Some(value2_update))],
     ];
     let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
 
@@ -390,7 +390,7 @@ async fn test_batch_insertion() {
         db.write_tree_update_batch(batch).await.unwrap();
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 0).await.unwrap().unwrap(), *v)
+            assert_eq!(tree.get(*k, 0).await.unwrap().unwrap(), *v.unwrap())
         }
 
         // get # of nodes
@@ -409,7 +409,7 @@ async fn test_batch_insertion() {
         db.write_tree_update_batch(batch).await.unwrap();
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v)
+            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v.unwrap())
         }
 
         // get # of nodes
@@ -507,7 +507,7 @@ async fn test_batch_insertion() {
         assert_eq!(db.num_nodes().await, 12);
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v)
+            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v.unwrap())
         }
     }
 }
@@ -538,9 +538,9 @@ async fn test_non_existence() {
     let (roots, batch) = tree
         .batch_put_value_sets(
             vec![vec![
-                (key1, value1.clone()),
-                (key2, value2.clone()),
-                (key3, value3.clone()),
+                (key1, Some(value1.clone())),
+                (key2, Some(value2.clone())),
+                (key3, Some(value3.clone())),
             ]],
             None,
             0, /* version */
@@ -617,7 +617,8 @@ async fn test_put_value_sets() {
         for version in 0..10 {
             let mut keyed_value_set = vec![];
             for _ in 0..total_updates / 10 {
-                keyed_value_set.push(iter.next().unwrap());
+                let (k, v) = iter.next().unwrap();
+                keyed_value_set.push((k, Some(v)));
             }
             let (root, batch) = tree
                 .put_value_set(keyed_value_set, version as Version)
@@ -640,7 +641,8 @@ async fn test_put_value_sets() {
         for _ in 0..10 {
             let mut keyed_value_set = vec![];
             for _ in 0..total_updates / 10 {
-                keyed_value_set.push(iter.next().unwrap());
+                let (k, v) = iter.next().unwrap();
+                keyed_value_set.push((k, Some(v)));
             }
             value_sets.push(keyed_value_set);
         }
@@ -665,7 +667,7 @@ async fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) 
     let mut kvs = vec![];
     for i in 0..num_keys {
         let key = format!("key{}", i).into();
-        let value = format!("value{}", i).into_bytes();
+        let value = Some(format!("value{}", i).into_bytes());
         kvs.push((key, value));
     }
 
@@ -677,8 +679,8 @@ async fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) 
 
     for (k, v) in kvs {
         let (value, proof) = tree.get_with_proof(k, 0).await.unwrap();
-        assert_eq!(value.unwrap(), *v);
-        assert!(proof.verify(roots[0], k, Some(v)).is_ok());
+        assert_eq!(value.unwrap(), *v.as_ref().unwrap());
+        assert!(proof.verify(roots[0], k, Some(v.unwrap())).is_ok());
     }
 }
 
@@ -709,7 +711,7 @@ async fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions:
 
     for (idx, (k, v_old, _v_new)) in kvs.iter().enumerate() {
         let (root, batch) = tree
-            .batch_put_value_sets(vec![vec![(*k, v_old.clone())]], None, idx as Version)
+            .batch_put_value_sets(vec![vec![(*k, Some(v_old.clone()))]], None, idx as Version)
             .await
             .unwrap();
         roots.push(root[0]);
@@ -720,7 +722,7 @@ async fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions:
     for (idx, (k, _v_old, v_new)) in kvs.iter().enumerate() {
         let version = (num_versions + idx) as Version;
         let (root, batch) = tree
-            .batch_put_value_sets(vec![vec![(*k, v_new.clone())]], None, version)
+            .batch_put_value_sets(vec![vec![(*k, Some(v_new.clone()))]], None, version)
             .await
             .unwrap();
         roots.push(root[0]);
