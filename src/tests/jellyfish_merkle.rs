@@ -390,7 +390,10 @@ async fn test_batch_insertion() {
         db.write_tree_update_batch(batch).await.unwrap();
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 0).await.unwrap().unwrap(), *v.unwrap())
+            assert_eq!(
+                tree.get(*k, 0).await.unwrap().unwrap(),
+                *v.as_ref().unwrap()
+            )
         }
 
         // get # of nodes
@@ -409,7 +412,10 @@ async fn test_batch_insertion() {
         db.write_tree_update_batch(batch).await.unwrap();
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v.unwrap())
+            assert_eq!(
+                tree.get(*k, 6).await.unwrap().unwrap(),
+                *v.as_ref().unwrap()
+            )
         }
 
         // get # of nodes
@@ -507,7 +513,10 @@ async fn test_batch_insertion() {
         assert_eq!(db.num_nodes().await, 12);
 
         for (k, v) in to_verify.iter() {
-            assert_eq!(tree.get(*k, 6).await.unwrap().unwrap(), *v.unwrap())
+            assert_eq!(
+                tree.get(*k, 6).await.unwrap().unwrap(),
+                *v.as_ref().unwrap()
+            )
         }
     }
 }

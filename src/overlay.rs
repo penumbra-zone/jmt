@@ -108,7 +108,7 @@ where
     /// written to the tree when `commit` is called.
     #[instrument(name = "WriteOverlay::put", skip(self, key, value))]
     pub fn put(&mut self, key: KeyHash, value: Option<OwnedValue>) {
-        if let Some(value) = value {
+        if let Some(value) = value.as_ref() {
             tracing::trace!(?key, value = ?hex::encode(&value));
         } else {
             tracing::trace!(?key, value = None::<&str>);

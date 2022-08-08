@@ -7,14 +7,19 @@ use crate::{mock::MockTreeStore, types::PRE_GENESIS_VERSION, KeyHash, OwnedValue
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum Action {
-    Put { key: KeyHash, value: OwnedValue },
-    Get { key: KeyHash },
+    Put {
+        key: KeyHash,
+        value: Option<OwnedValue>,
+    },
+    Get {
+        key: KeyHash,
+    },
     Commit,
 }
 
 #[derive(Clone, Debug, Default)]
 struct MockKvStore {
-    store: BTreeMap<KeyHash, OwnedValue>,
+    store: BTreeMap<KeyHash, Option<OwnedValue>>,
 }
 
 impl Action {
@@ -31,7 +36,7 @@ impl Action {
             }
             Action::Get { key } => {
                 let overlay_value = overlay.get(*key).await?;
-                let mock_kv_value = mock_kv.store.get(key);
+                let mock_kv_value = mock_kv.store.get(key).and_then(Option::as_ref);
                 assert_eq!(
                     overlay_value.as_ref(),
                     mock_kv_value,
@@ -58,7 +63,7 @@ async fn empty_commit() {
 async fn put_then_commit() {
     let mock_tree_store = MockTreeStore::default();
     let mut overlay = WriteOverlay::new(mock_tree_store.clone(), PRE_GENESIS_VERSION);
-    overlay.put(b"".into(), b"".to_vec());
+    overlay.put(b"".into(), Some(b"".to_vec()));
     overlay.commit(mock_tree_store).await.unwrap();
 }
 
@@ -81,7 +86,7 @@ proptest! {
                             // Get a key that was in the set of to-be-used keys
                             proptest::sample::select(used.clone()).prop_map(|key| Action::Get { key }),
                             // Set a key to either be deleted or to be set to some arbitrary value
-                            (proptest::sample::select(used), any::<OwnedValue>()).prop_map(|(key, value)| {
+                            (proptest::sample::select(used), any::<Option<OwnedValue>>()).prop_map(|(key, value)| {
                                 Action::Put { key, value }
                             }),
                         ],
