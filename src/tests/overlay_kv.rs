@@ -53,7 +53,26 @@ impl Action {
     }
 }
 
+#[tokio::test]
+async fn empty_commit() {
+    let mock_tree_store = MockTreeStore::default();
+    let mut overlay = WriteOverlay::new(mock_tree_store.clone(), 0);
+    overlay.commit(mock_tree_store).await.unwrap();
+}
+
+#[tokio::test]
+async fn put_then_commit() {
+    let mock_tree_store = MockTreeStore::default();
+    let mut overlay = WriteOverlay::new(mock_tree_store.clone(), 0);
+    overlay.put(b"".into(), b"".to_vec());
+    overlay.commit(mock_tree_store).await.unwrap();
+}
+
 proptest! {
+    #![proptest_config({
+        ProptestConfig { max_shrink_iters: 100_000, .. Default::default() }
+    })]
+
     #[test]
     fn overlay_implements_kv(
         actions in
