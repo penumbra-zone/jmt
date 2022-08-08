@@ -628,19 +628,6 @@ where
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<Option<(NodeKey, Node)>> {
-        // We are on a leaf node but trying to insert another node, so we may diverge.
-        // We always delete the existing leaf node here because it will not be referenced anyway
-        // since this version.
-        tree_cache.delete_node(&node_key, true /* is_leaf */);
-
-        // If we're trying to delete a value, just return now, because we've now deleted the leaf
-        // node in question
-        let value = if let Some(value) = value {
-            value
-        } else {
-            return Ok(None);
-        };
-
         // 1. Make sure that the existing leaf nibble_path has the same prefix as the already
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
@@ -667,11 +654,21 @@ where
         // 2.1. Both are finished. That means the incoming key already exists in the tree and we
         // just need to update its value.
         if nibble_iter.is_finished() {
+            // Delete the node from the tree cache, because we're about to either delete it or
+            // update its value
+            tree_cache.delete_node(&node_key, true /* is_leaf */);
+
             assert!(existing_leaf_nibble_iter_below_internal.is_finished());
             // The new leaf node will have the same nibble_path with a new version as node_key.
             node_key.set_version(version);
             // Create the new leaf node with the same address but the new value.
-            return Self::create_leaf_node(node_key, nibble_iter, value, tree_cache).map(Some);
+            if let Some(value) = value {
+                return Self::create_leaf_node(node_key, nibble_iter, value, tree_cache).map(Some);
+            } else {
+                // If we're trying to delete a value, just return now, because we've now deleted the leaf
+                // node in question
+                return Ok(None);
+            };
         }
 
         // 2.2. both are unfinished(They have keys with same length so it's impossible to have one
@@ -698,41 +695,51 @@ where
             existing_leaf_node.into(),
         )?;
 
-        let (_, new_leaf_node) = Self::create_leaf_node(
-            node_key.gen_child_node_key(version, new_leaf_index),
-            nibble_iter,
-            value,
-            tree_cache,
-        )?;
-        children.insert(
-            new_leaf_index,
-            Child::new(new_leaf_node.hash(), version, NodeType::Leaf),
-        );
+        if let Some(value) = value {
+            // We are on a leaf node but trying to insert another node, so we may diverge.
+            // We always delete the existing leaf node here because it will not be referenced anyway
+            // since this version.
+            tree_cache.delete_node(&node_key, true /* is_leaf */);
 
-        let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
-        let mut next_internal_node: Node = internal_node.clone().into();
-        tree_cache.put_node(node_key.clone(), internal_node.into())?;
-
-        for _i in 0..num_common_nibbles_below_internal {
-            let nibble = common_nibble_path
-                .pop()
-                .expect("Common nibble_path below internal node ran out of nibble");
-            node_key = NodeKey::new(version, common_nibble_path.clone());
-            let mut children = Children::new();
+            let (_, new_leaf_node) = Self::create_leaf_node(
+                node_key.gen_child_node_key(version, new_leaf_index),
+                nibble_iter,
+                value,
+                tree_cache,
+            )?;
             children.insert(
-                nibble,
-                Child::new(
-                    next_internal_node.hash(),
-                    version,
-                    next_internal_node.node_type(),
-                ),
+                new_leaf_index,
+                Child::new(new_leaf_node.hash(), version, NodeType::Leaf),
             );
-            let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
-            next_internal_node = internal_node.clone().into();
-            tree_cache.put_node(node_key.clone(), internal_node.into())?;
-        }
 
-        Ok(Some((node_key, next_internal_node)))
+            let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
+            let mut next_internal_node: Node = internal_node.clone().into();
+            tree_cache.put_node(node_key.clone(), internal_node.into())?;
+
+            for _i in 0..num_common_nibbles_below_internal {
+                let nibble = common_nibble_path
+                    .pop()
+                    .expect("Common nibble_path below internal node ran out of nibble");
+                node_key = NodeKey::new(version, common_nibble_path.clone());
+                let mut children = Children::new();
+                children.insert(
+                    nibble,
+                    Child::new(
+                        next_internal_node.hash(),
+                        version,
+                        next_internal_node.node_type(),
+                    ),
+                );
+                let internal_node =
+                    InternalNode::new_migration(children, self.leaf_count_migration);
+                next_internal_node = internal_node.clone().into();
+                tree_cache.put_node(node_key.clone(), internal_node.into())?;
+            }
+
+            Ok(Some((node_key, next_internal_node)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Helper function for creating leaf nodes. Returns the newly created leaf node.
