@@ -112,11 +112,17 @@ where
     ///
     /// The overlay will then point at the newly written state and tree version.
     #[instrument(name = "WriteOverlay::commit", skip(self, writer))]
-    pub async fn commit<W>(&mut self, mut writer: W) -> Result<(RootHash, Version)>
+    pub async fn commit<W>(&mut self, mut writer: W) -> Result<Option<(RootHash, Version)>>
     where
         W: TreeWriter + Sync,
     {
-        let overlay = std::mem::replace(&mut self.overlay, Default::default());
+        // If there's nothing to write, we should immediately return `None` without doing anything.
+        // If we don't do this check, then `put_value_set` will panic.
+        if self.overlay.is_empty() {
+            return Ok(None);
+        }
+
+        let overlay = std::mem::take(&mut self.overlay);
         // We use wrapping_add here so that we can write `new_version = 0` by
         // overflowing `PRE_GENESIS_VERSION`.
         let new_version = self.version.wrapping_add(1);
@@ -132,6 +138,6 @@ where
         // Now that we've successfully written the new nodes, update the version.
         self.version = new_version;
 
-        Ok((root_hash, new_version))
+        Ok(Some((root_hash, new_version)))
     }
 }
