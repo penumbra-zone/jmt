@@ -1,16 +1,9 @@
 use std::collections::BTreeMap;
 
-use proptest::{collection::btree_map, prelude::*};
-use tokio::{runtime::Runtime, sync::RwLock};
+use proptest::prelude::*;
+use tokio::runtime::Runtime;
 
-use crate::{
-    mock::MockTreeStore,
-    restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
-    storage::TreeReader,
-    tests::helper::init_mock_db,
-    types::PRE_GENESIS_VERSION,
-    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, Version, WriteOverlay,
-};
+use crate::{mock::MockTreeStore, types::PRE_GENESIS_VERSION, KeyHash, OwnedValue, WriteOverlay};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum Action {
