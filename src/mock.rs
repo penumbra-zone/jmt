@@ -3,7 +3,10 @@
 
 //! A mock, in-memory tree store useful for testing.
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+use std::{
+    collections::{hash_map::Entry, BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use anyhow::{bail, ensure, Result};
 use futures::{future::BoxFuture, stream, StreamExt};
@@ -22,16 +25,17 @@ use rwlock::RwLock;
 /// The tree store is internally represented with a `HashMap`.  This structure
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
+#[derive(Debug, Clone)]
 pub struct MockTreeStore {
     #[allow(clippy::type_complexity)]
-    data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
+    data: Arc<RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>>,
     allow_overwrite: bool,
 }
 
 impl Default for MockTreeStore {
     fn default() -> Self {
         Self {
-            data: RwLock::new((HashMap::new(), BTreeSet::new())),
+            data: Arc::new(RwLock::new((HashMap::new(), BTreeSet::new()))),
             allow_overwrite: false,
         }
     }
