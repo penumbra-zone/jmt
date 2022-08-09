@@ -112,14 +112,14 @@ where
     ///
     /// The overlay will then point at the newly written state and tree version.
     #[instrument(name = "WriteOverlay::commit", skip(self, writer))]
-    pub async fn commit<W>(&mut self, mut writer: W) -> Result<Option<(RootHash, Version)>>
+    pub async fn commit<W>(&mut self, mut writer: W) -> Result<(RootHash, Version)>
     where
         W: TreeWriter + Sync,
     {
-        // If there's nothing to write, we should immediately return `None` without doing anything.
-        // If we don't do this check, then `put_value_set` will panic.
+        // Committing an empty write overlay will panic in the underlying JMT, so we provide a more
+        // meaningful panic message here instead.
         if self.overlay.is_empty() {
-            return Ok(None);
+            panic!("cannot commit empty `WriteOverlay`");
         }
 
         let overlay = std::mem::take(&mut self.overlay);
@@ -138,6 +138,6 @@ where
         // Now that we've successfully written the new nodes, update the version.
         self.version = new_version;
 
-        Ok(Some((root_hash, new_version)))
+        Ok((root_hash, new_version))
     }
 }
