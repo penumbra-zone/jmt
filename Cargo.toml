@@ -1,7 +1,10 @@
 [package]
 name = "jmt"
 version = "0.1.0"
-authors = ["Penumbra Labs <team@penumbra.zone>", "Diem Association <opensource@diem.com>"]
+authors = [
+    "Penumbra Labs <team@penumbra.zone>",
+    "Diem Association <opensource@diem.com>",
+]
 description = "Jellyfish Merkle Tree (forked from Diem)"
 repository = "https://github.com/penumbra-zone/jellyfish-merkle"
 homepage = "https://penumbra.zone"
@@ -13,7 +16,7 @@ edition = "2018"
 default = ["ics23"]
 
 [dependencies]
-ics23 = { version = "0.7" , optional = true }
+ics23 = { git = "https://github.com/penumbra-zone/ics23", branch = "penumbra-034", optional = true }
 anyhow = "1.0.38"
 byteorder = "1.4.3"
 itertools = { version = "0.10.0", default-features = false }
@@ -22,7 +25,7 @@ num-derive = "0.3.3"
 num-traits = "0.2.14"
 once_cell = "1.7.2"
 proptest = { version = "1.0.0" }
-proptest-derive = { version = "0.3.0"}
+proptest-derive = { version = "0.3.0" }
 serde = { version = "1.0.124", features = ["derive"] }
 thiserror = "1.0.24"
 prometheus = "0.13"
