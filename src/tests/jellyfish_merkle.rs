@@ -48,7 +48,7 @@ fn test_insert_to_empty_tree() {
     // batch version
     let (_new_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key.into(), value.clone())]],
+            vec![vec![(key.into(), Some(value.clone()))]],
             None,
             0, /* version */
         )
@@ -77,7 +77,7 @@ fn test_insert_to_pre_genesis() {
     // batch version
     let (_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             0, /* version */
         )
@@ -105,7 +105,7 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let (_root0_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key1, value1.clone())]],
+            vec![vec![(key1, Some(value1.clone()))]],
             None,
             0, /* version */
         )
@@ -122,7 +122,7 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let (_root1_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             1, /* version */
         )
@@ -176,7 +176,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let (_root0_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key1, value1.clone())]],
+            vec![vec![(key1, Some(value1.clone()))]],
             None,
             0, /* version */
         )
@@ -191,7 +191,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let (_root1_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
+            vec![vec![(key2, Some(value2.clone()))]],
             None,
             1, /* version */
         )
@@ -254,7 +254,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
     let value2_update = vec![5u8, 6u8];
     let (_root2_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key2, value2_update.clone())]],
+            vec![vec![(key2, Some(value2_update.clone()))]],
             None,
             2, /* version */
         )
@@ -315,13 +315,13 @@ fn test_batch_insertion() {
     let value6 = vec![6u8];
 
     let batches = vec![
-        vec![(key1, value1)],
-        vec![(key2, value2)],
-        vec![(key3, value3)],
-        vec![(key4, value4)],
-        vec![(key5, value5)],
-        vec![(key6, value6)],
-        vec![(key2, value2_update)],
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key6, Some(value6))],
+        vec![(key2, Some(value2_update))],
     ];
     let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
 
@@ -331,7 +331,7 @@ fn test_batch_insertion() {
     let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore>, version: Version| {
         to_verify
             .iter()
-            .for_each(|(k, v)| assert_eq!(tree.get(*k, version).unwrap().unwrap(), *v))
+            .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
     };
 
     // Insert as one batch and update one by one.
@@ -478,9 +478,9 @@ fn test_non_existence() {
     let (roots, batch) = tree
         .batch_put_value_sets(
             vec![vec![
-                (key1, value1.clone()),
-                (key2, value2.clone()),
-                (key3, value3.clone()),
+                (key1, Some(value1.clone())),
+                (key2, Some(value2.clone())),
+                (key3, Some(value3.clone())),
             ]],
             None,
             0, /* version */
@@ -549,7 +549,10 @@ fn test_put_value_sets() {
     let mut root_hashes_one_by_one = vec![];
     let mut batch_one_by_one = TreeUpdateBatch::default();
     {
-        let mut iter = keys.clone().into_iter().zip(values.clone().into_iter());
+        let mut iter = keys
+            .clone()
+            .into_iter()
+            .zip(values.clone().into_iter().map(Some));
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
         for version in 0..10 {
@@ -570,7 +573,7 @@ fn test_put_value_sets() {
         }
     }
     {
-        let mut iter = keys.into_iter().zip(values.into_iter());
+        let mut iter = keys.into_iter().zip(values.into_iter().map(Some));
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
         let mut value_sets = vec![];
@@ -602,7 +605,7 @@ fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     for i in 0..num_keys {
         let key = format!("key{}", i).into();
         let value = format!("value{}", i).into_bytes();
-        kvs.push((key, value));
+        kvs.push((key, Some(value)));
     }
 
     let (roots, batch) = tree
@@ -612,8 +615,8 @@ fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
 
     for (k, v) in kvs {
         let (value, proof) = tree.get_with_proof(k, 0).unwrap();
-        assert_eq!(value.unwrap(), *v);
-        assert!(proof.verify(roots[0], k, Some(v)).is_ok());
+        assert_eq!(Some(value.unwrap()), v);
+        assert!(proof.verify(roots[0], k, v).is_ok());
     }
 }
 
@@ -644,7 +647,7 @@ fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize
 
     for (idx, (k, v_old, _v_new)) in kvs.iter().enumerate() {
         let (root, batch) = tree
-            .batch_put_value_sets(vec![vec![(*k, v_old.clone())]], None, idx as Version)
+            .batch_put_value_sets(vec![vec![(*k, Some(v_old.clone()))]], None, idx as Version)
             .unwrap();
         roots.push(root[0]);
         db.write_tree_update_batch(batch).unwrap();
@@ -654,7 +657,7 @@ fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize
     for (idx, (k, _v_old, v_new)) in kvs.iter().enumerate() {
         let version = (num_versions + idx) as Version;
         let (root, batch) = tree
-            .batch_put_value_sets(vec![vec![(*k, v_new.clone())]], None, version)
+            .batch_put_value_sets(vec![vec![(*k, Some(v_new.clone()))]], None, version)
             .unwrap();
         roots.push(root[0]);
         db.write_tree_update_batch(batch).unwrap();

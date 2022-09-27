@@ -46,7 +46,7 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
-            .put_value_set(vec![(key, value)], i as Version)
+            .put_value_set(vec![(key, Some(value))], i as Version)
             .unwrap();
         db.write_tree_update_batch(write_batch).unwrap();
     }

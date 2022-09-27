@@ -43,7 +43,14 @@ fn test_n_leaves_same_version(n: usize) {
     }
 
     let (_root_hash, batch) = tree
-        .put_value_set(btree.clone().into_iter().collect(), 0 /* version */)
+        .put_value_set(
+            btree
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, Some(v)))
+                .collect(),
+            0, /* version */
+        )
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
 
@@ -62,7 +69,7 @@ fn test_n_leaves_multiple_versions(n: usize) {
         let value = i.to_be_bytes().to_vec();
         assert_eq!(btree.insert(key, value.clone()), None);
         let (_root_hash, batch) = tree
-            .put_value_set(vec![(key, value)], i as Version)
+            .put_value_set(vec![(key, Some(value))], i as Version)
             .unwrap();
         db.write_tree_update_batch(batch).unwrap();
         run_tests(Arc::clone(&db), &btree, i as Version);
@@ -82,7 +89,14 @@ fn test_n_consecutive_addresses(n: usize) {
         .collect();
 
     let (_root_hash, batch) = tree
-        .put_value_set(btree.clone().into_iter().collect(), 0 /* version */)
+        .put_value_set(
+            btree
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, Some(v)))
+                .collect(),
+            0, /* version */
+        )
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
 
