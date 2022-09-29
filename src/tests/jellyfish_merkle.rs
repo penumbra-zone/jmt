@@ -694,7 +694,7 @@ proptest! {
     }
 
     #[test]
-    fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
+    fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(3, 0)) {
         test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
     }
 
