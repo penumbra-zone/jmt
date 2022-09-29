@@ -88,15 +88,18 @@ where
                 .into_iter()
                 .collect::<Vec<_>>();
             let root_node_key = tree_cache.get_root_node_key().clone();
-            let (new_root_node_key, _) = self.batch_insert_at(
+            if let Some((new_root_node_key, _)) = self.batch_insert_at(
                 root_node_key,
                 version,
                 deduped_and_sorted_kvs.as_slice(),
                 0,
                 &hash_set,
                 &mut tree_cache,
-            )?;
-            tree_cache.set_root_node_key(new_root_node_key);
+            )? {
+                tree_cache.set_root_node_key(new_root_node_key);
+            } else {
+                todo!("deletion")
+            }
 
             // Freezes the current cache to make all contents in the current cache immutable.
             tree_cache.freeze();
@@ -113,7 +116,7 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         assert!(!kvs.is_empty());
 
         let node = tree_cache.get_node(&node_key)?;
@@ -132,7 +135,7 @@ where
                     // each child index
                     let child_index = kvs[left].0 .0.get_nibble(depth);
 
-                    let (new_child_node_key, new_child_node) =
+                    if let Some((new_child_node_key, new_child_node)) =
                         match internal_node.child(child_index) {
                             Some(child) => {
                                 let child_node_key =
@@ -158,16 +161,17 @@ where
                                     tree_cache,
                                 )?
                             }
-                        };
-
-                    children.insert(
-                        child_index,
-                        Child::new(
-                            Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
-                            version,
-                            new_child_node.node_type(),
-                        ),
-                    );
+                        }
+                    {
+                        children.insert(
+                            child_index,
+                            Child::new(
+                                Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
+                                version,
+                                new_child_node.node_type(),
+                            ),
+                        );
+                    }
                 }
                 let new_internal_node =
                     InternalNode::new_migration(children, self.leaf_count_migration);
@@ -176,7 +180,7 @@ where
 
                 // Cache this new internal node.
                 tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
-                (node_key, new_internal_node.into())
+                Some((node_key, new_internal_node.into()))
             }
             Node::Leaf(leaf_node) => {
                 // We are on a leaf node but trying to insert another node, so we may diverge.
@@ -221,13 +225,17 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         let existing_leaf_key = existing_leaf_node.key_hash();
 
         if kvs.len() == 1 && kvs[0].0 == existing_leaf_key {
-            let new_leaf_node = Node::new_leaf(existing_leaf_key, kvs[0].1.clone());
-            tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
-            Ok((node_key, new_leaf_node))
+            if let Some(v) = &kvs[0].1 {
+                let new_leaf_node = Node::new_leaf(existing_leaf_key, v.clone());
+                tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
+                Ok(Some((node_key, new_leaf_node)))
+            } else {
+                todo!("deletion")
+            }
         } else {
             let existing_leaf_bucket = existing_leaf_key.0.get_nibble(depth);
             let mut isolated_existing_leaf = true;
@@ -235,35 +243,40 @@ where
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
                 let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
-                let (new_child_node_key, new_child_node) = if existing_leaf_bucket == child_index {
-                    isolated_existing_leaf = false;
-                    self.batch_create_subtree_with_existing_leaf(
-                        child_node_key,
-                        version,
-                        existing_leaf_node.clone(),
-                        &kvs[left..=right],
-                        depth + 1,
-                        hash_cache,
-                        tree_cache,
-                    )?
+                if let Some((new_child_node_key, new_child_node)) =
+                    if existing_leaf_bucket == child_index {
+                        isolated_existing_leaf = false;
+                        self.batch_create_subtree_with_existing_leaf(
+                            child_node_key,
+                            version,
+                            existing_leaf_node.clone(),
+                            &kvs[left..=right],
+                            depth + 1,
+                            hash_cache,
+                            tree_cache,
+                        )?
+                    } else {
+                        self.batch_create_subtree(
+                            child_node_key,
+                            version,
+                            &kvs[left..=right],
+                            depth + 1,
+                            hash_cache,
+                            tree_cache,
+                        )?
+                    }
+                {
+                    children.insert(
+                        child_index,
+                        Child::new(
+                            Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
+                            version,
+                            new_child_node.node_type(),
+                        ),
+                    );
                 } else {
-                    self.batch_create_subtree(
-                        child_node_key,
-                        version,
-                        &kvs[left..=right],
-                        depth + 1,
-                        hash_cache,
-                        tree_cache,
-                    )?
-                };
-                children.insert(
-                    child_index,
-                    Child::new(
-                        Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
-                        version,
-                        new_child_node.node_type(),
-                    ),
-                );
+                    todo!("deletion")
+                }
             }
             if isolated_existing_leaf {
                 let existing_leaf_node_key =
@@ -280,7 +293,7 @@ where
                 InternalNode::new_migration(children, self.leaf_count_migration);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
-            Ok((node_key, new_internal_node.into()))
+            Ok(Some((node_key, new_internal_node.into())))
         }
     }
 
@@ -292,38 +305,45 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         if kvs.len() == 1 {
-            let new_leaf_node = Node::new_leaf(kvs[0].0, kvs[0].1.clone());
-            tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
-            Ok((node_key, new_leaf_node))
+            if let Some(v) = &kvs[0].1 {
+                let new_leaf_node = Node::new_leaf(kvs[0].0, v.clone());
+                tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
+                Ok(Some((node_key, new_leaf_node)))
+            } else {
+                todo!("deletion")
+            }
         } else {
             let mut children = Children::new();
             for (left, right) in NibbleRangeIterator::new(kvs, depth) {
                 let child_index = kvs[left].0 .0.get_nibble(depth);
                 let child_node_key = node_key.gen_child_node_key(version, child_index);
-                let (new_child_node_key, new_child_node) = self.batch_create_subtree(
+                if let Some((new_child_node_key, new_child_node)) = self.batch_create_subtree(
                     child_node_key,
                     version,
                     &kvs[left..=right],
                     depth + 1,
                     hash_cache,
                     tree_cache,
-                )?;
-                children.insert(
-                    child_index,
-                    Child::new(
-                        Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
-                        version,
-                        new_child_node.node_type(),
-                    ),
-                );
+                )? {
+                    children.insert(
+                        child_index,
+                        Child::new(
+                            Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
+                            version,
+                            new_child_node.node_type(),
+                        ),
+                    );
+                } else {
+                    todo!("deletion")
+                }
             }
             let new_internal_node =
                 InternalNode::new_migration(children, self.leaf_count_migration);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
-            Ok((node_key, new_internal_node.into()))
+            Ok(Some((node_key, new_internal_node.into())))
         }
     }
 
@@ -398,9 +418,9 @@ where
                 "Transactions that output empty write set should not be included.",
             );
             let version = first_version + idx as u64;
-            value_set.into_iter().try_for_each(|(key, value)| {
-                self.put(key.into(), value, version, &mut tree_cache)
-            })?;
+            value_set
+                .into_iter()
+                .try_for_each(|(key, value)| self.put(key, value, version, &mut tree_cache))?;
             // Freezes the current cache to make all contents in the current cache immutable.
             tree_cache.freeze();
         }
@@ -423,15 +443,17 @@ where
         let mut nibble_iter = nibble_path.nibbles();
 
         // Start insertion from the root node.
-        let (new_root_node_key, _) = self.insert_at(
+        if let Some((new_root_node_key, _)) = self.insert_at(
             root_node_key.clone(),
             version,
             &mut nibble_iter,
             value,
             tree_cache,
-        )?;
-
-        tree_cache.set_root_node_key(new_root_node_key);
+        )? {
+            tree_cache.set_root_node_key(new_root_node_key);
+        } else {
+            todo!("deletion")
+        }
         Ok(())
     }
 
@@ -446,7 +468,7 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         let node = tree_cache.get_node(&node_key)?;
         match node {
             Node::Internal(internal_node) => self.insert_at_internal_node(
@@ -476,12 +498,18 @@ where
                 if node_key.version() == version {
                     tree_cache.delete_node(&node_key, false /* is_leaf */);
                 }
-                Self::create_leaf_node(
-                    NodeKey::new_empty_path(version),
-                    nibble_iter,
-                    value,
-                    tree_cache,
-                )
+
+                if let Some(value) = value {
+                    Self::create_leaf_node(
+                        NodeKey::new_empty_path(version),
+                        nibble_iter,
+                        value,
+                        tree_cache,
+                    )
+                    .map(Some)
+                } else {
+                    todo!("deletion")
+                }
             }
         }
     }
@@ -497,7 +525,7 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         // We always delete the existing internal node here because it will not be referenced anyway
         // since this version.
         tree_cache.delete_node(&node_key, false /* is_leaf */);
@@ -507,30 +535,42 @@ where
 
         // Traverse downwards from this internal node recursively to get the `node_key` of the child
         // node at `child_index`.
-        let (_, new_child_node) = match internal_node.child(child_index) {
-            Some(child) => {
-                let child_node_key = node_key.gen_child_node_key(child.version, child_index);
-                self.insert_at(child_node_key, version, nibble_iter, value, tree_cache)?
-            }
-            None => {
-                let new_child_node_key = node_key.gen_child_node_key(version, child_index);
-                Self::create_leaf_node(new_child_node_key, nibble_iter, value, tree_cache)?
-            }
+        let new_internal_node = if let Some((_, new_child_node)) =
+            match internal_node.child(child_index) {
+                Some(child) => {
+                    let child_node_key = node_key.gen_child_node_key(child.version, child_index);
+                    self.insert_at(child_node_key, version, nibble_iter, value, tree_cache)?
+                }
+                None => {
+                    let new_child_node_key = node_key.gen_child_node_key(version, child_index);
+                    if let Some(value) = value {
+                        Some(Self::create_leaf_node(
+                            new_child_node_key,
+                            nibble_iter,
+                            value,
+                            tree_cache,
+                        )?)
+                    } else {
+                        None
+                    }
+                }
+            } {
+            // Reuse the current `InternalNode` in memory to create a new internal node.
+            let mut children: Children = internal_node.into();
+            children.insert(
+                child_index,
+                Child::new(new_child_node.hash(), version, new_child_node.node_type()),
+            );
+            InternalNode::new_migration(children, self.leaf_count_migration)
+        } else {
+            todo!("deletion")
         };
-
-        // Reuse the current `InternalNode` in memory to create a new internal node.
-        let mut children: Children = internal_node.into();
-        children.insert(
-            child_index,
-            Child::new(new_child_node.hash(), version, new_child_node.node_type()),
-        );
-        let new_internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
 
         node_key.set_version(version);
 
         // Cache this new internal node.
         tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
-        Ok((node_key, new_internal_node.into()))
+        Ok(Some((node_key, new_internal_node.into())))
     }
 
     /// Helper function for recursive insertion into the subtree that starts from the
@@ -544,7 +584,7 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<Option<(NodeKey, Node)>> {
         // We are on a leaf node but trying to insert another node, so we may diverge.
         // We always delete the existing leaf node here because it will not be referenced anyway
         // since this version.
@@ -580,7 +620,11 @@ where
             // The new leaf node will have the same nibble_path with a new version as node_key.
             node_key.set_version(version);
             // Create the new leaf node with the same address but the new value.
-            return Self::create_leaf_node(node_key, nibble_iter, value, tree_cache);
+            return if let Some(value) = value {
+                Self::create_leaf_node(node_key, nibble_iter, value, tree_cache).map(Some)
+            } else {
+                todo!("deletion")
+            };
         }
 
         // 2.2. both are unfinished(They have keys with same length so it's impossible to have one
@@ -607,16 +651,21 @@ where
             existing_leaf_node.into(),
         )?;
 
-        let (_, new_leaf_node) = Self::create_leaf_node(
-            node_key.gen_child_node_key(version, new_leaf_index),
-            nibble_iter,
-            value,
-            tree_cache,
-        )?;
-        children.insert(
-            new_leaf_index,
-            Child::new(new_leaf_node.hash(), version, NodeType::Leaf),
-        );
+        if let Some(value) = value {
+            let (_, new_leaf_node) = Self::create_leaf_node(
+                node_key.gen_child_node_key(version, new_leaf_index),
+                nibble_iter,
+                value,
+                tree_cache,
+            )?;
+
+            children.insert(
+                new_leaf_index,
+                Child::new(new_leaf_node.hash(), version, NodeType::Leaf),
+            );
+        } else {
+            todo!("deletion")
+        }
 
         let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
         let mut next_internal_node: Node = internal_node.clone().into();
@@ -641,7 +690,7 @@ where
             tree_cache.put_node(node_key.clone(), internal_node.into())?;
         }
 
-        Ok((node_key, next_internal_node))
+        Ok(Some((node_key, next_internal_node)))
     }
 
     /// Helper function for creating leaf nodes. Returns the newly created leaf node.
