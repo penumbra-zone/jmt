@@ -7,8 +7,9 @@ use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::helper::{
-    arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
-    test_get_range_proof, test_get_with_proof,
+    arb_existent_kvs_and_deletions_and_nonexistent_keys, arb_existent_kvs_and_nonexistent_keys,
+    arb_tree_with_index, test_get_leaf_count, test_get_range_proof, test_get_with_proof,
+    test_get_with_proof_with_deletions,
 };
 use crate::{
     mock::MockTreeStore,
@@ -690,6 +691,11 @@ proptest! {
     #[test]
     fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
         test_get_with_proof((existent_kvs, nonexistent_keys))
+    }
+
+    #[test]
+    fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
+        test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
     }
 
     #[test]
