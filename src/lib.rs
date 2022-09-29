@@ -196,6 +196,7 @@ impl std::fmt::Debug for RootHash {
 
 struct EscapedByteSlice<'a>(&'a [u8]);
 
+#[allow(clippy::manual_range_contains)]
 impl<'a> std::fmt::Debug for EscapedByteSlice<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "b\"")?;
