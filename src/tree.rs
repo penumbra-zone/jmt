@@ -332,11 +332,10 @@ where
     /// `keyed_value_set`.
     pub fn put_value_set(
         &self,
-        value_set: Vec<(KeyHash, OwnedValue)>,
+        value_set: Vec<(KeyHash, Option<OwnedValue>)>,
         version: Version,
     ) -> Result<(RootHash, TreeUpdateBatch)> {
-        let (root_hashes, tree_update_batch) =
-            self.batch_put_value_sets(vec![value_set], None, version)?;
+        let (root_hashes, tree_update_batch) = self.put_value_sets(vec![value_set], version)?;
         assert_eq!(
             root_hashes.len(),
             1,
@@ -514,10 +513,6 @@ where
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<PutResult<(NodeKey, Node)>> {
-        // We always delete the existing internal node here because it will not be referenced anyway
-        // since this version.
-        tree_cache.delete_node(&node_key, false /* is_leaf */);
-
         // Find the next node to visit following the next nibble as index.
         let child_index = nibble_iter.next().expect("Ran out of nibbles");
 
@@ -606,11 +601,6 @@ where
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<PutResult<(NodeKey, Node)>> {
-        // We are on a leaf node but trying to insert another node, so we may diverge.
-        // We always delete the existing leaf node here because it will not be referenced anyway
-        // since this version.
-        tree_cache.delete_node(&node_key, true /* is_leaf */);
-
         // 1. Make sure that the existing leaf nibble_path has the same prefix as the already
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
