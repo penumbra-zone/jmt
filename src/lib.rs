@@ -201,6 +201,7 @@ impl<'a> std::fmt::Debug for EscapedByteSlice<'a> {
         write!(f, "b\"")?;
         for &b in self.0 {
             // https://doc.rust-lang.org/reference/tokens.html#byte-escapes
+            #[allow(clippy::manual_range_contains)]
             if b == b'\n' {
                 write!(f, "\\n")?;
             } else if b == b'\r' {
