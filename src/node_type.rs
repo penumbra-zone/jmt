@@ -284,7 +284,6 @@ impl Arbitrary for InternalNode {
 
 impl InternalNode {
     /// Creates a new Internal node.
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(children: Children) -> Self {
         Self::new_migration(children, true /* leaf_count_migration */)
     }
