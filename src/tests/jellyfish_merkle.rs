@@ -8,14 +8,15 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::helper::{
     arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
-    test_get_range_proof, test_get_with_proof,
+    test_get_range_proof, test_get_with_proof, test_get_with_proof_with_deletions,
 };
 use crate::{
     mock::MockTreeStore,
     node_type::{Child, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
     tests::helper::{
-        arb_kv_pair_with_distinct_last_nibble, test_get_with_proof_with_distinct_last_nibble,
+        arb_existent_kvs_and_deletions_and_nonexistent_keys, arb_kv_pair_with_distinct_last_nibble,
+        test_get_with_proof_with_distinct_last_nibble,
     },
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -315,13 +316,13 @@ fn test_batch_insertion() {
     let value6 = vec![6u8];
 
     let batches = vec![
-        vec![(key1, value1)],
-        vec![(key2, value2)],
-        vec![(key3, value3)],
-        vec![(key4, value4)],
-        vec![(key5, value5)],
-        vec![(key6, value6)],
-        vec![(key2, value2_update)],
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key6, Some(value6))],
+        vec![(key2, Some(value2_update))],
     ];
     let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
 
@@ -331,7 +332,7 @@ fn test_batch_insertion() {
     let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore>, version: Version| {
         to_verify
             .iter()
-            .for_each(|(k, v)| assert_eq!(tree.get(*k, version).unwrap().unwrap(), *v))
+            .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
     };
 
     // Insert as one batch and update one by one.
@@ -352,9 +353,7 @@ fn test_batch_insertion() {
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
 
-        let (_roots, batch) = tree
-            .batch_put_value_sets(batches, None, 0 /* first_version */)
-            .unwrap();
+        let (_roots, batch) = tree.put_value_sets(batches, 0 /* first_version */).unwrap();
         db.write_tree_update_batch(batch).unwrap();
         verify_fn(&tree, 6);
 
@@ -549,7 +548,10 @@ fn test_put_value_sets() {
     let mut root_hashes_one_by_one = vec![];
     let mut batch_one_by_one = TreeUpdateBatch::default();
     {
-        let mut iter = keys.clone().into_iter().zip(values.clone().into_iter());
+        let mut iter = keys
+            .clone()
+            .into_iter()
+            .zip(values.clone().into_iter().map(Some));
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::new(&db);
         for version in 0..10 {
@@ -687,6 +689,11 @@ proptest! {
     #[test]
     fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
         test_get_with_proof((existent_kvs, nonexistent_keys))
+    }
+
+    #[test]
+    fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(3, 0)) {
+        test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
     }
 
     #[test]

@@ -9,6 +9,7 @@ use std::{
 use proptest::{
     collection::{btree_map, hash_map, vec},
     prelude::*,
+    sample,
 };
 
 use crate::{
@@ -46,12 +47,44 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
-            .put_value_set(vec![(key, value)], i as Version)
+            .put_value_set(vec![(key, Some(value))], i as Version)
             .unwrap();
         db.write_tree_update_batch(write_batch).unwrap();
     }
 
     (db, (kvs.len() - 1) as Version)
+}
+
+/// Initializes a DB with a set of key-value pairs by inserting one key at each version, then
+/// deleting the specified keys afterwards.
+pub fn init_mock_db_with_deletions(
+    kvs: &HashMap<KeyHash, OwnedValue>,
+    deletions: Vec<KeyHash>,
+) -> (MockTreeStore, Version) {
+    assert!(!kvs.is_empty());
+
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+
+    for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
+        let (_root_hash, write_batch) = tree
+            .put_value_set(vec![(key, Some(value))], i as Version)
+            .unwrap();
+        db.write_tree_update_batch(write_batch).unwrap();
+    }
+
+    let after_insertions_version = kvs.len();
+
+    for (i, key) in deletions.iter().enumerate() {
+        let (_root_hash, write_batch) = tree
+            .put_value_set(
+                vec![(*key, None)],
+                (after_insertions_version + i) as Version,
+            )
+            .unwrap();
+        db.write_tree_update_batch(write_batch).unwrap();
+    }
+    (db, (kvs.len() + deletions.len() - 1) as Version)
 }
 
 pub fn arb_existent_kvs_and_nonexistent_keys(
@@ -73,11 +106,53 @@ pub fn arb_existent_kvs_and_nonexistent_keys(
     })
 }
 
+pub fn arb_existent_kvs_and_deletions_and_nonexistent_keys(
+    num_kvs: usize,
+    num_non_existing_keys: usize,
+) -> impl Strategy<Value = (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>, Vec<KeyHash>)> {
+    hash_map(any::<KeyHash>(), any::<OwnedValue>(), 1..num_kvs).prop_flat_map(move |kvs| {
+        let kvs_clone = kvs.clone();
+        let keys: Vec<_> = kvs.keys().cloned().collect();
+        let keys_count = keys.len();
+        (
+            Just(kvs),
+            sample::subsequence(keys, 0..keys_count),
+            vec(
+                any::<KeyHash>().prop_filter(
+                    "Make sure these keys do not exist in the tree.",
+                    move |key| !kvs_clone.contains_key(key),
+                ),
+                num_non_existing_keys,
+            ),
+        )
+    })
+}
+
 pub fn test_get_with_proof(
     (existent_kvs, nonexistent_keys): (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>),
 ) {
     let (db, version) = init_mock_db(&existent_kvs);
     let tree = JellyfishMerkleTree::new(&db);
+
+    test_existent_keys_impl(&tree, version, &existent_kvs);
+    test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
+}
+
+pub fn test_get_with_proof_with_deletions(
+    (mut existent_kvs, deletions, mut nonexistent_keys): (
+        HashMap<KeyHash, OwnedValue>,
+        Vec<KeyHash>,
+        Vec<KeyHash>,
+    ),
+) {
+    let (db, version) = init_mock_db_with_deletions(&existent_kvs, deletions.clone());
+    let tree = JellyfishMerkleTree::new(&db);
+
+    for key in deletions {
+        // We shouldn't test deleted keys as existent; they should be tested as nonexistent:
+        existent_kvs.remove(&key);
+        nonexistent_keys.push(key);
+    }
 
     test_existent_keys_impl(&tree, version, &existent_kvs);
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
@@ -155,7 +230,7 @@ fn test_nonexistent_keys_impl<'a>(
     for key in nonexistent_keys {
         let (account, proof) = tree.get_with_proof(*key, version).unwrap();
         assert!(proof.verify(root_hash, *key, account.as_ref()).is_ok());
-        assert!(account.is_none());
+        assert_eq!(account, None);
     }
 }
 
