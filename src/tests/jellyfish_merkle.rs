@@ -6,16 +6,16 @@ use std::collections::HashMap;
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use super::helper::{
-    arb_existent_kvs_and_nonexistent_keys, arb_tree_with_index, test_get_leaf_count,
-    test_get_range_proof, test_get_with_proof, test_get_with_proof_with_deletions,
-};
 use crate::{
     mock::MockTreeStore,
     node_type::{Child, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
     tests::helper::{
-        arb_existent_kvs_and_deletions_and_nonexistent_keys, arb_kv_pair_with_distinct_last_nibble,
+        arb_existent_kvs_and_deletions_and_nonexistent_keys, arb_existent_kvs_and_nonexistent_keys,
+        arb_interleaved_insertions_and_deletions, arb_kv_pair_with_distinct_last_nibble,
+        arb_partitions, arb_tree_with_index,
+        test_clairvoyant_construction_matches_interleaved_construction, test_get_leaf_count,
+        test_get_range_proof, test_get_with_proof, test_get_with_proof_with_deletions,
         test_get_with_proof_with_distinct_last_nibble,
     },
     types::{
@@ -683,6 +683,25 @@ fn test_1000_versions() {
     many_versions_get_proof_and_verify_tree_root(seed, 1000);
 }
 
+#[test]
+fn test_delete_then_get() {
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+
+    let key1: KeyHash = KeyHash([1; 32]);
+    let key2: KeyHash = KeyHash([2; 32]);
+
+    let value = "".to_string().into_bytes();
+
+    let (_root, batch) = tree
+        .put_value_set(
+            vec![(key1, None), (key2, Some(value))],
+            0, /* version */
+        )
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]
 
@@ -694,6 +713,18 @@ proptest! {
     #[test]
     fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
         test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
+    }
+
+    #[test]
+    fn proptest_clairvoyant_construction_matches_interleaved_construction(
+        operations_by_version in
+            (1usize..50) // possible numbers of versions
+                .prop_flat_map(|versions| {
+                    arb_interleaved_insertions_and_deletions(10, 2, 100, 50) // (distinct keys, distinct values, insertions, deletions)
+                        .prop_flat_map(move |ops| arb_partitions(versions, ops))
+            })
+    ) {
+        test_clairvoyant_construction_matches_interleaved_construction(operations_by_version)
     }
 
     #[test]

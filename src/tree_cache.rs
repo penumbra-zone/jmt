@@ -177,6 +177,15 @@ where
         })
     }
 
+    pub fn ensure_initialized(&mut self) -> Result<()> {
+        if self.get_node_option(&self.root_node_key)?.is_none() {
+            self.node_cache
+                .insert(self.root_node_key.clone(), Node::new_null());
+        }
+
+        Ok(())
+    }
+
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
     pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
@@ -186,6 +195,19 @@ where
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
             self.reader.get_node(node_key)?
+        })
+    }
+
+    /// Gets a node with the given node key. If it doesn't exist in node cache, read from `reader`
+    /// If it doesn't exist anywhere, return `None`.
+    pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+        Ok(if let Some(node) = self.node_cache.get(node_key) {
+            Some(node.clone())
+        } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
+            Some(node.clone())
+        } else {
+            DIEM_JELLYFISH_STORAGE_READS.inc();
+            self.reader.get_node_option(node_key)?
         })
     }
 
@@ -229,25 +251,26 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze(&mut self) {
+    pub fn freeze(&mut self) -> Result<()> {
+        self.ensure_initialized()?;
+
         let root_node_key = self.get_root_node_key();
-        let root_hash = self
-            .get_node(root_node_key)
+        if let Some(root_hash) = self
+            .get_node_option(root_node_key)
             .unwrap_or_else(|_| unreachable!("Root node with key {:?} must exist", root_node_key))
-            .hash();
-        self.frozen_cache.root_hashes.push(RootHash(root_hash));
-        let node_stats = NodeStats {
-            new_nodes: self.node_cache.len(),
-            new_leaves: self.num_new_leaves,
-            stale_nodes: self.stale_node_index_cache.len(),
-            stale_leaves: self.num_stale_leaves,
-        };
-        self.frozen_cache.node_stats.push(node_stats);
-        self.frozen_cache.node_cache.extend(self.node_cache.drain());
-        let stale_since_version = self.next_version;
-        self.frozen_cache
-            .stale_node_index_cache
-            .extend(
+            .map(|node| node.hash())
+        {
+            self.frozen_cache.root_hashes.push(RootHash(root_hash));
+            let node_stats = NodeStats {
+                new_nodes: self.node_cache.len(),
+                new_leaves: self.num_new_leaves,
+                stale_nodes: self.stale_node_index_cache.len(),
+                stale_leaves: self.num_stale_leaves,
+            };
+            self.frozen_cache.node_stats.push(node_stats);
+            self.frozen_cache.node_cache.extend(self.node_cache.drain());
+            let stale_since_version = self.next_version;
+            self.frozen_cache.stale_node_index_cache.extend(
                 self.stale_node_index_cache
                     .drain()
                     .map(|node_key| StaleNodeIndex {
@@ -256,12 +279,15 @@ where
                     }),
             );
 
-        // Clean up
-        self.num_stale_leaves = 0;
-        self.num_new_leaves = 0;
+            // Clean up
+            self.num_stale_leaves = 0;
+            self.num_new_leaves = 0;
 
-        // Prepare for the next version after freezing
-        self.next_version += 1;
+            // Prepare for the next version after freezing
+            self.next_version += 1;
+        }
+
+        Ok(())
     }
 }
 
