@@ -5,10 +5,11 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Bound,
+    sync::Arc,
 };
 
 use proptest::{
-    collection::{btree_map, hash_map, hash_set, vec},
+    collection::{btree_map, hash_map, vec},
     prelude::*,
     sample,
 };
@@ -21,7 +22,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
         Version, PRE_GENESIS_VERSION,
     },
-    Bytes32Ext, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, JellyfishMerkleIterator, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// Computes the key immediately after `key`.
@@ -215,7 +217,14 @@ pub fn arb_interleaved_insertions_and_deletions(
 ) -> impl Strategy<Value = Vec<(KeyHash, Option<OwnedValue>)>> {
     // Make a hash set of all the keys and a vector of all the values we'll use in this test
     (
-        hash_set(any::<KeyHash>(), 1..=num_keys),
+        // Key hashes are the sequential set of keys up to num_keys, but shuffled so that we don't
+        // use them in order
+        Just(
+            (0..num_keys)
+                .map(|n| KeyHash::from(n.to_le_bytes().to_vec()))
+                .collect::<Vec<_>>(),
+        )
+        .prop_shuffle(),
         // Values are sequential little-endian byte sequences starting from 0, with trailing zeroes
         // trimmed -- it doesn't really matter what they are for these tests, so we just use the
         // smallest distinct sequences we can
@@ -237,7 +246,6 @@ pub fn arb_interleaved_insertions_and_deletions(
         .prop_flat_map(move |(keys, values)| {
             // Create a random sequence of insertions using only the keys and values in the sets
             // (this permits keys to be inserted more than once, and with different values)
-            let keys = keys.into_iter().collect::<Vec<_>>();
             vec(
                 (sample::select(keys), sample::select(values).prop_map(Some)),
                 1..num_insertions,
@@ -264,6 +272,8 @@ pub fn arb_interleaved_insertions_and_deletions(
         })
 }
 
+/// Divide a vector into arbitrary partitions of size >= 1. If the number of partitions exceeds the
+/// length of the vector, it is divided into size 1 partitions.
 pub fn arb_partitions<T>(
     num_partitions: usize,
     values: Vec<T>,
@@ -277,7 +287,7 @@ where
     );
 
     let indices = sample::subsequence(
-        (0..values.len()).collect::<Vec<_>>(),
+        (0..=values.len()).collect::<Vec<_>>(),
         num_partitions.min(values.len()) - 1,
     );
 
@@ -292,7 +302,11 @@ where
             }
             start = end;
         }
-        partitions.push(values[start..].to_vec());
+
+        // Anything that hasn't yet been put into the partitions, put it in the last chunk
+        let remainder = values[start..].to_vec();
+        partitions.push(remainder);
+
         partitions
     })
 }
@@ -327,18 +341,22 @@ pub fn test_get_with_proof_with_deletions(
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
 }
 
+/// A very general test that demonstrates that given a sequence of insertions and deletions, batched
+/// by version, the end result of having performed those operations is identical to having *already
+/// known* what the end result would be, and only performing the insertions necessary to get there,
+/// with no insertions that would have been overwritten, and no deletions at all.
 pub fn test_clairvoyant_construction_matches_interleaved_construction(
     operations_by_version: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
 ) {
     // Create the expected list of key-value pairs as a hashmap by following the list of operations
     // in order, keeping track of only the latest value
-    let mut expected_final_versions = HashMap::new();
+    let mut expected_final = HashMap::new();
     for (version, operations) in operations_by_version.iter().enumerate() {
         for (key, value) in operations {
-            if value.is_some() {
-                expected_final_versions.insert(*key, version);
+            if let Some(value) = value {
+                expected_final.insert(*key, (version, value.clone()));
             } else {
-                expected_final_versions.remove(key);
+                expected_final.remove(key);
             }
         }
     }
@@ -350,11 +368,11 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
         let mut clairvoyant_operations = Vec::new();
         for (key, value) in operations {
             // This operation must correspond to some existing key-value pair in the final state
-            if let Some(&expected_version) = expected_final_versions.get(key) {
-                // This operation must match the final version
-                if expected_version == version {
-                    // This operation must not be a deletion
-                    if let Some(value) = value {
+            if let Some((expected_version, _)) = expected_final.get(key) {
+                // This operation must not be a deletion
+                if let Some(value) = value {
+                    // The version must be the final version that will end up in the result
+                    if version == *expected_version {
                         clairvoyant_operations.push((*key, value.clone()));
                     }
                 }
@@ -363,6 +381,8 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
         clairvoyant_operations_by_version.push(clairvoyant_operations);
     }
 
+    // Compute the root hash of the version without deletions (note that the computed root hash is a
+    // `Result` which we haven't unwrapped yet)
     let (db_without_deletions, version_without_deletions) =
         init_mock_db_versioned(clairvoyant_operations_by_version);
     let tree_without_deletions = JellyfishMerkleTree::new(&db_without_deletions);
@@ -370,60 +390,110 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
     let root_hash_without_deletions =
         tree_without_deletions.get_root_hash(version_without_deletions);
 
+    // Compute the root hash of the version with deletions (note that the computed root hash is a
+    // `Result` which we haven't unwrapped yet)
     let (db_with_deletions, version_with_deletions) =
         init_mock_db_versioned_with_deletions(operations_by_version);
     let tree_with_deletions = JellyfishMerkleTree::new(&db_with_deletions);
 
     let root_hash_with_deletions = tree_with_deletions.get_root_hash(version_with_deletions);
 
-    match (root_hash_without_deletions, root_hash_with_deletions) {
-        (Ok(root_hash_without_deletions), Ok(root_hash_with_deletions)) => {
+    // If either of the resultant trees are in a pre-genesis state (because no operations were
+    // performed), then we can't compare their root hashes, because they won't have any root
+    match (
+        version_without_deletions == PRE_GENESIS_VERSION,
+        version_with_deletions == PRE_GENESIS_VERSION,
+    ) {
+        (false, false) => {
+            // If neither was uninitialized by the sequence of operations, their root hashes should
+            // match each other, and should both exist
             assert_eq!(
-                root_hash_without_deletions, root_hash_with_deletions,
+                root_hash_without_deletions.unwrap(),
+                root_hash_with_deletions.unwrap(),
                 "root hashes mismatch"
             );
         }
-        (Err(_), Err(_)) => {
-            // Both trees failed to construct, so we can't compare root hashes, so instead we ensure
-            // that both trees failed to return a root hash **precisely because they have no root node**:
-            assert!(tree_without_deletions
-                .get_root_node_option(version_without_deletions)
-                .unwrap()
-                .is_none());
-            assert!(tree_with_deletions
-                .get_root_node_option(version_with_deletions)
-                .unwrap()
-                .is_none());
+        (true, true) => {
+            // If both were uninitialized by the sequence of operations, both attempts to get their
+            // root hashes should be met with failure, because they have no root node, so ensure
+            // that both actually are errors
+            assert!(root_hash_without_deletions.is_err());
+            assert!(root_hash_with_deletions.is_err());
         }
-        (Ok(_), Err(_)) => {
-            // If one tree failed to construct but the other didn't, then ensure that the root
-            // node of the one that succeeded is the null node and the other is missing its root
+        (true, false) => {
+            // If only the one without deletions was uninitialized by the sequence of operations,
+            // then the attempt to get its root hash should be met with failure, because it has no
+            // root node
+            assert!(root_hash_without_deletions.is_err());
+            // And the one that was initialized should have a root hash equivalent to the hash of
+            // the null node, since it should contain nothing
             assert_eq!(
-                tree_without_deletions
-                    .get_root_node_option(version_without_deletions)
-                    .unwrap(),
-                Some(Node::Null)
+                root_hash_with_deletions.unwrap(),
+                RootHash(Node::Null.hash())
             );
-            assert!(tree_with_deletions
-                .get_root_node_option(version_with_deletions)
-                .unwrap()
-                .is_none());
         }
-        (Err(_), Ok(_)) => {
-            // If one tree failed to construct but the other didn't, then ensure that the root
-            // node of the one that succeeded is the null node and the other is missing its root
-            assert!(tree_without_deletions
-                .get_root_node_option(version_without_deletions)
-                .unwrap()
-                .is_none());
+        (false, true) => {
+            // If only the one with deletions was uninitialized by the sequence of operations,
+            // then the attempt to get its root hash should be met with failure, because it has no
+            // root node
+            assert!(root_hash_with_deletions.is_err());
+            // And the one that was initialized should have a root hash equivalent to the hash of
+            // the null node, since it should contain nothing
             assert_eq!(
-                tree_with_deletions
-                    .get_root_node_option(version_with_deletions)
-                    .unwrap(),
-                Some(Node::Null)
+                root_hash_without_deletions.unwrap(),
+                RootHash(Node::Null.hash())
             );
         }
     }
+
+    // After having checked that the root hashes match, it's time to check that the actual values
+    // contained in the trees match. We use the JellyfishMerkleIterator to extract a sorted list of
+    // key-value pairs from each, and compare to the expected mapping:
+
+    // Get all the key-value pairs in the version without deletions
+    let iter_without_deletions = if version_without_deletions != PRE_GENESIS_VERSION {
+        JellyfishMerkleIterator::new(
+            Arc::new(db_without_deletions),
+            version_without_deletions,
+            KeyHash([0u8; 32]),
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+    } else {
+        vec![]
+    };
+
+    // Get all the key-value pairs in the version with deletions
+    let iter_with_deletions = if version_with_deletions != PRE_GENESIS_VERSION {
+        JellyfishMerkleIterator::new(
+            Arc::new(db_with_deletions),
+            version_with_deletions,
+            KeyHash([0u8; 32]),
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+    } else {
+        vec![]
+    };
+
+    // Get the expected key-value pairs
+    let mut iter_expected = expected_final
+        .into_iter()
+        .map(|(k, (_, v))| (k, v))
+        .collect::<Vec<_>>();
+    iter_expected.sort();
+
+    // Assert that both with and without deletions, both are equal to the expected final contents
+    assert_eq!(
+        iter_expected, iter_without_deletions,
+        "clairvoyant construction mismatches expectation"
+    );
+    assert_eq!(
+        iter_expected, iter_with_deletions,
+        "construction interleaved with deletions mismatches expectation"
+    );
 }
 
 pub fn arb_kv_pair_with_distinct_last_nibble(

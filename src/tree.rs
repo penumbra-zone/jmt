@@ -402,10 +402,12 @@ where
                 .into_iter()
                 .enumerate()
                 .try_for_each(|(i, (key, value))| {
+                    let action = if value.is_some() { "insert" } else { "delete" };
                     self.put(key, value, version, &mut tree_cache)
                         .with_context(|| {
                             format!(
-                                "failed to insert key {}/{} for version {}, key = {:?}",
+                                "failed to {} key {}/{} for version {}, key = {:?}",
+                                action,
                                 i + 1,
                                 value_set_len,
                                 version,
@@ -427,7 +429,7 @@ where
         version: Version,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<()> {
-        tree_cache.ensure_initialized()?;
+        // tree_cache.ensure_initialized()?;
 
         let nibble_path = NibblePath::new(key.0.to_vec());
 
@@ -442,13 +444,13 @@ where
                 tree_cache.set_root_node_key(new_root_node_key);
             }
             PutResult::NotChanged => {
-                // Nothing to do here, since nothing has changed
+                // Nothing has changed, so do nothing
             }
             PutResult::Removed => {
                 // root node becomes empty, insert a null node at root
                 let genesis_root_key = NodeKey::new_empty_path(version);
-                tree_cache.set_root_node_key(genesis_root_key);
-                tree_cache.ensure_initialized()?;
+                tree_cache.set_root_node_key(genesis_root_key.clone());
+                tree_cache.put_node(genesis_root_key, Node::new_null())?;
             }
         }
 
@@ -467,7 +469,14 @@ where
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<PutResult<(NodeKey, Node)>> {
-        let node = tree_cache.get_node(&node_key)?;
+        // Because deletions could cause the root node not to exist, we try to get the root node,
+        // and if it doesn't exist, we synthesize a `Null` node, noting that it hasn't yet been
+        // committed anywhere (we need to track this because the tree cache will panic if we try to
+        // delete a node that it doesn't know about).
+        let (node, node_already_exists) = tree_cache
+            .get_node_option(&node_key)?
+            .map(|node| (node, true))
+            .unwrap_or((Node::Null, false));
         match node {
             Node::Internal(internal_node) => self.insert_at_internal_node(
                 node_key,
@@ -492,18 +501,21 @@ where
                         node_key
                     );
                 }
-                // delete the old null node if the at the same version.
-                if node_key.version() == version {
+                // Delete the old null node if the at the same version
+                if node_key.version() == version && node_already_exists {
                     tree_cache.delete_node(&node_key, false /* is_leaf */);
                 }
                 if let Some(value) = value {
-                    Ok(PutResult::Updated(Self::create_leaf_node(
+                    // If we're inserting into the null root node, we should change it to be a leaf node
+                    let (new_root_node_key, new_root_node) = Self::create_leaf_node(
                         NodeKey::new_empty_path(version),
                         nibble_iter,
                         value,
                         tree_cache,
-                    )?))
+                    )?;
+                    Ok(PutResult::Updated((new_root_node_key, new_root_node)))
                 } else {
+                    // If we're deleting from the null root node, nothing needs to change
                     Ok(PutResult::NotChanged)
                 }
             }
