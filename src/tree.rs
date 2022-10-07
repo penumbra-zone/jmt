@@ -3,7 +3,7 @@ use std::{
     convert::TryInto,
 };
 
-use anyhow::{bail, ensure, format_err, Result};
+use anyhow::{bail, ensure, format_err, Context, Result};
 
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
@@ -99,7 +99,7 @@ where
             tree_cache.set_root_node_key(new_root_node_key);
 
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze()?;
         }
 
         Ok(tree_cache.into())
@@ -397,11 +397,24 @@ where
                 "Transactions that output empty write set should not be included.",
             );
             let version = first_version + idx as u64;
+            let value_set_len = value_set.len();
             value_set
                 .into_iter()
-                .try_for_each(|(key, value)| self.put(key, value, version, &mut tree_cache))?;
+                .enumerate()
+                .try_for_each(|(i, (key, value))| {
+                    self.put(key, value, version, &mut tree_cache)
+                        .with_context(|| {
+                            format!(
+                                "failed to insert key {}/{} for version {}, key = {:?}",
+                                i + 1,
+                                value_set_len,
+                                version,
+                                key
+                            )
+                        })
+                })?;
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze();
+            tree_cache.freeze()?;
         }
 
         Ok(tree_cache.into())
@@ -414,6 +427,8 @@ where
         version: Version,
         tree_cache: &mut TreeCache<R>,
     ) -> Result<()> {
+        tree_cache.ensure_initialized()?;
+
         let nibble_path = NibblePath::new(key.0.to_vec());
 
         // Get the root node. If this is the first operation, it would get the root node from the
@@ -422,24 +437,18 @@ where
         let mut nibble_iter = nibble_path.nibbles();
 
         // Start insertion from the root node.
-        match self.insert_at(
-            root_node_key.clone(),
-            version,
-            &mut nibble_iter,
-            value,
-            tree_cache,
-        )? {
+        match self.insert_at(root_node_key, version, &mut nibble_iter, value, tree_cache)? {
             PutResult::Updated((new_root_node_key, _)) => {
                 tree_cache.set_root_node_key(new_root_node_key);
             }
             PutResult::NotChanged => {
-                tree_cache.set_root_node_key(root_node_key);
+                // Nothing to do here, since nothing has changed
             }
             PutResult::Removed => {
                 // root node becomes empty, insert a null node at root
                 let genesis_root_key = NodeKey::new_empty_path(version);
-                tree_cache.put_node(genesis_root_key.clone(), Node::new_null())?;
                 tree_cache.set_root_node_key(genesis_root_key);
+                tree_cache.ensure_initialized()?;
             }
         }
 
@@ -898,7 +907,7 @@ where
             .ok_or_else(|| format_err!("Root node not found for version {}.", version))
     }
 
-    fn get_root_node_option(&self, version: Version) -> Result<Option<Node>> {
+    pub(crate) fn get_root_node_option(&self, version: Version) -> Result<Option<Node>> {
         let root_node_key = NodeKey::new_empty_path(version);
         self.reader.get_node_option(&root_node_key)
     }

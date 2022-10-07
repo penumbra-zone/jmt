@@ -3,11 +3,12 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fmt::Debug,
     ops::Bound,
 };
 
 use proptest::{
-    collection::{btree_map, hash_map, vec},
+    collection::{btree_map, hash_map, hash_set, vec},
     prelude::*,
     sample,
 };
@@ -15,9 +16,10 @@ use proptest::{
 use crate::{
     mock::MockTreeStore,
     node_type::LeafNode,
+    storage::Node,
     types::{
         proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
-        Version,
+        Version, PRE_GENESIS_VERSION,
     },
     Bytes32Ext, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
@@ -57,7 +59,7 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
 
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version, then
 /// deleting the specified keys afterwards.
-pub fn init_mock_db_with_deletions(
+pub fn init_mock_db_with_deletions_afterwards(
     kvs: &HashMap<KeyHash, OwnedValue>,
     deletions: Vec<KeyHash>,
 ) -> (MockTreeStore, Version) {
@@ -85,6 +87,83 @@ pub fn init_mock_db_with_deletions(
         db.write_tree_update_batch(write_batch).unwrap();
     }
     (db, (kvs.len() + deletions.len() - 1) as Version)
+}
+
+fn init_mock_db_versioned(
+    operations_by_version: Vec<Vec<(KeyHash, Vec<u8>)>>,
+) -> (MockTreeStore, Version) {
+    assert!(!operations_by_version.is_empty());
+
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+
+    if operations_by_version
+        .iter()
+        .any(|operations| !operations.is_empty())
+    {
+        let mut next_version = 0;
+
+        for operations in operations_by_version.into_iter() {
+            if operations.is_empty() {
+                // skip empty write sets to avoid a panic
+                continue;
+            }
+
+            let (_root_hash, write_batch) = tree
+                .put_value_set(
+                    // Convert un-option-wrapped values to option-wrapped values to be compatible with
+                    // deletion-enabled put_value_set:
+                    operations
+                        .into_iter()
+                        .map(|(key, value)| (key, Some(value)))
+                        .collect(),
+                    next_version as Version,
+                )
+                .unwrap();
+
+            db.write_tree_update_batch(write_batch).unwrap();
+
+            next_version += 1;
+        }
+
+        (db, next_version - 1 as Version)
+    } else {
+        (db, PRE_GENESIS_VERSION)
+    }
+}
+
+fn init_mock_db_versioned_with_deletions(
+    operations_by_version: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>,
+) -> (MockTreeStore, Version) {
+    assert!(!operations_by_version.is_empty());
+
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+
+    if operations_by_version
+        .iter()
+        .any(|operations| !operations.is_empty())
+    {
+        let mut next_version = 0;
+
+        for operations in operations_by_version.into_iter() {
+            if operations.is_empty() {
+                // skip empty write sets to avoid a panic
+                continue;
+            }
+
+            let (_root_hash, write_batch) = tree
+                .put_value_set(operations, next_version as Version)
+                .unwrap();
+            db.write_tree_update_batch(write_batch).unwrap();
+
+            next_version += 1;
+        }
+
+        (db, next_version - 1 as Version)
+    } else {
+        (db, PRE_GENESIS_VERSION)
+    }
 }
 
 pub fn arb_existent_kvs_and_nonexistent_keys(
@@ -128,6 +207,96 @@ pub fn arb_existent_kvs_and_deletions_and_nonexistent_keys(
     })
 }
 
+pub fn arb_interleaved_insertions_and_deletions(
+    num_keys: usize,
+    num_values: usize,
+    num_insertions: usize,
+    num_deletions: usize,
+) -> impl Strategy<Value = Vec<(KeyHash, Option<OwnedValue>)>> {
+    // Make a hash set of all the keys and a vector of all the values we'll use in this test
+    (
+        hash_set(any::<KeyHash>(), 1..=num_keys),
+        // Values are sequential little-endian byte sequences starting from 0, with trailing zeroes
+        // trimmed -- it doesn't really matter what they are for these tests, so we just use the
+        // smallest distinct sequences we can
+        (1..=num_values).prop_map(|end| {
+            (0..end)
+                .map(|i| {
+                    let mut value = i.to_le_bytes().to_vec();
+                    while let Some(byte) = value.last() {
+                        if *byte != 0 {
+                            break;
+                        }
+                        value.pop();
+                    }
+                    value
+                })
+                .collect::<Vec<_>>()
+        }),
+    )
+        .prop_flat_map(move |(keys, values)| {
+            // Create a random sequence of insertions using only the keys and values in the sets
+            // (this permits keys to be inserted more than once, and with different values)
+            let keys = keys.into_iter().collect::<Vec<_>>();
+            vec(
+                (sample::select(keys), sample::select(values).prop_map(Some)),
+                1..num_insertions,
+            )
+            .prop_flat_map(move |insertions| {
+                // Create a random sequence of deletions using only the keys that were actually inserted
+                // (this permits keys to be deleted more than once, but not more times than they will
+                // ever be inserted, though they may be deleted before they are inserted, in the end)
+                let deletions = sample::subsequence(
+                    insertions
+                        .iter()
+                        .map(|(key, _)| (*key, None))
+                        .collect::<Vec<_>>(),
+                    0..num_deletions.min(insertions.len()),
+                );
+                (Just(insertions), deletions)
+            })
+            .prop_flat_map(move |(insertions, deletions)| {
+                // Shuffle together the insertions and the deletions into a single sequence
+                let mut insertions_and_deletions = insertions;
+                insertions_and_deletions.extend(deletions);
+                Just(insertions_and_deletions).prop_shuffle()
+            })
+        })
+}
+
+pub fn arb_partitions<T>(
+    num_partitions: usize,
+    values: Vec<T>,
+) -> impl Strategy<Value = Vec<Vec<T>>>
+where
+    T: Debug + Clone,
+{
+    assert_ne!(
+        num_partitions, 0,
+        "cannot partition a vector into 0 partitions"
+    );
+
+    let indices = sample::subsequence(
+        (0..values.len()).collect::<Vec<_>>(),
+        num_partitions.min(values.len()) - 1,
+    );
+
+    indices.prop_map(move |indices| {
+        let mut partitions = Vec::with_capacity(num_partitions);
+        let mut start = 0;
+        for end in indices {
+            if end - start > 0 {
+                partitions.push(values[start..end].to_vec());
+            } else {
+                partitions.push(vec![]);
+            }
+            start = end;
+        }
+        partitions.push(values[start..].to_vec());
+        partitions
+    })
+}
+
 pub fn test_get_with_proof(
     (existent_kvs, nonexistent_keys): (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>),
 ) {
@@ -145,7 +314,7 @@ pub fn test_get_with_proof_with_deletions(
         Vec<KeyHash>,
     ),
 ) {
-    let (db, version) = init_mock_db_with_deletions(&existent_kvs, deletions.clone());
+    let (db, version) = init_mock_db_with_deletions_afterwards(&existent_kvs, deletions.clone());
     let tree = JellyfishMerkleTree::new(&db);
 
     for key in deletions {
@@ -156,6 +325,105 @@ pub fn test_get_with_proof_with_deletions(
 
     test_existent_keys_impl(&tree, version, &existent_kvs);
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
+}
+
+pub fn test_clairvoyant_construction_matches_interleaved_construction(
+    operations_by_version: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
+) {
+    // Create the expected list of key-value pairs as a hashmap by following the list of operations
+    // in order, keeping track of only the latest value
+    let mut expected_final_versions = HashMap::new();
+    for (version, operations) in operations_by_version.iter().enumerate() {
+        for (key, value) in operations {
+            if value.is_some() {
+                expected_final_versions.insert(*key, version);
+            } else {
+                expected_final_versions.remove(key);
+            }
+        }
+    }
+
+    // Reconstruct the list of operations "as if updates and deletions didn't happen", by filtering
+    // for updates that don't match the final state we computed above
+    let mut clairvoyant_operations_by_version = Vec::new();
+    for (version, operations) in operations_by_version.iter().enumerate() {
+        let mut clairvoyant_operations = Vec::new();
+        for (key, value) in operations {
+            // This operation must correspond to some existing key-value pair in the final state
+            if let Some(&expected_version) = expected_final_versions.get(key) {
+                // This operation must match the final version
+                if expected_version == version {
+                    // This operation must not be a deletion
+                    if let Some(value) = value {
+                        clairvoyant_operations.push((*key, value.clone()));
+                    }
+                }
+            }
+        }
+        clairvoyant_operations_by_version.push(clairvoyant_operations);
+    }
+
+    let (db_without_deletions, version_without_deletions) =
+        init_mock_db_versioned(clairvoyant_operations_by_version);
+    let tree_without_deletions = JellyfishMerkleTree::new(&db_without_deletions);
+
+    let root_hash_without_deletions =
+        tree_without_deletions.get_root_hash(version_without_deletions);
+
+    let (db_with_deletions, version_with_deletions) =
+        init_mock_db_versioned_with_deletions(operations_by_version);
+    let tree_with_deletions = JellyfishMerkleTree::new(&db_with_deletions);
+
+    let root_hash_with_deletions = tree_with_deletions.get_root_hash(version_with_deletions);
+
+    match (root_hash_without_deletions, root_hash_with_deletions) {
+        (Ok(root_hash_without_deletions), Ok(root_hash_with_deletions)) => {
+            assert_eq!(
+                root_hash_without_deletions, root_hash_with_deletions,
+                "root hashes mismatch"
+            );
+        }
+        (Err(_), Err(_)) => {
+            // Both trees failed to construct, so we can't compare root hashes, so instead we ensure
+            // that both trees failed to return a root hash **precisely because they have no root node**:
+            assert!(tree_without_deletions
+                .get_root_node_option(version_without_deletions)
+                .unwrap()
+                .is_none());
+            assert!(tree_with_deletions
+                .get_root_node_option(version_with_deletions)
+                .unwrap()
+                .is_none());
+        }
+        (Ok(_), Err(_)) => {
+            // If one tree failed to construct but the other didn't, then ensure that the root
+            // node of the one that succeeded is the null node and the other is missing its root
+            assert_eq!(
+                tree_without_deletions
+                    .get_root_node_option(version_without_deletions)
+                    .unwrap(),
+                Some(Node::Null)
+            );
+            assert!(tree_with_deletions
+                .get_root_node_option(version_with_deletions)
+                .unwrap()
+                .is_none());
+        }
+        (Err(_), Ok(_)) => {
+            // If one tree failed to construct but the other didn't, then ensure that the root
+            // node of the one that succeeded is the null node and the other is missing its root
+            assert!(tree_without_deletions
+                .get_root_node_option(version_without_deletions)
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                tree_with_deletions
+                    .get_root_node_option(version_with_deletions)
+                    .unwrap(),
+                Some(Node::Null)
+            );
+        }
+    }
 }
 
 pub fn arb_kv_pair_with_distinct_last_nibble(
