@@ -5,7 +5,7 @@
 
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 
-use anyhow::{bail, ensure, format_err, Result};
+use anyhow::{bail, ensure, Result};
 
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
@@ -55,11 +55,6 @@ impl TreeReader for MockTreeStore {
         }
 
         Ok(node_key_and_node)
-    }
-
-    fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
-        self.get_node_option(node_key)?
-            .ok_or_else(|| format_err!("Missing node at {:?}.", node_key))
     }
 }
 

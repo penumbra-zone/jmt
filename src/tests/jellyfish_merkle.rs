@@ -684,7 +684,7 @@ fn test_1000_versions() {
 }
 
 #[test]
-fn test_delete_then_get() {
+fn test_delete_then_get_in_one() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::new(&db);
 
@@ -702,9 +702,30 @@ fn test_delete_then_get() {
     db.write_tree_update_batch(batch).unwrap();
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(10))]
+#[test]
+fn test_two_gets_then_delete() {
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
 
+    let key1: KeyHash = KeyHash([1; 32]);
+
+    let value = "".to_string().into_bytes();
+
+    let (_root, batch) = tree
+        .put_value_set(
+            vec![(key1, Some(value.clone())), (key1, Some(value))],
+            0, /* version */
+        )
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+
+    let (_root, batch) = tree
+        .put_value_set(vec![(key1, None)], 0 /* version */)
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+}
+
+proptest! {
     #[test]
     fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
         test_get_with_proof((existent_kvs, nonexistent_keys))
@@ -715,12 +736,31 @@ proptest! {
         test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
     }
 
+    // This is a replica of the test below, with the values tuned to the smallest values that were
+    // useful when isolating bugs. Set `PROPTEST_MAX_SHRINK_ITERS=5000000` to shrink enough to
+    // isolate bugs down to minimal examples when hunting using this test. Good hunting.
+    #[test]
+    fn proptest_clairvoyant_construction_matches_interleaved_construction_small(
+        operations_by_version in
+            (1usize..4) // possible numbers of versions
+                .prop_flat_map(|versions| {
+                    arb_interleaved_insertions_and_deletions(2, 1, 5, 15) // (distinct keys, distinct values, insertions, deletions)
+                        .prop_flat_map(move |ops| arb_partitions(versions, ops))
+            })
+    ) {
+        test_clairvoyant_construction_matches_interleaved_construction(operations_by_version)
+    }
+
+    // This is a replica of the test above, but with much larger parameters for more exhaustive
+    // testing. It won't feasibly shrink to a useful counterexample because the generators for these
+    // tests are not very efficient for shrinking. For some exhaustive fuzzing, try setting
+    // `PROPTEST_CASES=10000`, which takes about 30 seconds on a fast machine.
     #[test]
     fn proptest_clairvoyant_construction_matches_interleaved_construction(
         operations_by_version in
-            (1usize..50) // possible numbers of versions
+            (1usize..500) // possible numbers of versions
                 .prop_flat_map(|versions| {
-                    arb_interleaved_insertions_and_deletions(10, 2, 100, 50) // (distinct keys, distinct values, insertions, deletions)
+                    arb_interleaved_insertions_and_deletions(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
                         .prop_flat_map(move |ops| arb_partitions(versions, ops))
             })
     ) {

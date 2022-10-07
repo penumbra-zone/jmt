@@ -177,15 +177,6 @@ where
         })
     }
 
-    pub fn ensure_initialized(&mut self) -> Result<()> {
-        if self.get_node_option(&self.root_node_key)?.is_none() {
-            self.node_cache
-                .insert(self.root_node_key.clone(), Node::new_null());
-        }
-
-        Ok(())
-    }
-
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
     pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
@@ -252,25 +243,54 @@ where
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
     pub fn freeze(&mut self) -> Result<()> {
-        self.ensure_initialized()?;
+        let mut root_node_key = self.get_root_node_key().clone();
 
-        let root_node_key = self.get_root_node_key();
-        if let Some(root_hash) = self
-            .get_node_option(root_node_key)
-            .unwrap_or_else(|_| unreachable!("Root node with key {:?} must exist", root_node_key))
-            .map(|node| node.hash())
+        let root_node = if let Some(root_node) = self.get_node_option(&root_node_key)? {
+            root_node
+        } else {
+            // If the root node does not exist, then we need to set it to the null node and record
+            // that node hash as the root hash of this version. This will happen if you delete as
+            // the first operation on an empty tree, but also if you manage to delete every single
+            // key-value mapping in the tree.
+            self.put_node(root_node_key.clone(), Node::new_null())?;
+            Node::Null
+        };
+
+        // Insert the root node's hash into the list of root hashes in the frozen cache, so that
+        // they can be extracted later after a sequence of transactions:
+        self.frozen_cache
+            .root_hashes
+            .push(RootHash(root_node.hash()));
+
+        // If the effect of this set of changes has been to do nothing, we still need to create a
+        // new root node that matches the anticipated version; we do this by copying the previous
+        // root node and incrementing the version. If we didn't do this, then any set of changes
+        // which failed to have an effect on the tree would mean that the *next* set of changes
+        // would be faced with a non-existent root node at the version it is expecting, since it's
+        // internally expected that the version increments every time the tree cache is frozen.
+        if self.next_version > 0
+            && self.node_cache.is_empty()
+            && self.stale_node_index_cache.is_empty()
         {
-            self.frozen_cache.root_hashes.push(RootHash(root_hash));
-            let node_stats = NodeStats {
-                new_nodes: self.node_cache.len(),
-                new_leaves: self.num_new_leaves,
-                stale_nodes: self.stale_node_index_cache.len(),
-                stale_leaves: self.num_stale_leaves,
-            };
-            self.frozen_cache.node_stats.push(node_stats);
-            self.frozen_cache.node_cache.extend(self.node_cache.drain());
-            let stale_since_version = self.next_version;
-            self.frozen_cache.stale_node_index_cache.extend(
+            let root_node = self.get_node(&self.root_node_key)?;
+            root_node_key.set_version(self.next_version);
+            self.put_node(root_node_key, root_node)?;
+        }
+
+        // Transfer all the state from this version of the cache into the immutable version of the
+        // cache, draining it and resetting it as we go:
+        let node_stats = NodeStats {
+            new_nodes: self.node_cache.len(),
+            new_leaves: self.num_new_leaves,
+            stale_nodes: self.stale_node_index_cache.len(),
+            stale_leaves: self.num_stale_leaves,
+        };
+        self.frozen_cache.node_stats.push(node_stats);
+        self.frozen_cache.node_cache.extend(self.node_cache.drain());
+        let stale_since_version = self.next_version;
+        self.frozen_cache
+            .stale_node_index_cache
+            .extend(
                 self.stale_node_index_cache
                     .drain()
                     .map(|node_key| StaleNodeIndex {
@@ -279,13 +299,12 @@ where
                     }),
             );
 
-            // Clean up
-            self.num_stale_leaves = 0;
-            self.num_new_leaves = 0;
+        // Clean up
+        self.num_stale_leaves = 0;
+        self.num_new_leaves = 0;
 
-            // Prepare for the next version after freezing
-            self.next_version += 1;
-        }
+        // Prepare for the next version after freezing
+        self.next_version += 1;
 
         Ok(())
     }
