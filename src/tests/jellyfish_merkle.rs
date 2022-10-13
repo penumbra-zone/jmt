@@ -22,7 +22,7 @@ use crate::{
         nibble::{nibble_path::NibblePath, Nibble},
         Version, PRE_GENESIS_VERSION,
     },
-    JellyfishMerkleTree, KeyHash, MissingRootError,
+    JellyfishMerkleTree, KeyHash, MissingRootError, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
@@ -533,6 +533,16 @@ fn test_missing_root() {
         .downcast::<MissingRootError>()
         .unwrap();
     assert_eq!(err.version, 0);
+}
+
+#[test]
+fn test_non_batch_empty_write_set() {
+    let db = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::new(&db);
+    let (_, batch) = tree.put_value_set(vec![], 0 /* version */).unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+    let root = tree.get_root_hash(0).unwrap();
+    assert_eq!(root.0, SPARSE_MERKLE_PLACEHOLDER_HASH);
 }
 
 #[test]
