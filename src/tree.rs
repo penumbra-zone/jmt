@@ -392,10 +392,6 @@ where
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
-            assert!(
-                !value_set.is_empty(),
-                "Transactions that output empty write set should not be included.",
-            );
             let version = first_version + idx as u64;
             let value_set_len = value_set.len();
             value_set

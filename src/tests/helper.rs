@@ -106,11 +106,6 @@ fn init_mock_db_versioned(
         let mut next_version = 0;
 
         for operations in operations_by_version.into_iter() {
-            if operations.is_empty() {
-                // skip empty write sets to avoid a panic
-                continue;
-            }
-
             let (_root_hash, write_batch) = tree
                 .put_value_set(
                     // Convert un-option-wrapped values to option-wrapped values to be compatible with
@@ -149,11 +144,6 @@ fn init_mock_db_versioned_with_deletions(
         let mut next_version = 0;
 
         for operations in operations_by_version.into_iter() {
-            if operations.is_empty() {
-                // skip empty write sets to avoid a panic
-                continue;
-            }
-
             let (_root_hash, write_batch) = tree
                 .put_value_set(operations, next_version as Version)
                 .unwrap();
