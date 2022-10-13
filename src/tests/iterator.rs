@@ -44,7 +44,7 @@ fn test_n_leaves_same_version(n: usize) {
 
     let (_root_hash, batch) = tree
         .put_value_set(
-            btree.iter().map(|(k, v)| (*k, Some(v.clone()))).collect(),
+            btree.iter().map(|(k, v)| (*k, Some(v.clone()))),
             0, /* version */
         )
         .unwrap();
@@ -86,7 +86,7 @@ fn test_n_consecutive_addresses(n: usize) {
 
     let (_root_hash, batch) = tree
         .put_value_set(
-            btree.iter().map(|(k, v)| (*k, Some(v.clone()))).collect(),
+            btree.iter().map(|(k, v)| (*k, Some(v.clone()))),
             0, /* version */
         )
         .unwrap();

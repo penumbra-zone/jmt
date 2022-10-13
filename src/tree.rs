@@ -332,7 +332,7 @@ where
     /// `keyed_value_set`.
     pub fn put_value_set(
         &self,
-        value_set: Vec<(KeyHash, Option<OwnedValue>)>,
+        value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
     ) -> Result<(RootHash, TreeUpdateBatch)> {
         let (root_hashes, tree_update_batch) = self.put_value_sets(vec![value_set], version)?;
@@ -387,13 +387,12 @@ where
     /// the batch is not reachable from public interfaces before being committed.
     pub fn put_value_sets(
         &self,
-        value_sets: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
+        value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
     ) -> Result<(Vec<RootHash>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
-            let value_set_len = value_set.len();
             value_set
                 .into_iter()
                 .enumerate()
@@ -402,12 +401,8 @@ where
                     self.put(key, value, version, &mut tree_cache)
                         .with_context(|| {
                             format!(
-                                "failed to {} key {}/{} for version {}, key = {:?}",
-                                action,
-                                i + 1,
-                                value_set_len,
-                                version,
-                                key
+                                "failed to {} key {} for version {}, key = {:?}",
+                                action, i, version, key
                             )
                         })
                 })?;

@@ -112,8 +112,7 @@ fn init_mock_db_versioned(
                     // deletion-enabled put_value_set:
                     operations
                         .into_iter()
-                        .map(|(key, value)| (key, Some(value)))
-                        .collect(),
+                        .map(|(key, value)| (key, Some(value))),
                     next_version as Version,
                 )
                 .unwrap();
