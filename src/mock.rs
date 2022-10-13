@@ -3,7 +3,10 @@
 
 //! A mock, in-memory tree store useful for testing.
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+use std::{
+    collections::{hash_map::Entry, BTreeSet, HashMap},
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use anyhow::{bail, ensure, Result};
 
@@ -24,6 +27,8 @@ use rwlock::RwLock;
 pub struct MockTreeStore {
     data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
     allow_overwrite: bool,
+    writes: AtomicU32,
+    reads: AtomicU32,
 }
 
 impl Default for MockTreeStore {
@@ -31,12 +36,15 @@ impl Default for MockTreeStore {
         Self {
             data: RwLock::new((HashMap::new(), BTreeSet::new())),
             allow_overwrite: false,
+            writes: AtomicU32::new(0),
+            reads: AtomicU32::new(0),
         }
     }
 }
 
 impl TreeReader for MockTreeStore {
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         Ok(self.data.read().0.get(node_key).cloned())
     }
 
@@ -45,6 +53,7 @@ impl TreeReader for MockTreeStore {
         let mut node_key_and_node: Option<(NodeKey, LeafNode)> = None;
 
         for (key, value) in locked.0.iter() {
+            self.reads.fetch_add(1, Ordering::SeqCst);
             if let Node::Leaf(leaf_node) = value {
                 if node_key_and_node.is_none()
                     || leaf_node.key_hash() > node_key_and_node.as_ref().unwrap().1.key_hash()
@@ -79,7 +88,16 @@ impl MockTreeStore {
         }
     }
 
+    pub fn reads(&self) -> u32 {
+        self.reads.load(Ordering::SeqCst)
+    }
+
+    pub fn writes(&self) -> u32 {
+        self.writes.load(Ordering::SeqCst)
+    }
+
     pub fn put_node(&self, node_key: NodeKey, node: Node) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
         match self.data.write().0.entry(node_key) {
             Entry::Occupied(o) => bail!("Key {:?} exists.", o.key()),
             Entry::Vacant(v) => {
@@ -90,6 +108,7 @@ impl MockTreeStore {
     }
 
     fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
         let is_new_entry = self.data.write().1.insert(index);
         ensure!(is_new_entry, "Duplicated retire log.");
         Ok(())

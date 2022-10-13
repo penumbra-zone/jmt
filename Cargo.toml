@@ -33,3 +33,8 @@ tracing = "0.1"
 
 [dev-dependencies]
 rand = { version = "0.8.3" }
+clap = {version = "4", features = ["derive"] }
+rayon = "1"
+crossbeam = "0.8"
+csv = "1.1"
+indicatif = {version = "0.17", features = ["rayon"]}
