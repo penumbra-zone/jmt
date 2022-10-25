@@ -820,6 +820,74 @@ where
         bail!("Jellyfish Merkle tree has cyclic graph inside.");
     }
 
+    /// Returns the value (if applicable) and the corresponding merkle proof.
+    pub fn get_with_exclusion_proof(
+        &self,
+        key: KeyHash,
+        version: Version,
+    ) -> Result<Result<(OwnedValue, SparseMerkleProof), ExclusionProof>> {
+        // Empty tree just returns proof with no sibling hash.
+        let mut next_node_key = NodeKey::new_empty_path(version);
+        let mut siblings = vec![];
+        let nibble_path = NibblePath::new(key.0.to_vec());
+        let mut nibble_iter = nibble_path.nibbles();
+        let mut parent_node: Option<InternalNode> = None;
+
+        // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
+        // in the tree structure.
+        for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
+            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
+                if nibble_depth == 0 {
+                    MissingRootError { version }.into()
+                } else {
+                    err
+                }
+            })?;
+            match next_node {
+                Node::Internal(internal_node) => {
+                    let queried_child_index = nibble_iter
+                        .next()
+                        .ok_or_else(|| format_err!("ran out of nibbles"))?;
+                    let (child_node_key, mut siblings_in_internal) =
+                        internal_node.get_child_with_siblings(&next_node_key, queried_child_index);
+                    siblings.append(&mut siblings_in_internal);
+                    next_node_key = match child_node_key {
+                        Some(node_key) => node_key,
+                        None => {
+                            todo!("find the left *and* right proofs")
+                        }
+                    };
+
+                    // Set the parent node to the current node and iterate
+                    parent_node = Some(next_node);
+                }
+                Node::Leaf(leaf_node) => {
+                    let proof = SparseMerkleProof::new(Some(leaf_node.into()), {
+                        siblings.reverse();
+                        siblings
+                    });
+
+                        match leaf_node.key_hash().cmp(key) {
+                            Ordering::Equal => Ok(leaf_node.value().to_vec(), proof),
+                            Ordering::Less => todo!("find the *right* proof (of the parent)"),
+                            Ordering::Greater => todo!("find the *left* proof (of the parent)"),
+                        }
+                }
+                Node::Null => {
+                    if nibble_depth == 0 {
+                        bail!("Cannot manufacture nonexistence proof by exclusion for the empty tree");
+                    } else {
+                        bail!(
+                            "Non-root null node exists with node key {:?}",
+                            next_node_key
+                        );
+                    }
+                }
+            }
+        }
+        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+    }
+
     fn get_without_proof(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>> {
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
@@ -947,4 +1015,18 @@ enum PutResult<T> {
     Removed,
     // Key to delete not found.
     NotChanged,
+}
+
+/// A proof of non-existence by exclusion between two adjacent neighbors._
+pub enum ExclusionProof {
+    Leftmost {
+        right: SparseMerkleProof,
+    },
+    Middle {
+        left: SparseMerkleProof,
+        right: SparseMerkleProof,
+    }
+    Rightmost {
+        left: SparseMerkleProof,
+    }
 }
