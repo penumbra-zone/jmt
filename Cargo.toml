@@ -13,7 +13,7 @@ edition = "2021"
 default = ["ics23"]
 
 [dependencies]
-ics23 = { version = "0.7" , optional = true }
+ics23 = { git = "https://github.com/penumbra-zone/ics23", branch = "penumbra-034", optional = true }
 anyhow = "1.0.38"
 byteorder = "1.4.3"
 itertools = { version = "0.10.0", default-features = false }
