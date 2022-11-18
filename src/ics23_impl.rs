@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 
-use crate::{storage::TreeReader, JellyfishMerkleTree, Version};
+use crate::{
+    proof::SparseMerkleProof, storage::TreeReader, tree::ExclusionProof, JellyfishMerkleTree,
+    KeyHash, Version,
+};
 
 impl<'a, R> JellyfishMerkleTree<'a, R>
 where
@@ -17,63 +20,17 @@ where
 
         match proof_or_exclusion {
             Ok((value, proof)) => {
-                let mut path = Vec::new();
-                let mut skip = 256 - proof.siblings().len();
-                let mut sibling_idx = 0;
-
-                for byte_idx in (0..32).rev() {
-                    // The JMT proofs iterate over the bits in MSB order
-                    for bit_idx in 0..8 {
-                        if skip > 0 {
-                            skip -= 1;
-                            continue;
-                        } else {
-                            let bit = (key_hash.0[byte_idx] >> bit_idx) & 0x1;
-                            // ICS23 InnerOp computes
-                            //    hash( prefix || current || suffix )
-                            // so we want to construct (prefix, suffix) so that this is
-                            // the correct hash-of-internal-node
-                            let (prefix, suffix) = if bit == 1 {
-                                // We want hash( domsep || sibling || current )
-                                // so prefix = domsep || sibling
-                                //    suffix = (empty)
-                                let mut prefix = Vec::with_capacity(16 + 32);
-                                prefix.extend_from_slice(b"JMT::IntrnalNode");
-                                prefix.extend_from_slice(&proof.siblings()[sibling_idx]);
-                                (prefix, Vec::new())
-                            } else {
-                                // We want hash( domsep || current || sibling )
-                                // so prefix = domsep
-                                //    suffix = sibling
-                                let prefix = b"JMT::IntrnalNode".to_vec();
-                                let suffix = proof.siblings()[sibling_idx].to_vec();
-                                (prefix, suffix)
-                            };
-                            path.push(ics23::InnerOp {
-                                hash: ics23::HashOp::Sha256.into(),
-                                prefix,
-                                suffix,
-                            });
-                            sibling_idx += 1;
-                        }
-                    }
-                }
+                let ics23_proof = sparse_merkle_proof_to_ics23_existence_proof(key, value, proof);
 
                 Ok(ics23::CommitmentProof {
-                    proof: Some(ics23::commitment_proof::Proof::Exist(
-                        ics23::ExistenceProof {
-                            key,
-                            value,
-                            path,
-                            leaf: Some(ics23::LeafOp {
-                                hash: ics23::HashOp::Sha256.into(),
-                                prehash_key: ics23::HashOp::Sha256.into(),
-                                prehash_value: ics23::HashOp::Sha256.into(),
-                                length: ics23::LengthOp::NoPrefix.into(),
-                                prefix: b"JMT::LeafNode".to_vec(),
-                            }),
-                        },
-                    )),
+                    proof: Some(ics23::commitment_proof::Proof::Exist(ics23_proof)),
+                })
+            }
+            Err(exclusion_proof) => {
+                let ics23_proof = exclusion_proof_to_ics23_nonexistence_proof(key, exclusion_proof);
+
+                Ok(ics23::CommitmentProof {
+                    proof: Some(ics23::commitment_proof::Proof::Nonexist(ics23_proof)),
                 })
             }
         }
@@ -104,6 +61,115 @@ pub fn ics23_spec() -> ics23::ProofSpec {
         min_depth: 0,
         // TODO:
         max_depth: 64,
+    }
+}
+
+fn exclusion_proof_to_ics23_nonexistence_proof(
+    key: Vec<u8>,
+    proof: ExclusionProof,
+) -> ics23::NonExistenceProof {
+    match proof {
+        ExclusionProof::Leftmost {
+            leftmost_right_proof,
+        } => {
+            let leftmost_right_proof =
+                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], leftmost_right_proof);
+
+            return ics23::NonExistenceProof {
+                key,
+                left: Some(leftmost_right_proof),
+                right: None,
+            };
+        }
+        ExclusionProof::Middle {
+            leftmost_right_proof,
+            rightmost_left_proof,
+        } => {
+            let leftmost_right_proof =
+                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], leftmost_right_proof);
+            let rightmost_left_proof =
+                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], rightmost_left_proof);
+
+            return ics23::NonExistenceProof {
+                key,
+                left: Some(leftmost_right_proof),
+                right: Some(rightmost_left_proof),
+            };
+        }
+        ExclusionProof::Rightmost {
+            rightmost_left_proof,
+        } => {
+            let rightmost_left_proof =
+                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], rightmost_left_proof);
+
+            return ics23::NonExistenceProof {
+                key,
+                left: None,
+                right: Some(rightmost_left_proof),
+            };
+        }
+    }
+}
+
+fn sparse_merkle_proof_to_ics23_existence_proof(
+    key: Vec<u8>,
+    value: Vec<u8>,
+    proof: SparseMerkleProof,
+) -> ics23::ExistenceProof {
+    let key_hash: KeyHash = key.as_slice().into();
+    let mut path = Vec::new();
+    let mut skip = 256 - proof.siblings().len();
+    let mut sibling_idx = 0;
+
+    for byte_idx in (0..32).rev() {
+        // The JMT proofs iterate over the bits in MSB order
+        for bit_idx in 0..8 {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            } else {
+                let bit = (key_hash.0[byte_idx] >> bit_idx) & 0x1;
+                // ICS23 InnerOp computes
+                //    hash( prefix || current || suffix )
+                // so we want to construct (prefix, suffix) so that this is
+                // the correct hash-of-internal-node
+                let (prefix, suffix) = if bit == 1 {
+                    // We want hash( domsep || sibling || current )
+                    // so prefix = domsep || sibling
+                    //    suffix = (empty)
+                    let mut prefix = Vec::with_capacity(16 + 32);
+                    prefix.extend_from_slice(b"JMT::IntrnalNode");
+                    prefix.extend_from_slice(&proof.siblings()[sibling_idx]);
+                    (prefix, Vec::new())
+                } else {
+                    // We want hash( domsep || current || sibling )
+                    // so prefix = domsep
+                    //    suffix = sibling
+                    let prefix = b"JMT::IntrnalNode".to_vec();
+                    let suffix = proof.siblings()[sibling_idx].to_vec();
+                    (prefix, suffix)
+                };
+                path.push(ics23::InnerOp {
+                    hash: ics23::HashOp::Sha256.into(),
+                    prefix,
+                    suffix,
+                });
+                sibling_idx += 1;
+            }
+        }
+    }
+
+    ics23::ExistenceProof {
+        key,
+        value,
+        path,
+        leaf: Some(ics23::LeafOp {
+            hash: ics23::HashOp::Sha256.into(),
+            prehash_key: ics23::HashOp::Sha256.into(),
+            prehash_value: ics23::HashOp::Sha256.into(),
+            length: ics23::LengthOp::NoPrefix.into(),
+            prefix: b"JMT::LeafNode".to_vec(),
+        }),
     }
 }
 
