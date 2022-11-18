@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     convert::TryInto,
 };
@@ -12,7 +13,7 @@ use crate::{
     types::{
         nibble::{
             nibble_path::{skip_common_prefix, NibbleIterator, NibblePath},
-            NibbleRangeIterator, ROOT_NIBBLE_HEIGHT,
+            Nibble, NibbleRangeIterator, ROOT_NIBBLE_HEIGHT,
         },
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
@@ -845,37 +846,127 @@ where
             })?;
             match next_node {
                 Node::Internal(internal_node) => {
+                    // Get the nibble path down to our current position
+                    let nibble_path = nibble_iter.visited_nibbles().get_nibble_path();
+
+                    // Get the index for the child we hope to exist
                     let queried_child_index = nibble_iter
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
+
+                    // Get the child node, if it exists, and its siblings
                     let (child_node_key, mut siblings_in_internal) =
                         internal_node.get_child_with_siblings(&next_node_key, queried_child_index);
-                    siblings.append(&mut siblings_in_internal);
+
                     next_node_key = match child_node_key {
-                        Some(node_key) => node_key,
+                        Some(node_key) => {
+                            // Only append the siblings if the node exists
+                            siblings.append(&mut siblings_in_internal);
+                            node_key
+                        }
                         None => {
-                            todo!("find the left *and* right proofs")
+                            let extreme =
+                                move |sibling: &Nibble,
+                                      extreme: Extreme|
+                                      -> Result<SparseMerkleProof> {
+                                    // Push the nibble for the child we'd like to visit onto the
+                                    // nibble path we've visited so far, so that we will look up the
+                                    // node associated with that nibble path
+                                    let mut nibble_path = nibble_path.clone();
+                                    nibble_path.push(*sibling);
+
+                                    self.get_extreme_proof(
+                                        version,
+                                        NodeKey::new(version, nibble_path),
+                                        nibble_depth,
+                                        siblings.clone(),
+                                        extreme,
+                                    )
+                                };
+
+                            // Find the rightmost left sibling and the leftmost right sibling of the
+                            // current node
+                            match (
+                                // Rightmost left sibling
+                                internal_node
+                                    .children_unsorted()
+                                    .filter(|(&nibble, _)| nibble < queried_child_index)
+                                    .max_by_key(|(&nibble, _)| nibble)
+                                    .map(|p| p.0),
+                                // Leftmost right sibling
+                                internal_node
+                                    .children_unsorted()
+                                    .filter(|(&nibble, _)| nibble < queried_child_index)
+                                    .min_by_key(|(&nibble, _)| nibble)
+                                    .map(|p| p.0),
+                            ) {
+                                (Some(rightmost_left_sibling), Some(leftmost_right_sibling)) => {
+                                    return Ok(Err(ExclusionProof::Middle {
+                                        leftmost_right_proof: extreme(
+                                            leftmost_right_sibling,
+                                            Extreme::Leftmost,
+                                        )?,
+                                        rightmost_left_proof: extreme(
+                                            rightmost_left_sibling,
+                                            Extreme::Rightmost,
+                                        )?,
+                                    }))
+                                }
+                                (Some(rightmost_left_sibling), None) => {
+                                    return Ok(Err(ExclusionProof::Rightmost {
+                                        rightmost_left_proof: extreme(
+                                            rightmost_left_sibling,
+                                            Extreme::Rightmost,
+                                        )?,
+                                    }));
+                                }
+                                (None, Some(leftmost_right_sibling)) => {
+                                    return Ok(Err(ExclusionProof::Leftmost {
+                                        leftmost_right_proof: extreme(
+                                            leftmost_right_sibling,
+                                            Extreme::Leftmost,
+                                        )?,
+                                    }));
+                                }
+                                (None, None) => {
+                                    bail!("Non-empty tree must have children all the way to a leaf")
+                                }
+                            }
                         }
                     };
 
                     // Set the parent node to the current node and iterate
-                    parent_node = Some(next_node);
+                    parent_node = Some(internal_node);
                 }
-                Node::Leaf(leaf_node) => {
-                    let proof = SparseMerkleProof::new(Some(leaf_node.into()), {
+                Node::Leaf(ref leaf_node) => {
+                    let proof = SparseMerkleProof::new(Some(leaf_node.clone().into()), {
                         siblings.reverse();
                         siblings
                     });
 
-                        match leaf_node.key_hash().cmp(key) {
-                            Ordering::Equal => Ok(leaf_node.value().to_vec(), proof),
-                            Ordering::Less => todo!("find the *right* proof (of the parent)"),
-                            Ordering::Greater => todo!("find the *left* proof (of the parent)"),
+                    match leaf_node.key_hash().cmp(&key) {
+                        Ordering::Equal => {
+                            // If the keys are equal, then there *is* a thing at the key, so we
+                            // return *an existence proof*
+                            return Ok(Ok((leaf_node.value().to_vec(), proof)));
                         }
+                        Ordering::Less => {
+                            // If the leaf key is less than the key, then the proof we created above
+                            // constitutes the left proof, and we need to find the right proof
+                            todo!("find the *right* proof (of the parent)")
+                        }
+                        Ordering::Greater => {
+                            // If the leaf key is greater than the key, then the proof we created
+                            // above constitutes the right proof, and we need to find the left proof
+                            todo!("find the *left* proof (of the parent)")
+                        }
+                    }
                 }
                 Node::Null => {
                     if nibble_depth == 0 {
-                        bail!("Cannot manufacture nonexistence proof by exclusion for the empty tree");
+                        bail!(
+                            "Cannot manufacture nonexistence proof by exclusion for the empty tree"
+                        );
                     } else {
                         bail!(
                             "Non-root null node exists with node key {:?}",
@@ -883,6 +974,57 @@ where
                         );
                     }
                 }
+            }
+        }
+        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+    }
+
+    fn get_extreme_proof(
+        &self,
+        version: Version,
+        mut node_key: NodeKey,
+        nibble_depth: usize,
+        mut siblings: Vec<[u8; 32]>,
+        extreme: Extreme,
+    ) -> Result<SparseMerkleProof> {
+        // Depending on the extreme specified, get either the least nibble or the most nibble
+        let min_or_max = |internal_node: &InternalNode| {
+            match extreme {
+                Extreme::Leftmost => internal_node.children_unsorted().min_by_key(|c| *c.0),
+                Extreme::Rightmost => internal_node.children_unsorted().max_by_key(|c| *c.0),
+            }
+            .map(|(nibble, _)| *nibble)
+        };
+
+        for nibble_depth in nibble_depth..ROOT_NIBBLE_HEIGHT {
+            let node = self.reader.get_node(&node_key).map_err(|err| {
+                if nibble_depth == 0 {
+                    MissingRootError { version }.into()
+                } else {
+                    err
+                }
+            })?;
+            match node {
+                Node::Internal(internal_node) => {
+                    // Find the leftmost nibble in the children
+                    let queried_child_index =
+                        min_or_max(&internal_node).expect("a child always exists");
+                    let (child_node_key, mut siblings_in_internal) =
+                        internal_node.get_child_with_siblings(&node_key, queried_child_index);
+                    // Append the siblings from getting that child
+                    siblings.append(&mut siblings_in_internal);
+                    // Proceed downwards
+                    node_key = match child_node_key {
+                        Some(node_key) => node_key,
+                        None => {
+                            bail!("Internal node has no children");
+                        }
+                    };
+                }
+                Node::Leaf(leaf_node) => {
+                    return Ok(SparseMerkleProof::new(Some(leaf_node.into()), siblings))
+                }
+                Node::Null => bail!("Null node cannot have children"),
             }
         }
         bail!("Jellyfish Merkle tree has cyclic graph inside.");
@@ -1020,13 +1162,18 @@ enum PutResult<T> {
 /// A proof of non-existence by exclusion between two adjacent neighbors._
 pub enum ExclusionProof {
     Leftmost {
-        right: SparseMerkleProof,
+        leftmost_right_proof: SparseMerkleProof,
     },
     Middle {
-        left: SparseMerkleProof,
-        right: SparseMerkleProof,
-    }
+        leftmost_right_proof: SparseMerkleProof,
+        rightmost_left_proof: SparseMerkleProof,
+    },
     Rightmost {
-        left: SparseMerkleProof,
-    }
+        rightmost_left_proof: SparseMerkleProof,
+    },
+}
+
+enum Extreme {
+    Leftmost,
+    Rightmost,
 }

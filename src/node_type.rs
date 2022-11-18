@@ -355,6 +355,10 @@ impl InternalNode {
         sorted.into_iter()
     }
 
+    pub fn children_unsorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
+        self.children.iter()
+    }
+
     pub fn serialize(&self, binary: &mut Vec<u8>, persist_leaf_counts: bool) -> Result<()> {
         let (mut existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
         binary.write_u16::<LittleEndian>(existence_bitmap)?;
