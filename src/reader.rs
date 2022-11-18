@@ -39,3 +39,9 @@ pub trait TreeReader {
     /// and all nodes are at the same version.
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode)>>;
 }
+
+/// Defines the ability for a tree to look up the preimage of its key hashes.
+pub trait HasPreimage {
+    /// Gets the preimage of a key hash, if it is present in the tree.
+    fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>>;
+}
