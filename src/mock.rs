@@ -6,10 +6,11 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap};
 
 use anyhow::{bail, ensure, Result};
+use sha2::Sha256;
 
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
-    storage::{NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
+    storage::{HasPreimage, NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
     KeyHash, OwnedValue,
 };
@@ -22,6 +23,7 @@ struct MockTreeStoreInner {
     nodes: HashMap<NodeKey, Node>,
     stale_nodes: BTreeSet<StaleNodeIndex>,
     value_history: HashMap<KeyHash, Vec<(Version, Option<OwnedValue>)>>,
+    preimages: HashMap<KeyHash, Vec<u8>>,
 }
 
 /// A mock, in-memory tree store useful for testing.
@@ -81,6 +83,12 @@ impl TreeReader for MockTreeStore {
             }
             None => Ok(None),
         }
+    }
+}
+
+impl HasPreimage for MockTreeStore {
+    fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>> {
+        Ok(self.data.read().preimages.get(&key_hash).cloned())
     }
 }
 
@@ -153,6 +161,14 @@ impl MockTreeStore {
             }
         }
         put_value(&mut locked.value_history, version, key_hash, Some(value))
+    }
+
+    pub fn put_key_preimage(&self, preimage: &Vec<u8>) {
+        let key_hash: KeyHash = KeyHash::with::<Sha256>(preimage);
+        self.data
+            .write()
+            .preimages
+            .insert(key_hash, preimage.clone());
     }
 
     fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {

@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
 use crate::{KeyHash, ValueHash};
 
+pub const LEAF_DOMAIN_SEPARATOR: &[u8] = b"JMT::LeafNode";
+pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
+
 pub(crate) struct SparseMerkleInternalNode {
     left_child: [u8; 32],
     right_child: [u8; 32],
@@ -31,9 +34,9 @@ impl SparseMerkleInternalNode {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
         // chop a vowel to fit in 16 bytes
-        hasher.update(b"JMT::IntrnalNode");
-        hasher.update(&self.left_child);
-        hasher.update(&self.right_child);
+        hasher.update(INTERNAL_DOMAIN_SEPARATOR);
+        hasher.update(self.left_child);
+        hasher.update(self.right_child);
         *hasher.finalize().as_ref()
     }
 }
@@ -60,9 +63,9 @@ impl SparseMerkleLeafNode {
     pub(crate) fn hash(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
-        hasher.update(b"JMT::LeafNode");
-        hasher.update(&self.key_hash.0);
-        hasher.update(&self.value_hash.0);
+        hasher.update(LEAF_DOMAIN_SEPARATOR);
+        hasher.update(self.key_hash.0);
+        hasher.update(self.value_hash.0);
         *hasher.finalize().as_ref()
     }
 }

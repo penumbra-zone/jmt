@@ -178,6 +178,33 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
         Ok(())
     }
+
+    pub fn root_hash(&self) -> RootHash {
+        let current_hash = self
+            .leaf
+            .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
+        let actual_root_hash = self
+            .siblings
+            .iter()
+            .zip(
+                self.leaf()
+                    .expect("need leaf hash for root_hash")
+                    .key_hash
+                    .0
+                    .iter_bits()
+                    .rev()
+                    .skip(256 - self.siblings.len()),
+            )
+            .fold(current_hash, |hash, (sibling_hash, bit)| {
+                if bit {
+                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                } else {
+                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                }
+            });
+
+        RootHash(actual_root_hash)
+    }
 }
 
 /// Note: this is not a range proof in the sense that a range of nodes is verified!
