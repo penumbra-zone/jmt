@@ -11,70 +11,72 @@ where
         &self,
         key: Vec<u8>,
         version: Version,
-    ) -> Result<ics23::ExistenceProof> {
+    ) -> Result<ics23::CommitmentProof> {
         let key_hash = key.as_slice().into();
-        let (value, proof) = self.get_with_proof(key_hash, version)?;
-        let value = value.ok_or_else(|| {
-            anyhow!(
-                "Requested proof of inclusion for non-existent key {:?}",
-                key
-            )
-        })?;
+        let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
-        let mut path = Vec::new();
-        let mut skip = 256 - proof.siblings().len();
-        let mut sibling_idx = 0;
+        match proof_or_exclusion {
+            Ok((value, proof)) => {
+                let mut path = Vec::new();
+                let mut skip = 256 - proof.siblings().len();
+                let mut sibling_idx = 0;
 
-        for byte_idx in (0..32).rev() {
-            // The JMT proofs iterate over the bits in MSB order
-            for bit_idx in 0..8 {
-                if skip > 0 {
-                    skip -= 1;
-                    continue;
-                } else {
-                    let bit = (key_hash.0[byte_idx] >> bit_idx) & 0x1;
-                    // ICS23 InnerOp computes
-                    //    hash( prefix || current || suffix )
-                    // so we want to construct (prefix, suffix) so that this is
-                    // the correct hash-of-internal-node
-                    let (prefix, suffix) = if bit == 1 {
-                        // We want hash( domsep || sibling || current )
-                        // so prefix = domsep || sibling
-                        //    suffix = (empty)
-                        let mut prefix = Vec::with_capacity(16 + 32);
-                        prefix.extend_from_slice(b"JMT::IntrnalNode");
-                        prefix.extend_from_slice(&proof.siblings()[sibling_idx]);
-                        (prefix, Vec::new())
-                    } else {
-                        // We want hash( domsep || current || sibling )
-                        // so prefix = domsep
-                        //    suffix = sibling
-                        let prefix = b"JMT::IntrnalNode".to_vec();
-                        let suffix = proof.siblings()[sibling_idx].to_vec();
-                        (prefix, suffix)
-                    };
-                    path.push(ics23::InnerOp {
-                        hash: ics23::HashOp::Sha256.into(),
-                        prefix,
-                        suffix,
-                    });
-                    sibling_idx += 1;
+                for byte_idx in (0..32).rev() {
+                    // The JMT proofs iterate over the bits in MSB order
+                    for bit_idx in 0..8 {
+                        if skip > 0 {
+                            skip -= 1;
+                            continue;
+                        } else {
+                            let bit = (key_hash.0[byte_idx] >> bit_idx) & 0x1;
+                            // ICS23 InnerOp computes
+                            //    hash( prefix || current || suffix )
+                            // so we want to construct (prefix, suffix) so that this is
+                            // the correct hash-of-internal-node
+                            let (prefix, suffix) = if bit == 1 {
+                                // We want hash( domsep || sibling || current )
+                                // so prefix = domsep || sibling
+                                //    suffix = (empty)
+                                let mut prefix = Vec::with_capacity(16 + 32);
+                                prefix.extend_from_slice(b"JMT::IntrnalNode");
+                                prefix.extend_from_slice(&proof.siblings()[sibling_idx]);
+                                (prefix, Vec::new())
+                            } else {
+                                // We want hash( domsep || current || sibling )
+                                // so prefix = domsep
+                                //    suffix = sibling
+                                let prefix = b"JMT::IntrnalNode".to_vec();
+                                let suffix = proof.siblings()[sibling_idx].to_vec();
+                                (prefix, suffix)
+                            };
+                            path.push(ics23::InnerOp {
+                                hash: ics23::HashOp::Sha256.into(),
+                                prefix,
+                                suffix,
+                            });
+                            sibling_idx += 1;
+                        }
+                    }
                 }
+
+                Ok(ics23::CommitmentProof {
+                    proof: Some(ics23::commitment_proof::Proof::Exist(
+                        ics23::ExistenceProof {
+                            key,
+                            value,
+                            path,
+                            leaf: Some(ics23::LeafOp {
+                                hash: ics23::HashOp::Sha256.into(),
+                                prehash_key: ics23::HashOp::Sha256.into(),
+                                prehash_value: ics23::HashOp::Sha256.into(),
+                                length: ics23::LengthOp::NoPrefix.into(),
+                                prefix: b"JMT::LeafNode".to_vec(),
+                            }),
+                        },
+                    )),
+                })
             }
         }
-
-        Ok(ics23::ExistenceProof {
-            key,
-            value,
-            path,
-            leaf: Some(ics23::LeafOp {
-                hash: ics23::HashOp::Sha256.into(),
-                prehash_key: ics23::HashOp::Sha256.into(),
-                prehash_value: ics23::HashOp::Sha256.into(),
-                length: ics23::LengthOp::NoPrefix.into(),
-                prefix: b"JMT::LeafNode".to_vec(),
-            }),
-        })
     }
 }
 
