@@ -837,6 +837,47 @@ where
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
+            // Get the nibble path down to our current position
+            let current_nibble_path = nibble_iter.visited_nibbles().get_nibble_path();
+
+            let neighbor_nibble =
+                |node: &InternalNode, here: Nibble, extreme: Extreme| -> Option<Nibble> {
+                    match extreme {
+                        // Rightmost left neighbor
+                        Extreme::Left => node
+                            .children_unsorted()
+                            .filter(|(&nibble, _)| nibble < here)
+                            .max_by_key(|(&nibble, _)| nibble)
+                            .map(|p| p.0)
+                            .copied(),
+                        // Leftmost right neighbor
+                        Extreme::Right => node
+                            .children_unsorted()
+                            .filter(|(&nibble, _)| nibble > here)
+                            .min_by_key(|(&nibble, _)| nibble)
+                            .map(|p| p.0)
+                            .copied(),
+                    }
+                };
+
+            // Get the right- or left-most sparse merkle proof starting at this child nibble
+            // of the current node
+            let extreme_proof = |sibling: Nibble, extreme: Extreme| -> Result<SparseMerkleProof> {
+                // Push the nibble for the child we'd like to visit onto the
+                // nibble path we've visited so far, so that we will look up the
+                // node associated with that nibble path
+                let mut nibble_path = current_nibble_path.clone();
+                nibble_path.push(sibling);
+
+                self.get_extreme_proof(
+                    version,
+                    NodeKey::new(version, nibble_path),
+                    nibble_depth,
+                    siblings.clone(),
+                    extreme,
+                )
+            };
+
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     MissingRootError { version }.into()
@@ -846,9 +887,6 @@ where
             })?;
             match next_node {
                 Node::Internal(internal_node) => {
-                    // Get the nibble path down to our current position
-                    let nibble_path = nibble_iter.visited_nibbles().get_nibble_path();
-
                     // Get the index for the child we hope to exist
                     let queried_child_index = nibble_iter
                         .next()
@@ -865,66 +903,41 @@ where
                             node_key
                         }
                         None => {
-                            let extreme =
-                                move |sibling: &Nibble,
-                                      extreme: Extreme|
-                                      -> Result<SparseMerkleProof> {
-                                    // Push the nibble for the child we'd like to visit onto the
-                                    // nibble path we've visited so far, so that we will look up the
-                                    // node associated with that nibble path
-                                    let mut nibble_path = nibble_path.clone();
-                                    nibble_path.push(*sibling);
-
-                                    self.get_extreme_proof(
-                                        version,
-                                        NodeKey::new(version, nibble_path),
-                                        nibble_depth,
-                                        siblings.clone(),
-                                        extreme,
-                                    )
-                                };
-
                             // Find the rightmost left sibling and the leftmost right sibling of the
                             // current node
-                            match (
-                                // Rightmost left sibling
-                                internal_node
-                                    .children_unsorted()
-                                    .filter(|(&nibble, _)| nibble < queried_child_index)
-                                    .max_by_key(|(&nibble, _)| nibble)
-                                    .map(|p| p.0),
-                                // Leftmost right sibling
-                                internal_node
-                                    .children_unsorted()
-                                    .filter(|(&nibble, _)| nibble < queried_child_index)
-                                    .min_by_key(|(&nibble, _)| nibble)
-                                    .map(|p| p.0),
-                            ) {
+                            let rightmost_left_sibling =
+                                neighbor_nibble(&internal_node, queried_child_index, Extreme::Left);
+                            let leftmost_right_sibling = neighbor_nibble(
+                                &internal_node,
+                                queried_child_index,
+                                Extreme::Right,
+                            );
+                            match (rightmost_left_sibling, leftmost_right_sibling) {
                                 (Some(rightmost_left_sibling), Some(leftmost_right_sibling)) => {
                                     return Ok(Err(ExclusionProof::Middle {
-                                        leftmost_right_proof: extreme(
+                                        leftmost_right_proof: extreme_proof(
                                             leftmost_right_sibling,
-                                            Extreme::Leftmost,
+                                            Extreme::Left,
                                         )?,
-                                        rightmost_left_proof: extreme(
+                                        rightmost_left_proof: extreme_proof(
                                             rightmost_left_sibling,
-                                            Extreme::Rightmost,
+                                            Extreme::Right,
                                         )?,
                                     }))
                                 }
                                 (Some(rightmost_left_sibling), None) => {
                                     return Ok(Err(ExclusionProof::Rightmost {
-                                        rightmost_left_proof: extreme(
+                                        rightmost_left_proof: extreme_proof(
                                             rightmost_left_sibling,
-                                            Extreme::Rightmost,
+                                            Extreme::Right,
                                         )?,
                                     }));
                                 }
                                 (None, Some(leftmost_right_sibling)) => {
                                     return Ok(Err(ExclusionProof::Leftmost {
-                                        leftmost_right_proof: extreme(
+                                        leftmost_right_proof: extreme_proof(
                                             leftmost_right_sibling,
-                                            Extreme::Leftmost,
+                                            Extreme::Left,
                                         )?,
                                     }));
                                 }
@@ -940,6 +953,7 @@ where
                 }
                 Node::Leaf(ref leaf_node) => {
                     let proof = SparseMerkleProof::new(Some(leaf_node.clone().into()), {
+                        let mut siblings = siblings.clone();
                         siblings.reverse();
                         siblings
                     });
@@ -953,12 +967,54 @@ where
                         Ordering::Less => {
                             // If the leaf key is less than the key, then the proof we created above
                             // constitutes the left proof, and we need to find the right proof
-                            todo!("find the *right* proof (of the parent)")
+                            match current_nibble_path.last().and_then(|here| {
+                                neighbor_nibble(
+                                    &parent_node.expect("parent node exists"),
+                                    here,
+                                    Extreme::Right,
+                                )
+                            }) {
+                                Some(right_neighbor) => {
+                                    return Ok(Err(ExclusionProof::Middle {
+                                        leftmost_right_proof: extreme_proof(
+                                            right_neighbor,
+                                            Extreme::Left,
+                                        )?,
+                                        rightmost_left_proof: proof,
+                                    }));
+                                }
+                                None => {
+                                    return Ok(Err(ExclusionProof::Rightmost {
+                                        rightmost_left_proof: proof,
+                                    }));
+                                }
+                            }
                         }
                         Ordering::Greater => {
                             // If the leaf key is greater than the key, then the proof we created
                             // above constitutes the right proof, and we need to find the left proof
-                            todo!("find the *left* proof (of the parent)")
+                            match current_nibble_path.last().and_then(|here| {
+                                neighbor_nibble(
+                                    &parent_node.expect("parent node exists"),
+                                    here,
+                                    Extreme::Left,
+                                )
+                            }) {
+                                Some(left_neighbor) => {
+                                    return Ok(Err(ExclusionProof::Middle {
+                                        leftmost_right_proof: proof,
+                                        rightmost_left_proof: extreme_proof(
+                                            left_neighbor,
+                                            Extreme::Right,
+                                        )?,
+                                    }));
+                                }
+                                None => {
+                                    return Ok(Err(ExclusionProof::Leftmost {
+                                        leftmost_right_proof: proof,
+                                    }));
+                                }
+                            }
                         }
                     }
                 }
@@ -990,8 +1046,8 @@ where
         // Depending on the extreme specified, get either the least nibble or the most nibble
         let min_or_max = |internal_node: &InternalNode| {
             match extreme {
-                Extreme::Leftmost => internal_node.children_unsorted().min_by_key(|c| *c.0),
-                Extreme::Rightmost => internal_node.children_unsorted().max_by_key(|c| *c.0),
+                Extreme::Left => internal_node.children_unsorted().min_by_key(|c| *c.0),
+                Extreme::Right => internal_node.children_unsorted().max_by_key(|c| *c.0),
             }
             .map(|(nibble, _)| *nibble)
         };
@@ -1174,6 +1230,6 @@ pub enum ExclusionProof {
 }
 
 enum Extreme {
-    Leftmost,
-    Rightmost,
+    Left,
+    Right,
 }
