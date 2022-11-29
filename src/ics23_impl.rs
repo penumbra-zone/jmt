@@ -1,120 +1,16 @@
-use anyhow::{anyhow, Result};
+use std::collections::BTreeMap;
+
+use anyhow::Result;
 
 use crate::{
     proof::SparseMerkleProof, storage::TreeReader, tree::ExclusionProof, JellyfishMerkleTree,
     KeyHash, Version,
 };
 
-impl<'a, R> JellyfishMerkleTree<'a, R>
-where
-    R: 'a + TreeReader,
-{
-    /// Returns the value and an [`ics23::ExistenceProof`].
-    pub fn get_with_ics23_proof(
-        &self,
-        key: Vec<u8>,
-        version: Version,
-    ) -> Result<ics23::CommitmentProof> {
-        let key_hash = key.as_slice().into();
-        let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
-
-        match proof_or_exclusion {
-            Ok((value, proof)) => {
-                let ics23_proof = sparse_merkle_proof_to_ics23_existence_proof(key, value, proof);
-
-                Ok(ics23::CommitmentProof {
-                    proof: Some(ics23::commitment_proof::Proof::Exist(ics23_proof)),
-                })
-            }
-            Err(exclusion_proof) => {
-                let ics23_proof = exclusion_proof_to_ics23_nonexistence_proof(key, exclusion_proof);
-
-                Ok(ics23::CommitmentProof {
-                    proof: Some(ics23::commitment_proof::Proof::Nonexist(ics23_proof)),
-                })
-            }
-        }
-    }
-}
-
-pub fn ics23_spec() -> ics23::ProofSpec {
-    ics23::ProofSpec {
-        leaf_spec: Some(ics23::LeafOp {
-            hash: ics23::HashOp::Sha256.into(),
-            prehash_key: ics23::HashOp::Sha256.into(),
-            prehash_value: ics23::HashOp::Sha256.into(),
-            length: ics23::LengthOp::NoPrefix.into(),
-            prefix: b"JMT::LeafNode".to_vec(),
-        }),
-        inner_spec: Some(ics23::InnerSpec {
-            // This is the only field we're sure about
-            hash: ics23::HashOp::Sha256.into(),
-            // These fields are apparently used for neighbor tests in range proofs,
-            // and could be wrong:
-            child_order: vec![0, 1], //where exactly does this need to be true?
-            min_prefix_length: 16,   //what is this?
-            max_prefix_length: 48,   //and this?
-            child_size: 32,
-            empty_child: vec![], //check JMT repo to determine if special value used here
-        }),
-        // TODO: check this
-        min_depth: 0,
-        // TODO:
-        max_depth: 64,
-    }
-}
-
-fn exclusion_proof_to_ics23_nonexistence_proof(
-    key: Vec<u8>,
-    proof: ExclusionProof,
-) -> ics23::NonExistenceProof {
-    match proof {
-        ExclusionProof::Leftmost {
-            leftmost_right_proof,
-        } => {
-            let leftmost_right_proof =
-                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], leftmost_right_proof);
-
-            return ics23::NonExistenceProof {
-                key,
-                left: Some(leftmost_right_proof),
-                right: None,
-            };
-        }
-        ExclusionProof::Middle {
-            leftmost_right_proof,
-            rightmost_left_proof,
-        } => {
-            let leftmost_right_proof =
-                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], leftmost_right_proof);
-            let rightmost_left_proof =
-                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], rightmost_left_proof);
-
-            return ics23::NonExistenceProof {
-                key,
-                left: Some(leftmost_right_proof),
-                right: Some(rightmost_left_proof),
-            };
-        }
-        ExclusionProof::Rightmost {
-            rightmost_left_proof,
-        } => {
-            let rightmost_left_proof =
-                sparse_merkle_proof_to_ics23_existence_proof(key, vec![], rightmost_left_proof);
-
-            return ics23::NonExistenceProof {
-                key,
-                left: None,
-                right: Some(rightmost_left_proof),
-            };
-        }
-    }
-}
-
 fn sparse_merkle_proof_to_ics23_existence_proof(
     key: Vec<u8>,
     value: Vec<u8>,
-    proof: SparseMerkleProof,
+    proof: &SparseMerkleProof,
 ) -> ics23::ExistenceProof {
     let key_hash: KeyHash = key.as_slice().into();
     let mut path = Vec::new();
@@ -173,6 +69,203 @@ fn sparse_merkle_proof_to_ics23_existence_proof(
     }
 }
 
+fn exclusion_proof_to_ics23_nonexistence_proof(
+    key: Vec<u8>,
+    proof: &ExclusionProof,
+    preimages: &BTreeMap<[u8; 32], Vec<u8>>,
+) -> Result<ics23::NonExistenceProof> {
+    match proof {
+        ExclusionProof::Leftmost {
+            leftmost_right_proof,
+        } => {
+            let value = preimages
+                .get(
+                    &leftmost_right_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .value_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for value"))?;
+
+            let key_left_proof = preimages
+                .get(
+                    &leftmost_right_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .key_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+
+            let leftmost_right_proof = sparse_merkle_proof_to_ics23_existence_proof(
+                key_left_proof.clone(),
+                value.clone(),
+                leftmost_right_proof,
+            );
+
+            Ok(ics23::NonExistenceProof {
+                key,
+                left: Some(leftmost_right_proof),
+                right: None,
+            })
+        }
+        ExclusionProof::Middle {
+            leftmost_right_proof,
+            rightmost_left_proof,
+        } => {
+            let value_right = preimages
+                .get(
+                    &leftmost_right_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .value_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("preimage for value hash must exist"))?;
+            let key_right = preimages
+                .get(
+                    &leftmost_right_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .key_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+
+            let leftmost_right_proof = sparse_merkle_proof_to_ics23_existence_proof(
+                key_right.clone(),
+                value_right.clone(),
+                leftmost_right_proof,
+            );
+            let key_left = preimages
+                .get(
+                    &rightmost_left_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .key_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+
+            let value_left = preimages
+                .get(
+                    &rightmost_left_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .value_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for value"))?;
+            let rightmost_left_proof = sparse_merkle_proof_to_ics23_existence_proof(
+                key_left.clone(),
+                value_left.clone(),
+                rightmost_left_proof,
+            );
+
+            Ok(ics23::NonExistenceProof {
+                key,
+                left: Some(leftmost_right_proof),
+                right: Some(rightmost_left_proof),
+            })
+        }
+        ExclusionProof::Rightmost {
+            rightmost_left_proof,
+        } => {
+            let value = preimages
+                .get(
+                    &rightmost_left_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .value_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for value"))?;
+            let key_right_proof = preimages
+                .get(
+                    &rightmost_left_proof
+                        .leaf()
+                        .expect("must have leaf")
+                        .key_hash()
+                        .0,
+                )
+                .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+            let rightmost_left_proof = sparse_merkle_proof_to_ics23_existence_proof(
+                key_right_proof.clone(),
+                value.clone(),
+                rightmost_left_proof,
+            );
+
+            Ok(ics23::NonExistenceProof {
+                key,
+                left: None,
+                right: Some(rightmost_left_proof),
+            })
+        }
+    }
+}
+
+impl<'a, R> JellyfishMerkleTree<'a, R>
+where
+    R: 'a + TreeReader,
+{
+    /// Returns the value and an [`JMTProof`].
+    pub fn get_with_ics23_proof(
+        &self,
+        key: Vec<u8>,
+        version: Version,
+        preimages: &BTreeMap<[u8; 32], Vec<u8>>,
+    ) -> Result<ics23::CommitmentProof> {
+        let key_hash = key.as_slice().into();
+        let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
+
+        match proof_or_exclusion {
+            Ok((value, proof)) => {
+                let ics23_exist =
+                    sparse_merkle_proof_to_ics23_existence_proof(key, value.clone(), &proof);
+
+                Ok(ics23::CommitmentProof {
+                    proof: Some(ics23::commitment_proof::Proof::Exist(ics23_exist)),
+                })
+            }
+            Err(exclusion_proof) => {
+                let ics23_nonexist =
+                    exclusion_proof_to_ics23_nonexistence_proof(key, &exclusion_proof, preimages)?;
+
+                Ok(ics23::CommitmentProof {
+                    proof: Some(ics23::commitment_proof::Proof::Nonexist(ics23_nonexist)),
+                })
+            }
+        }
+    }
+}
+
+pub fn ics23_spec() -> ics23::ProofSpec {
+    ics23::ProofSpec {
+        leaf_spec: Some(ics23::LeafOp {
+            hash: ics23::HashOp::Sha256.into(),
+            prehash_key: ics23::HashOp::Sha256.into(),
+            prehash_value: ics23::HashOp::Sha256.into(),
+            length: ics23::LengthOp::NoPrefix.into(),
+            prefix: b"JMT::LeafNode".to_vec(),
+        }),
+        inner_spec: Some(ics23::InnerSpec {
+            // This is the only field we're sure about
+            hash: ics23::HashOp::Sha256.into(),
+            // These fields are apparently used for neighbor tests in range proofs,
+            // and could be wrong:
+            child_order: vec![0, 1], //where exactly does this need to be true?
+            min_prefix_length: 16,   //what is this?
+            max_prefix_length: 48,   //and this?
+            child_size: 32,
+            empty_child: vec![], //check JMT repo to determine if special value used here
+        }),
+        // TODO: check this
+        min_depth: 0,
+        // TODO:
+        max_depth: 64,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,11 +292,10 @@ mod tests {
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
         db.write_tree_update_batch(batch).unwrap();
 
-        let existence_proof = tree.get_with_ics23_proof(b"key".to_vec(), 0).unwrap();
-
-        let commitment_proof = ics23::CommitmentProof {
-            proof: Some(ics23::commitment_proof::Proof::Exist(existence_proof)),
-        };
+        let preimages = BTreeMap::new();
+        let commitment_proof = tree
+            .get_with_ics23_proof(b"key".to_vec(), 0, &preimages)
+            .unwrap();
 
         assert!(ics23::verify_membership(
             &commitment_proof,
@@ -230,13 +322,14 @@ mod tests {
             db.write_tree_update_batch(batch).unwrap();
         }
 
-        let existence_proof = tree
-            .get_with_ics23_proof(format!("key{}", MAX_VERSION).into_bytes(), MAX_VERSION)
+        let preimages = BTreeMap::new();
+        let commitment_proof = tree
+            .get_with_ics23_proof(
+                format!("key{}", MAX_VERSION).into_bytes(),
+                MAX_VERSION,
+                &preimages,
+            )
             .unwrap();
-
-        let commitment_proof = ics23::CommitmentProof {
-            proof: Some(ics23::commitment_proof::Proof::Exist(existence_proof)),
-        };
 
         let root_hash = tree.get_root_hash(MAX_VERSION).unwrap().0.to_vec();
 
