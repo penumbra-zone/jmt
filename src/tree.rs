@@ -21,6 +21,9 @@ use crate::{
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash,
 };
 
+#[cfg(feature = "ics23")]
+pub mod ics23_impl;
+
 /// The Jellyfish Merkle tree data structure. See [`crate`] for description.
 pub struct JellyfishMerkleTree<'a, R> {
     reader: &'a R,

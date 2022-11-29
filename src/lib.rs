@@ -73,8 +73,6 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod bytes32ext;
-#[cfg(feature = "ics23")]
-mod ics23_impl;
 mod iterator;
 mod metrics;
 mod node_type;
@@ -88,9 +86,9 @@ pub mod mock;
 pub mod restore;
 
 use bytes32ext::Bytes32Ext;
-#[cfg(feature = "ics23")]
-pub use ics23_impl::ics23_spec;
 pub use iterator::JellyfishMerkleIterator;
+#[cfg(feature = "ics23")]
+pub use tree::ics23_impl::ics23_spec;
 pub use tree::JellyfishMerkleTree;
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
@@ -100,6 +98,7 @@ pub use types::Version;
 /// to the backing storage recording the tree's internal data.
 pub mod storage {
     pub use node_type::{LeafNode, Node, NodeDecodeError, NodeKey};
+    pub use reader::HasPreimage;
     pub use reader::TreeReader;
     pub use writer::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeUpdateBatch, TreeWriter,

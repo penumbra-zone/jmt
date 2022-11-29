@@ -9,8 +9,9 @@ use anyhow::{bail, ensure, Result};
 
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
-    storage::{NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
+    storage::{HasPreimage, NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
+    KeyHash,
 };
 
 mod rwlock;
@@ -22,14 +23,18 @@ use rwlock::RwLock;
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
 pub struct MockTreeStore {
-    data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
+    data: RwLock<(
+        HashMap<NodeKey, Node>,
+        BTreeSet<StaleNodeIndex>,
+        HashMap<KeyHash, Vec<u8>>,
+    )>,
     allow_overwrite: bool,
 }
 
 impl Default for MockTreeStore {
     fn default() -> Self {
         Self {
-            data: RwLock::new((HashMap::new(), BTreeSet::new())),
+            data: RwLock::new((HashMap::new(), BTreeSet::new(), HashMap::new())),
             allow_overwrite: false,
         }
     }
@@ -55,6 +60,12 @@ impl TreeReader for MockTreeStore {
         }
 
         Ok(node_key_and_node)
+    }
+}
+
+impl HasPreimage for MockTreeStore {
+    fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>> {
+        Ok(self.data.read().2.get(&key_hash).cloned())
     }
 }
 

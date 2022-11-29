@@ -1,6 +1,7 @@
 use anyhow::{format_err, Result};
 
 use crate::node_type::{LeafNode, Node, NodeKey};
+use crate::KeyHash;
 
 /// Defines the interface between a
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
@@ -18,4 +19,10 @@ pub trait TreeReader {
     /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
     /// and all nodes are at the same version.
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode)>>;
+}
+
+/// Defines the ability for a tree to look up the preimage of its key hashes.
+pub trait HasPreimage {
+    /// Gets the preimage of a key hash, if it is present in the tree.
+    fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>>;
 }

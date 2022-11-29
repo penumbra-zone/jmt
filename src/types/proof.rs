@@ -57,10 +57,6 @@ impl SparseMerkleLeafNode {
         self.key_hash
     }
 
-    pub(crate) fn value_hash(&self) -> ValueHash {
-        self.value_hash
-    }
-
     pub(crate) fn hash(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
