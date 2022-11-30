@@ -100,6 +100,11 @@ impl MockTreeStore {
         Ok(())
     }
 
+    pub fn put_key_preimage(&self, preimage: &Vec<u8>) {
+        let key_hash: KeyHash = preimage.into();
+        self.data.write().2.insert(key_hash, preimage.clone());
+    }
+
     fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {
         let is_new_entry = self.data.write().1.insert(index);
         ensure!(is_new_entry, "Duplicated retire log.");

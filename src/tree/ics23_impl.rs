@@ -240,8 +240,53 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 }
 #[cfg(test)]
 mod tests {
+    use ics23::commitment_proof;
+    use proptest::prelude::*;
+    use rand::RngCore;
+
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash};
+
+    proptest! {
+        #[test]
+        fn test_jmt_ics23_nonexistence(
+            keys: Vec<Vec<u8>>,
+        ) {
+            let db = MockTreeStore::default();
+            let tree = JellyfishMerkleTree::new(&db);
+
+            let mut kvs = Vec::new();
+
+            kvs.push((KeyHash::from(b"key"), Some(b"value1".to_vec())));
+            db.put_key_preimage(&b"key".to_vec());
+            for key_preimage in keys {
+                let key_hash = KeyHash::from(&key_preimage);
+                let value = vec![0u8; 32];
+                kvs.push((key_hash, Some(value)));
+                db.put_key_preimage(&key_preimage.to_vec());
+            }
+
+            let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
+            db.write_tree_update_batch(batch).unwrap();
+
+            let commitment_proof = tree
+                .get_with_ics23_proof(b"notexisting-key".to_vec(), 0)
+                .unwrap();
+
+            assert!(ics23::verify_non_membership(
+                &commitment_proof,
+                &ics23_spec(),
+                &new_root_hash.0.to_vec(),
+                b"notexisting-key"
+            ));
+            assert!(!ics23::verify_non_membership(
+                &commitment_proof,
+                &ics23_spec(),
+                &new_root_hash.0.to_vec(),
+                b"key",
+            ));
+        }
+    }
 
     #[test]
     fn test_jmt_ics23_existence() {

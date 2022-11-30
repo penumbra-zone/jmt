@@ -18,7 +18,7 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 #[cfg(feature = "ics23")]
@@ -841,7 +841,7 @@ where
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
             // Get the nibble path down to our current position
-            let current_nibble_path = nibble_iter.visited_nibbles().get_nibble_path();
+            let mut current_nibble_path = nibble_iter.visited_nibbles().collect::<NibblePath>();
 
             let neighbor_nibble =
                 |node: &InternalNode, here: Nibble, extreme: Extreme| -> Option<Nibble> {
@@ -865,16 +865,21 @@ where
 
             // Get the right- or left-most sparse merkle proof starting at this child nibble
             // of the current node
-            let extreme_proof = |sibling: Nibble, extreme: Extreme| -> Result<SparseMerkleProof> {
+            let extreme_proof = |current_nibble_path: &NibblePath,
+                                 sibling: Nibble,
+                                 extreme: Extreme|
+             -> Result<SparseMerkleProof> {
                 // Push the nibble for the child we'd like to visit onto the
                 // nibble path we've visited so far, so that we will look up the
                 // node associated with that nibble path
                 let mut nibble_path = current_nibble_path.clone();
                 nibble_path.push(sibling);
 
+                let nibble_depth = nibble_path.num_nibbles();
+
                 self.get_extreme_proof(
                     version,
-                    NodeKey::new(version, nibble_path),
+                    NodeKey::new(version, nibble_path.clone()),
                     nibble_depth,
                     siblings.clone(),
                     extreme,
@@ -919,10 +924,12 @@ where
                                 (Some(rightmost_left_sibling), Some(leftmost_right_sibling)) => {
                                     return Ok(Err(ExclusionProof::Middle {
                                         leftmost_right_proof: extreme_proof(
+                                            &current_nibble_path,
                                             leftmost_right_sibling,
                                             Extreme::Left,
                                         )?,
                                         rightmost_left_proof: extreme_proof(
+                                            &current_nibble_path,
                                             rightmost_left_sibling,
                                             Extreme::Right,
                                         )?,
@@ -931,6 +938,7 @@ where
                                 (Some(rightmost_left_sibling), None) => {
                                     return Ok(Err(ExclusionProof::Rightmost {
                                         rightmost_left_proof: extreme_proof(
+                                            &current_nibble_path,
                                             rightmost_left_sibling,
                                             Extreme::Right,
                                         )?,
@@ -939,6 +947,7 @@ where
                                 (None, Some(leftmost_right_sibling)) => {
                                     return Ok(Err(ExclusionProof::Leftmost {
                                         leftmost_right_proof: extreme_proof(
+                                            &current_nibble_path,
                                             leftmost_right_sibling,
                                             Extreme::Left,
                                         )?,
@@ -978,8 +987,12 @@ where
                                 )
                             }) {
                                 Some(right_neighbor) => {
+                                    // we need to go up one level to the parent, so we pop the
+                                    // nibble path here
+                                    current_nibble_path.pop();
                                     return Ok(Err(ExclusionProof::Middle {
                                         leftmost_right_proof: extreme_proof(
+                                            &current_nibble_path,
                                             right_neighbor,
                                             Extreme::Left,
                                         )?,
@@ -1004,9 +1017,11 @@ where
                                 )
                             }) {
                                 Some(left_neighbor) => {
+                                    current_nibble_path.pop();
                                     return Ok(Err(ExclusionProof::Middle {
                                         leftmost_right_proof: proof,
                                         rightmost_left_proof: extreme_proof(
+                                            &current_nibble_path,
                                             left_neighbor,
                                             Extreme::Right,
                                         )?,
@@ -1055,7 +1070,7 @@ where
             .map(|(nibble, _)| *nibble)
         };
 
-        for nibble_depth in nibble_depth..ROOT_NIBBLE_HEIGHT {
+        for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
             let node = self.reader.get_node(&node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     MissingRootError { version }.into()
@@ -1081,7 +1096,7 @@ where
                     };
                 }
                 Node::Leaf(leaf_node) => {
-                    return Ok(SparseMerkleProof::new(Some(leaf_node.into()), siblings))
+                    return Ok(SparseMerkleProof::new(Some(leaf_node.into()), siblings));
                 }
                 Node::Null => bail!("Null node cannot have children"),
             }
@@ -1219,6 +1234,7 @@ enum PutResult<T> {
 }
 
 /// A proof of non-existence by exclusion between two adjacent neighbors._
+#[derive(Debug)]
 pub enum ExclusionProof {
     Leftmost {
         leftmost_right_proof: SparseMerkleProof,
