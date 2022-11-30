@@ -18,7 +18,7 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash,
 };
 
 #[cfg(feature = "ics23")]

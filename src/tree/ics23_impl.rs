@@ -240,9 +240,7 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 }
 #[cfg(test)]
 mod tests {
-    use ics23::commitment_proof;
     use proptest::prelude::*;
-    use rand::RngCore;
 
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash};
