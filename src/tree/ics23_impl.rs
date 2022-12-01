@@ -102,8 +102,8 @@ where
 
                 Ok(ics23::NonExistenceProof {
                     key,
-                    left: Some(leftmost_right_proof),
-                    right: None,
+                    right: Some(leftmost_right_proof),
+                    left: None,
                 })
             }
             ExclusionProof::Middle {
@@ -146,13 +146,14 @@ where
 
                 Ok(ics23::NonExistenceProof {
                     key,
-                    left: Some(leftmost_right_proof),
-                    right: Some(rightmost_left_proof),
+                    right: Some(leftmost_right_proof),
+                    left: Some(rightmost_left_proof),
                 })
             }
             ExclusionProof::Rightmost {
                 rightmost_left_proof,
             } => {
+                println!("RIGHTMOST");
                 let rightmost_key_hash = rightmost_left_proof
                     .leaf()
                     .expect("must have leaf")
@@ -172,8 +173,8 @@ where
 
                 Ok(ics23::NonExistenceProof {
                     key,
-                    left: None,
-                    right: Some(rightmost_left_proof),
+                    right: None,
+                    left: Some(rightmost_left_proof),
                 })
             }
         }
@@ -214,6 +215,8 @@ where
 
 pub fn ics23_spec() -> ics23::ProofSpec {
     ics23::ProofSpec {
+        prehash_compared_key: ics23::HashOp::Sha256.into(),
+        prehash_compared_value: ics23::HashOp::Sha256.into(),
         leaf_spec: Some(ics23::LeafOp {
             hash: ics23::HashOp::Sha256.into(),
             prehash_key: ics23::HashOp::Sha256.into(),
@@ -240,10 +243,11 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 }
 #[cfg(test)]
 mod tests {
+    use ics23::HostFunctionsManager;
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{mock::MockTreeStore, KeyHash};
+    use crate::{mock::MockTreeStore, KeyHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
     proptest! {
         #[test]
@@ -268,21 +272,59 @@ mod tests {
             db.write_tree_update_batch(batch).unwrap();
 
             let commitment_proof = tree
-                .get_with_ics23_proof(b"notexisting-key".to_vec(), 0)
+                .get_with_ics23_proof(b"notexist".to_vec(), 0)
                 .unwrap();
 
-            assert!(ics23::verify_non_membership(
+            let key_hash = b"notexist".as_slice().into();
+            println!("PROVING key hash: {:?}", key_hash);
+            let proof_or_exclusion = tree.get_with_exclusion_proof(key_hash, 0).unwrap();
+
+            use crate::tree::ExclusionProof::{Leftmost, Rightmost, Middle};
+            match proof_or_exclusion {
+                Ok(_) => panic!("expected nonexistence proof"),
+                Err(exclusion_proof) => {
+                    match exclusion_proof {
+                        Leftmost { leftmost_right_proof } => {
+                            if leftmost_right_proof.root_hash() != new_root_hash {
+                                panic!("root hash mismatch. siblings: {:?}, smph: {:?}", leftmost_right_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
+                            }
+
+                        },
+                        Rightmost { rightmost_left_proof } => {
+                            if rightmost_left_proof.root_hash() != new_root_hash {
+                                panic!("root hash mismatch. siblings: {:?}, smph: {:?}", rightmost_left_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
+                            }
+                        },
+                        Middle {
+                            leftmost_right_proof,
+                            rightmost_left_proof,
+                        } => {
+                            if leftmost_right_proof.root_hash() != new_root_hash {
+                                let good_proof = tree.get_with_proof(leftmost_right_proof.leaf().unwrap().key_hash(), 0).unwrap();
+                                panic!("root hash mismatch. bad proof: {:?}, good proof: {:?}", leftmost_right_proof, good_proof);
+                            }
+                            if rightmost_left_proof.root_hash() != new_root_hash {
+                                panic!("root hash mismatch. siblings: {:?}", rightmost_left_proof.siblings());
+                            }
+                        },
+                    }
+                }
+            }
+
+
+            assert!(ics23::verify_non_membership::<HostFunctionsManager>(
                 &commitment_proof,
                 &ics23_spec(),
                 &new_root_hash.0.to_vec(),
-                b"notexisting-key"
+                b"notexist"
             ));
-            assert!(!ics23::verify_non_membership(
+            /*
+            assert!(!ics23::verify_non_membership::<HostFunctionsManager>(
                 &commitment_proof,
                 &ics23_spec(),
                 &new_root_hash.0.to_vec(),
                 b"key",
-            ));
+            )); */
         }
     }
 
@@ -309,7 +351,7 @@ mod tests {
 
         let commitment_proof = tree.get_with_ics23_proof(b"key".to_vec(), 0).unwrap();
 
-        assert!(ics23::verify_membership(
+        assert!(ics23::verify_membership::<HostFunctionsManager>(
             &commitment_proof,
             &ics23_spec(),
             &new_root_hash.0.to_vec(),
@@ -340,7 +382,7 @@ mod tests {
 
         let root_hash = tree.get_root_hash(MAX_VERSION).unwrap().0.to_vec();
 
-        assert!(ics23::verify_membership(
+        assert!(ics23::verify_membership::<HostFunctionsManager>(
             &commitment_proof,
             &ics23_spec(),
             &root_hash,
