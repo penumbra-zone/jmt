@@ -831,6 +831,29 @@ where
         search_key: KeyHash,
         version: Version,
     ) -> Result<(Option<KeyHash>, Option<KeyHash>)> {
+        fn neighbor_nibble(
+            node: &InternalNode,
+            child_index: Nibble,
+            extreme: Extreme,
+        ) -> Option<Nibble> {
+            match extreme {
+                // Rightmost left neighbor
+                Extreme::Left => node
+                    .children_unsorted()
+                    .filter(|(&nibble, _)| nibble < child_index)
+                    .max_by_key(|(&nibble, _)| nibble)
+                    .map(|p| p.0)
+                    .copied(),
+                // Leftmost right neighbor
+                Extreme::Right => node
+                    .children_unsorted()
+                    .filter(|(&nibble, _)| nibble > child_index)
+                    .min_by_key(|(&nibble, _)| nibble)
+                    .map(|p| p.0)
+                    .copied(),
+            }
+        }
+
         // build up two nibble paths simultaneously. both will be the same until they diverge
         //
         // leaf case: Ok(ordering, keyhash)
@@ -838,8 +861,9 @@ where
         let search_path = NibblePath::new(search_key.0.to_vec());
         let mut search_nibbles = search_path.nibbles();
         let mut next_node_key = NodeKey::new_empty_path(version);
+        let mut parent_node = None;
 
-        let result = 'traversal: {
+        let (nibble_depth, leaf_info) = 'traversal: {
             for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
                 let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                     if nibble_depth == 0 {
@@ -859,23 +883,34 @@ where
 
                         match child_node_key {
                             Some(node_key) => {
-                                // append the queried child index to both left and right nibble paths
-                                next_node_key = node_key
+                                // append the queried child index to both left and right nibble
+                                // paths
+                                parent_node = Some(node);
+                                next_node_key = node_key;
                             }
                             None => {
                                 // the child we're searching for doesn't exist, break the loop
-                                break 'traversal None;
+                                break 'traversal (nibble_depth, None);
                             }
                         }
                     }
                     Node::Leaf(node) => {
-                        break 'traversal Some((search_key.cmp(&node.key_hash()), node.key_hash()));
+                        let key_hash = node.key_hash();
+                        // Get the index of this leaf in its parent, if and only if it has a parent
+                        let leaf_index = nibble_depth.checked_sub(1).map(|parent_depth| {
+                            NibblePath::new(key_hash.0.to_vec())
+                                .nibbles()
+                                .nth(parent_depth)
+                                .unwrap()
+                        });
+                        break 'traversal (
+                            nibble_depth,
+                            Some((search_key.cmp(&key_hash), key_hash, leaf_index)),
+                        );
                     }
                     Node::Null => {
                         if nibble_depth == 0 {
-                            bail!(
-                            "Cannot manufacture nonexistence proof by exclusion for the empty tree"
-                        );
+                            bail!("Cannot manufacture nonexistence proof by exclusion for the empty tree");
                         } else {
                             bail!(
                                 "Non-root null node exists with node key {:?}",
@@ -891,21 +926,46 @@ where
 
         // the nibble path down to where we currently are
         let mut nibble_path = search_nibbles.visited_nibbles().get_nibble_path();
-        match result {
-            Some((ordering, key)) => {
+
+        match leaf_info {
+            Some((ordering, key_hash, child_index)) => {
                 // Leaf case: we've found one of the bounds already, determine the other bound
                 match ordering {
                     // search_key < key
                     // rightmost left proof
                     Ordering::Less => {
-                        // nibble path will represent the left nibble path. this is currently at
-                        // the parent of the leaf for `key`
-                        let mut left_nibble_path = nibble_path;
+                        let right_key_hash = key_hash;
+
+                        if let Some(child_index) = child_index {
+                            // nibble path will represent the left nibble path. this is currently at
+                            // the parent of the leaf for `key`
+                            let parent_node = parent_node.unwrap(); // this will always be `Some` because we're a child of some node
+                            let left_neighbor =
+                                neighbor_nibble(&parent_node, child_index, Extreme::Left);
+
+                            if let Some(left_neighbor) = left_neighbor {
+                                let mut left_nibble_path = nibble_path;
+                                left_nibble_path.push(left_neighbor);
+
+                                let left_key_hash = self.get_extreme_key_hash(
+                                    version,
+                                    NodeKey::new(version, left_nibble_path),
+                                    nibble_depth,
+                                    Extreme::Right,
+                                )?;
+                                Ok((Some(left_key_hash), Some(right_key_hash)))
+                            } else {
+                                Ok((None, None))
+                            }
+                        } else {
+                            Ok((None, Some(key_hash)))
+                        }
                     }
                     // search_key > key
                     // leftmost right proof
                     Ordering::Greater => {
-                        let mut right_nibble_path = nibble_path;
+                        // TODO: this is the exact mirror of the above
+                        todo!()
                     }
 
                     Ordering::Equal => {
@@ -915,11 +975,13 @@ where
             }
             None => {
                 // need to find both bounds
-                if let Some(child_index) = nibble_path.pop() {}
+                if let Some(child_index) = nibble_path.pop() {
+                    // TODO: Do the logic of the Less and Greater cases above, returning both keys
+                }
+
+                todo!()
             }
         }
-
-        Ok((None, None))
     }
 
     /// Returns the value (if applicable) and the corresponding merkle proof.
@@ -980,7 +1042,7 @@ where
                         .map(|p| p.0)
                         .copied(),
                 }
-            };
+            }
 
             // Get the right- or left-most sparse merkle proof starting at this child nibble
             // of the current node
@@ -1219,11 +1281,59 @@ where
                     };
                 }
                 Node::Leaf(leaf_node) => {
-                    return Ok(SparseMerkleProof::new(Some(leaf_node.clone().into()), {
+                    return Ok(SparseMerkleProof::new(Some(leaf_node.into()), {
                         let mut siblings = siblings.clone();
                         siblings.reverse();
                         siblings
                     }));
+                }
+                Node::Null => bail!("Null node cannot have children"),
+            }
+        }
+        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+    }
+
+    fn get_extreme_key_hash(
+        &self,
+        version: Version,
+        mut node_key: NodeKey,
+        nibble_depth: usize,
+        extreme: Extreme,
+    ) -> Result<KeyHash> {
+        // Depending on the extreme specified, get either the least nibble or the most nibble
+        let min_or_max = |internal_node: &InternalNode| {
+            match extreme {
+                Extreme::Left => internal_node.children_unsorted().min_by_key(|c| *c.0),
+                Extreme::Right => internal_node.children_unsorted().max_by_key(|c| *c.0),
+            }
+            .map(|(nibble, _)| *nibble)
+        };
+
+        for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
+            let node = self.reader.get_node(&node_key).map_err(|err| {
+                if nibble_depth == 0 {
+                    MissingRootError { version }.into()
+                } else {
+                    err
+                }
+            })?;
+            match node {
+                Node::Internal(internal_node) => {
+                    // Find the leftmost nibble in the children
+                    let queried_child_index =
+                        min_or_max(&internal_node).expect("a child always exists");
+                    let child_node_key =
+                        internal_node.get_child_without_siblings(&node_key, queried_child_index);
+                    // Proceed downwards
+                    node_key = match child_node_key {
+                        Some(node_key) => node_key,
+                        None => {
+                            bail!("Internal node has no children");
+                        }
+                    };
+                }
+                Node::Leaf(leaf_node) => {
+                    return Ok(leaf_node.key_hash());
                 }
                 Node::Null => bail!("Null node cannot have children"),
             }
