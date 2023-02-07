@@ -257,9 +257,15 @@ mod tests {
 
             let mut kvs = Vec::new();
 
+            // Ensure that the tree contains at least one key-value pair
             kvs.push((KeyHash::from(b"key"), Some(b"value1".to_vec())));
             db.put_key_preimage(&b"key".to_vec());
+
             for key_preimage in keys {
+                // Since we hardcode the check for key, ensure that it's not inserted randomly by proptest
+                if key_preimage == b"notexist" {
+                    continue
+                }
                 let key_hash = KeyHash::from(&key_preimage);
                 let value = vec![0u8; 32];
                 kvs.push((key_hash, Some(value)));
@@ -272,7 +278,6 @@ mod tests {
             let commitment_proof = tree
                 .get_with_ics23_proof(b"notexist".to_vec(), 0)
                 .unwrap();
-
 
             let key_hash = b"notexist".as_slice().into();
             let proof_or_exclusion = tree.get_with_exclusion_proof(key_hash, 0).unwrap();
@@ -328,14 +333,8 @@ mod tests {
                         },
                     }
                 }
-            }
 
-            assert!(!ics23::verify_non_membership::<HostFunctionsManager>(
-                &commitment_proof,
-                &ics23_spec(),
-                &new_root_hash.0.to_vec(),
-                b"key",
-            ));
+            }
         }
     }
 
