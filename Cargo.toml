@@ -3,11 +3,14 @@ name = "jmt"
 version = "0.2.0"
 authors = ["Penumbra Labs <team@penumbra.zone>", "Diem Association <opensource@diem.com>"]
 description = "Jellyfish Merkle Tree (forked from Diem)"
-repository = "https://github.com/penumbra-zone/jellyfish-merkle"
+repository = "https://github.com/penumbra-zone/jmt"
 homepage = "https://penumbra.zone"
 license = "Apache-2.0"
-publish = false
 edition = "2021"
+
+keywords = ["merkle-tree", "authenticated data-structure", "efficient merkle"]
+category = ["cryptography", "data-structures"]
+publish = true 
 
 [features]
 default = ["ics23"]
