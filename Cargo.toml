@@ -8,7 +8,7 @@ homepage = "https://penumbra.zone"
 license = "Apache-2.0"
 edition = "2021"
 
-keywords = ["merkle-tree", "authenticated data-structure", "efficient merkle"]
+keywords = ["merkle-tree", "authenticated"]
 category = ["cryptography", "data-structures"]
 publish = true 
 
