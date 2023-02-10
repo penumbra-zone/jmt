@@ -16,7 +16,8 @@ edition = "2021"
 default = ["ics23"]
 
 [dependencies]
-ics23 = { git = "https://github.com/heliaxdev/ics23", branch = "yuji/compare_hashed_key", optional = true }
+# FIXME: Do not merge into main with a git dependency here. Wait for https://github.com/cosmos/ics23/pull/88
+ics23 = { git = "https://github.com/preston-evans98/ics23", branch = "yuji/compare_hashed_key", optional = true }
 anyhow = "1.0.38"
 byteorder = "1.4.3"
 itertools = { version = "0.10.0", default-features = false }
