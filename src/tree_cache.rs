@@ -66,18 +66,19 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use anyhow::{bail, Result};
 
 use crate::{
     metrics::DIEM_JELLYFISH_STORAGE_READS,
-    node_type::{Node, NodeKey},
+    node_type::{AugmentedNode, NodeKey},
     storage::{
-        NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
+        NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeChangeBatch, TreeReader,
+        TreeUpdateBatch,
     },
-    types::{Version, PRE_GENESIS_VERSION},
-    RootHash,
+    types::{value_identifier::ValueIdentifier, Version, PRE_GENESIS_VERSION},
+    KeyHash, RootHash,
 };
 
 /// `FrozenTreeCache` is used as a field of `TreeCache` storing all the nodes and values that
@@ -86,7 +87,7 @@ use crate::{
 /// help commit more than one transaction in a row atomically.
 struct FrozenTreeCache {
     /// Immutable node_cache.
-    node_cache: NodeBatch,
+    node_cache: TreeChangeBatch,
 
     /// Immutable stale_node_index_cache.
     stale_node_index_cache: StaleNodeIndexBatch,
@@ -101,7 +102,7 @@ struct FrozenTreeCache {
 impl FrozenTreeCache {
     fn new() -> Self {
         Self {
-            node_cache: BTreeMap::new(),
+            node_cache: Default::default(),
             stale_node_index_cache: BTreeSet::new(),
             node_stats: Vec::new(),
             root_hashes: Vec::new(),
@@ -118,13 +119,16 @@ pub struct TreeCache<'a, R> {
     next_version: Version,
 
     /// Intermediate nodes keyed by node hash
-    node_cache: HashMap<NodeKey, Node>,
+    node_cache: HashMap<NodeKey, AugmentedNode>,
 
-    /// # of leaves in the `node_cache`,
+    /// number of leaves in the `node_cache`,
     num_new_leaves: usize,
 
     /// Partial stale log. `NodeKey` to identify the stale record.
     stale_node_index_cache: HashSet<NodeKey>,
+
+    /// Values that have become stale
+    deleted_values: Vec<ValueIdentifier>,
 
     /// # of leaves in the `stale_node_index_cache`,
     num_stale_leaves: usize,
@@ -158,7 +162,7 @@ where
                     // Hack: We need to start from an empty tree, so we insert
                     // a null node beforehand deliberately to deal with this corner case.
                     let genesis_root_key = NodeKey::new_empty_path(0);
-                    node_cache.insert(genesis_root_key.clone(), Node::new_null());
+                    node_cache.insert(genesis_root_key.clone(), AugmentedNode::new_null());
                     genesis_root_key
                 }
             }
@@ -174,31 +178,32 @@ where
             reader,
             num_stale_leaves: 0,
             num_new_leaves: 0,
+            deleted_values: Default::default(),
         })
     }
 
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
-    pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
+    pub fn get_node(&self, node_key: &NodeKey) -> Result<AugmentedNode> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             node.clone()
-        } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
+        } else if let Some(node) = self.frozen_cache.node_cache.get_node(node_key) {
             node.clone()
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
-            self.reader.get_node(node_key)?
+            self.reader.get_augmented_node(node_key)?
         })
     }
 
     /// Gets a node with the given node key. If it doesn't exist in node cache, read from `reader`
     /// If it doesn't exist anywhere, return `None`.
-    pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+    pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<AugmentedNode>> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             Some(node.clone())
-        } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
+        } else if let Some(node) = self.frozen_cache.node_cache.get_node(node_key) {
             Some(node.clone())
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
-            self.reader.get_node_option(node_key)?
+            self.reader.get_augmented_node_option(node_key)?
         })
     }
 
@@ -213,7 +218,7 @@ where
     }
 
     /// Puts the node with given hash as key into node_cache.
-    pub fn put_node(&mut self, node_key: NodeKey, new_node: Node) -> Result<()> {
+    pub fn put_node(&mut self, node_key: NodeKey, new_node: AugmentedNode) -> Result<()> {
         match self.node_cache.entry(node_key) {
             Entry::Vacant(o) => {
                 if new_node.is_leaf() {
@@ -241,6 +246,10 @@ where
         }
     }
 
+    pub fn delete_value(&mut self, version: Version, key: KeyHash) {
+        self.deleted_values.push(ValueIdentifier::new(version, key))
+    }
+
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
     pub fn freeze(&mut self) -> Result<()> {
         let mut root_node_key = self.get_root_node_key().clone();
@@ -252,8 +261,8 @@ where
             // that node hash as the root hash of this version. This will happen if you delete as
             // the first operation on an empty tree, but also if you manage to delete every single
             // key-value mapping in the tree.
-            self.put_node(root_node_key.clone(), Node::new_null())?;
-            Node::Null
+            self.put_node(root_node_key.clone(), AugmentedNode::new_null())?;
+            AugmentedNode::Null
         };
 
         // Insert the root node's hash into the list of root hashes in the frozen cache, so that
@@ -286,7 +295,10 @@ where
             stale_leaves: self.num_stale_leaves,
         };
         self.frozen_cache.node_stats.push(node_stats);
-        self.frozen_cache.node_cache.extend(self.node_cache.drain());
+        self.frozen_cache.node_cache.extend(
+            self.node_cache.drain(),
+            self.deleted_values.drain(0..self.deleted_values.len()),
+        );
         let stale_since_version = self.next_version;
         self.frozen_cache
             .stale_node_index_cache

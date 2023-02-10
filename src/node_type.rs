@@ -696,36 +696,27 @@ pub(crate) fn get_child_half_start(n: Nibble, height: u8) -> u8 {
 
 /// Represents a key-value pair in the map.
 ///
-/// Note: this does not store the key itself.
+/// Note: this does not store the key or value itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LeafNode {
     /// The hash of the key for this entry.
     key_hash: KeyHash,
     /// The hash of the value for this entry.
     value_hash: ValueHash,
-    /// The value associated with the key.
-    value: Vec<u8>,
 }
 
 impl LeafNode {
     /// Creates a new leaf node.
-    pub fn new(key_hash: KeyHash, value: Vec<u8>) -> Self {
-        let value_hash = value.as_slice().into();
+    pub fn new(key_hash: KeyHash, value_hash: ValueHash) -> Self {
         Self {
             key_hash,
             value_hash,
-            value,
         }
     }
 
     /// Gets the key hash.
     pub fn key_hash(&self) -> KeyHash {
         self.key_hash
-    }
-
-    /// Gets the associated value itself.
-    pub fn value(&self) -> &[u8] {
-        self.value.as_ref()
     }
 
     /// Gets the associated value hash.
@@ -741,6 +732,59 @@ impl LeafNode {
 impl From<LeafNode> for SparseMerkleLeafNode {
     fn from(leaf_node: LeafNode) -> Self {
         Self::new(leaf_node.key_hash, leaf_node.value_hash)
+    }
+}
+
+/// A [`LeafNode`] augmented with a value
+///
+/// Note: this does not store the key or value itself.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AugmentedLeafNode {
+    inner: LeafNode,
+    /// The value for this entry
+    value: Vec<u8>,
+}
+
+impl AugmentedLeafNode {
+    /// Create an AugmentedLeafNode from a keyhash and value
+    pub fn new(key_hash: KeyHash, value: Vec<u8>) -> Self {
+        let value_hash = value.as_slice().into();
+        Self {
+            inner: LeafNode::new(key_hash, value_hash),
+            value,
+        }
+    }
+
+    /// Create an AugmentedLeafNode from a keyhash and value
+    pub fn from_parts(leaf_node: LeafNode, value: Vec<u8>) -> Self {
+        Self {
+            inner: leaf_node,
+            value,
+        }
+    }
+
+    /// Returns a reference to the inner [`LeafNode`]
+    pub fn inner(&self) -> &LeafNode {
+        &self.inner
+    }
+
+    /// Splits an AugmentedLeafNode into a LeafNode and value
+    pub fn split(self) -> (LeafNode, Vec<u8>) {
+        (self.inner, self.value)
+    }
+
+    /// Gets the key hash.
+    pub fn key_hash(&self) -> KeyHash {
+        self.inner.key_hash()
+    }
+
+    /// Gets the associated value itself.
+    pub fn value(&self) -> &[u8] {
+        self.value.as_ref()
+    }
+
+    pub fn hash(&self) -> [u8; 32] {
+        self.inner.hash()
     }
 }
 
@@ -782,39 +826,28 @@ impl From<LeafNode> for Node {
     }
 }
 
-impl Node {
-    /// Creates the [`Null`](Node::Null) variant.
-    pub(crate) fn new_null() -> Self {
-        Node::Null
+impl From<AugmentedNode> for Node {
+    fn from(value: AugmentedNode) -> Self {
+        match value {
+            AugmentedNode::Null => Self::Null,
+            AugmentedNode::Internal(internal) => Self::Internal(internal),
+            AugmentedNode::Leaf(leaf) => Self::Leaf(leaf.split().0),
+        }
     }
+}
 
+impl Node {
     /// Creates the [`Internal`](Node::Internal) variant.
     #[cfg(any(test, feature = "fuzzing"))]
     pub(crate) fn new_internal(children: Children) -> Self {
         Node::Internal(InternalNode::new(children))
     }
 
+    #[cfg(any(test, feature = "fuzzing"))]
     /// Creates the [`Leaf`](Node::Leaf) variant.
     pub(crate) fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
-        Node::Leaf(LeafNode::new(key_hash, value))
+        Self::Leaf(LeafNode::new(key_hash, value.into()))
     }
-
-    /// Returns `true` if the node is a leaf node.
-    pub(crate) fn is_leaf(&self) -> bool {
-        matches!(self, Node::Leaf(_))
-    }
-
-    /// Returns `NodeType`
-    pub(crate) fn node_type(&self) -> NodeType {
-        match self {
-            // The returning value will be used to construct a `Child` of a internal node, while an
-            // internal node will never have a child of Node::Null.
-            Self::Null => unreachable!(),
-            Self::Leaf(_) => NodeType::Leaf,
-            Self::Internal(n) => n.node_type(),
-        }
-    }
-
     /// Returns leaf count if known
     pub(crate) fn leaf_count(&self) -> Option<usize> {
         match self {
@@ -945,4 +978,65 @@ where
     let byte = reader.read_u8()?;
     num |= u64::from(byte) << 56;
     Ok(num)
+}
+
+/// Identical to the standard [`Node`] of a [`JellyfishMerkleTree`](crate::JellyfishMerkleTree),
+/// except that leaf nodes are augmented with their values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AugmentedNode {
+    /// Represents `null`.
+    Null,
+    /// A wrapper of [`InternalNode`].
+    Internal(InternalNode),
+    /// A wrapper of [`LeafNode`].
+    Leaf(AugmentedLeafNode),
+}
+
+impl AugmentedNode {
+    /// Creates the [`Null`](Node::Null) variant.
+    pub(crate) fn new_null() -> Self {
+        Self::Null
+    }
+
+    /// Returns `NodeType`
+    pub(crate) fn node_type(&self) -> NodeType {
+        match self {
+            // The returning value will be used to construct a `Child` of a internal node, while an
+            // internal node will never have a child of Node::Null.
+            Self::Null => unreachable!(),
+            Self::Leaf(_) => NodeType::Leaf,
+            Self::Internal(n) => n.node_type(),
+        }
+    }
+
+    /// Creates the [`Leaf`](Node::Leaf) variant.
+    pub(crate) fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
+        Self::Leaf(AugmentedLeafNode::new(key_hash, value))
+    }
+
+    /// Returns `true` if the node is a leaf node.
+    pub(crate) fn is_leaf(&self) -> bool {
+        matches!(self, Self::Leaf(_))
+    }
+
+    /// Computes the hash of nodes.
+    pub(crate) fn hash(&self) -> [u8; 32] {
+        match self {
+            Self::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
+            Self::Internal(internal_node) => internal_node.hash(),
+            Self::Leaf(leaf_node) => leaf_node.hash(),
+        }
+    }
+}
+
+impl From<AugmentedLeafNode> for AugmentedNode {
+    fn from(value: AugmentedLeafNode) -> Self {
+        Self::Leaf(value)
+    }
+}
+
+impl From<InternalNode> for AugmentedNode {
+    fn from(value: InternalNode) -> Self {
+        Self::Internal(value)
+    }
 }

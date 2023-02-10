@@ -101,7 +101,8 @@ pub mod storage {
     pub use reader::HasPreimage;
     pub use reader::TreeReader;
     pub use writer::{
-        NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeUpdateBatch, TreeWriter,
+        NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeChangeBatch, TreeUpdateBatch,
+        TreeWriter,
     };
 
     use super::*;

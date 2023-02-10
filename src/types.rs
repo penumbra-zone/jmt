@@ -5,6 +5,7 @@
 
 pub mod nibble;
 pub mod proof;
+pub mod value_identifier;
 
 /// Specifies a particular version of the [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) state.
 pub type Version = u64; // Height - also used for MVCC in StateDB

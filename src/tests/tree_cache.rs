@@ -5,17 +5,17 @@ use rand::{rngs::OsRng, Rng};
 
 use crate::{
     mock::MockTreeStore,
-    node_type::{Node, NodeKey},
+    node_type::{AugmentedNode, NodeKey},
     tree_cache::TreeCache,
     types::{nibble::nibble_path::NibblePath, Version, PRE_GENESIS_VERSION},
     KeyHash,
 };
 
-fn random_leaf_with_key(next_version: Version) -> (Node, NodeKey) {
+fn random_leaf_with_key(next_version: Version) -> (AugmentedNode, NodeKey) {
     let key: [u8; 32] = OsRng.gen();
     let value: [u8; 32] = OsRng.gen();
     let key_hash: KeyHash = key.as_ref().into();
-    let node = Node::new_leaf(key_hash, value.to_vec());
+    let node = AugmentedNode::new_leaf(key_hash, value.to_vec());
     let node_key = NodeKey::new(next_version, NibblePath::new(key_hash.0.to_vec()));
     (node, node_key)
 }
@@ -80,6 +80,6 @@ fn test_freeze_with_delete() {
     cache.delete_node(&node1_key, true /* is_leaf */);
     cache.freeze().unwrap();
     let (_, update_batch) = cache.into();
-    assert_eq!(update_batch.node_batch.len(), 3);
+    assert_eq!(update_batch.node_batch.nodes().len(), 3);
     assert_eq!(update_batch.stale_node_index_batch.len(), 1);
 }

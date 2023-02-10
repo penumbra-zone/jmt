@@ -8,8 +8,8 @@ use rand::rngs::OsRng;
 
 use crate::{
     node_type::{
-        deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, Node,
-        NodeDecodeError, NodeKey, NodeType,
+        deserialize_u64_varint, serialize_u64_varint, AugmentedNode, Child, Children, InternalNode,
+        Node, NodeDecodeError, NodeKey, NodeType,
     },
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -135,7 +135,7 @@ fn test_leaf_hash() {
         let blob = vec![0x02];
         let value_hash: ValueHash = blob.as_slice().into();
         let hash = hash_leaf(address, value_hash);
-        let leaf_node = Node::new_leaf(address, blob);
+        let leaf_node = AugmentedNode::new_leaf(address, blob);
         assert_eq!(leaf_node.hash(), hash);
     }
 }

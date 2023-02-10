@@ -7,7 +7,9 @@ use std::{
 use anyhow::{bail, ensure, format_err, Context, Result};
 
 use crate::{
-    node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
+    node_type::{
+        AugmentedLeafNode, AugmentedNode, Child, Children, InternalNode, Node, NodeKey, NodeType,
+    },
     storage::{TreeReader, TreeUpdateBatch},
     tree_cache::TreeCache,
     types::{
@@ -16,6 +18,7 @@ use crate::{
             Nibble, NibbleRangeIterator, ROOT_NIBBLE_HEIGHT,
         },
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
+        value_identifier::ValueIdentifier,
         Version,
     },
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash,
@@ -52,7 +55,7 @@ where
     /// Get the node hash from the cache if exists, otherwise compute it.
     fn get_hash(
         node_key: &NodeKey,
-        node: &Node,
+        node: &AugmentedNode,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
     ) -> [u8; 32] {
         if let Some(cache) = hash_cache {
@@ -117,12 +120,12 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<(NodeKey, AugmentedNode)> {
         assert!(!kvs.is_empty());
 
         let node = tree_cache.get_node(&node_key)?;
         Ok(match node {
-            Node::Internal(internal_node) => {
+            AugmentedNode::Internal(internal_node) => {
                 // We always delete the existing internal node here because it will not be referenced anyway
                 // since this version.
                 tree_cache.delete_node(&node_key, false /* is_leaf */);
@@ -182,7 +185,7 @@ where
                 tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
                 (node_key, new_internal_node.into())
             }
-            Node::Leaf(leaf_node) => {
+            AugmentedNode::Leaf(leaf_node) => {
                 // We are on a leaf node but trying to insert another node, so we may diverge.
                 // We always delete the existing leaf node here because it will not be referenced anyway
                 // since this version.
@@ -192,7 +195,7 @@ where
                     node_key, version, leaf_node, kvs, depth, hash_cache, tree_cache,
                 )?
             }
-            Node::Null => {
+            AugmentedNode::Null => {
                 if !node_key.nibble_path().is_empty() {
                     bail!(
                         "Null node exists for non-root node with node_key {:?}",
@@ -220,16 +223,16 @@ where
         &self,
         node_key: NodeKey,
         version: Version,
-        existing_leaf_node: LeafNode,
+        existing_leaf_node: AugmentedLeafNode,
         kvs: &[(KeyHash, OwnedValue)],
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<(NodeKey, AugmentedNode)> {
         let existing_leaf_key = existing_leaf_node.key_hash();
 
         if kvs.len() == 1 && kvs[0].0 == existing_leaf_key {
-            let new_leaf_node = Node::new_leaf(existing_leaf_key, kvs[0].1.clone());
+            let new_leaf_node = AugmentedNode::new_leaf(existing_leaf_key, kvs[0].1.clone());
             tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
             Ok((node_key, new_leaf_node))
         } else {
@@ -296,9 +299,9 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<(NodeKey, AugmentedNode)> {
         if kvs.len() == 1 {
-            let new_leaf_node = Node::new_leaf(kvs[0].0, kvs[0].1.clone());
+            let new_leaf_node = AugmentedNode::new_leaf(kvs[0].0, kvs[0].1.clone());
             tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
             Ok((node_key, new_leaf_node))
         } else {
@@ -397,7 +400,17 @@ where
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
+
+            // Deduplicate and sort the value set by collecting it as a btreemap
+            // BTreeMap uses a stable sort, we we can guarantee that only the last update
+            // to any particular key is retained
+            //
+            // This is necessary for correctness, since `TreeUpdateBatch` doesn't track the relative ordering
+            // of value creation and deletion operations.
+            // TODO(@preston-evans98): replace this API with batch_put_value_sets
             value_set
+                .into_iter()
+                .collect::<BTreeMap<_, _>>()
                 .into_iter()
                 .enumerate()
                 .try_for_each(|(i, (key, value))| {
@@ -433,10 +446,15 @@ where
         let root_node_key = tree_cache.get_root_node_key().clone();
         let mut nibble_iter = nibble_path.nibbles();
 
+        let is_deletion = value.is_none();
+
         // Start insertion from the root node.
         match self.insert_at(root_node_key, version, &mut nibble_iter, value, tree_cache)? {
             PutResult::Updated((new_root_node_key, _)) => {
                 tree_cache.set_root_node_key(new_root_node_key);
+                if is_deletion {
+                    tree_cache.delete_value(version, key)
+                }
             }
             PutResult::NotChanged => {
                 // Nothing has changed, so do nothing
@@ -445,7 +463,10 @@ where
                 // root node becomes empty, insert a null node at root
                 let genesis_root_key = NodeKey::new_empty_path(version);
                 tree_cache.set_root_node_key(genesis_root_key.clone());
-                tree_cache.put_node(genesis_root_key, Node::new_null())?;
+                tree_cache.put_node(genesis_root_key, AugmentedNode::new_null())?;
+                if is_deletion {
+                    tree_cache.delete_value(version, key)
+                }
             }
         }
 
@@ -463,7 +484,7 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+    ) -> Result<PutResult<(NodeKey, AugmentedNode)>> {
         // Because deletions could cause the root node not to exist, we try to get the root node,
         // and if it doesn't exist, we synthesize a `Null` node, noting that it hasn't yet been
         // committed anywhere (we need to track this because the tree cache will panic if we try to
@@ -471,9 +492,9 @@ where
         let (node, node_already_exists) = tree_cache
             .get_node_option(&node_key)?
             .map(|node| (node, true))
-            .unwrap_or((Node::Null, false));
+            .unwrap_or((AugmentedNode::Null, false));
         match node {
-            Node::Internal(internal_node) => self.insert_at_internal_node(
+            AugmentedNode::Internal(internal_node) => self.insert_at_internal_node(
                 node_key,
                 internal_node,
                 version,
@@ -481,7 +502,7 @@ where
                 value,
                 tree_cache,
             ),
-            Node::Leaf(leaf_node) => self.insert_at_leaf_node(
+            AugmentedNode::Leaf(leaf_node) => self.insert_at_leaf_node(
                 node_key,
                 leaf_node,
                 version,
@@ -489,7 +510,7 @@ where
                 value,
                 tree_cache,
             ),
-            Node::Null => {
+            AugmentedNode::Null => {
                 if !node_key.nibble_path().is_empty() {
                     bail!(
                         "Null node exists for non-root node with node_key {:?}",
@@ -528,7 +549,7 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+    ) -> Result<PutResult<(NodeKey, AugmentedNode)>> {
         // Find the next node to visit following the next nibble as index.
         let child_index = nibble_iter.next().expect("Ran out of nibbles");
 
@@ -611,12 +632,12 @@ where
     fn insert_at_leaf_node(
         &self,
         mut node_key: NodeKey,
-        existing_leaf_node: LeafNode,
+        existing_leaf_node: AugmentedLeafNode,
         version: Version,
         nibble_iter: &mut NibbleIterator,
         value: Option<OwnedValue>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+    ) -> Result<PutResult<(NodeKey, AugmentedNode)>> {
         // 1. Make sure that the existing leaf nibble_path has the same prefix as the already
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
@@ -735,10 +756,10 @@ where
         nibble_iter: &NibbleIterator,
         value: OwnedValue,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node)> {
+    ) -> Result<(NodeKey, AugmentedNode)> {
         // Get the underlying bytes of nibble_iter which must be a key, i.e., hashed account address
         // with `HashValue::LENGTH` bytes.
-        let new_leaf_node = Node::new_leaf(
+        let new_leaf_node = AugmentedNode::new_leaf(
             KeyHash(
                 nibble_iter
                     .get_nibble_path()
@@ -799,7 +820,8 @@ where
                 Node::Leaf(leaf_node) => {
                     return Ok((
                         if leaf_node.key_hash() == key {
-                            Some(leaf_node.value().to_vec())
+                            let value_id = ValueIdentifier::new(version, key);
+                            self.reader.get_value_option(&value_id)?
                         } else {
                             None
                         },
@@ -1109,56 +1131,6 @@ where
         bail!("Jellyfish Merkle tree has cyclic graph inside.");
     }
 
-    fn get_without_proof(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>> {
-        // Empty tree just returns proof with no sibling hash.
-        let mut next_node_key = NodeKey::new_empty_path(version);
-        let nibble_path = NibblePath::new(key.0.to_vec());
-        let mut nibble_iter = nibble_path.nibbles();
-
-        // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
-        // in the tree structure.
-        for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
-                if nibble_depth == 0 {
-                    MissingRootError { version }.into()
-                } else {
-                    err
-                }
-            })?;
-            match next_node {
-                Node::Internal(internal_node) => {
-                    let queried_child_index = nibble_iter
-                        .next()
-                        .ok_or_else(|| format_err!("ran out of nibbles"))?;
-                    let child_node_key = internal_node
-                        .get_child_without_siblings(&next_node_key, queried_child_index);
-                    next_node_key = match child_node_key {
-                        Some(node_key) => node_key,
-                        None => return Ok(None),
-                    };
-                }
-                Node::Leaf(leaf_node) => {
-                    return Ok(if leaf_node.key_hash() == key {
-                        Some(leaf_node.value().to_vec())
-                    } else {
-                        None
-                    });
-                }
-                Node::Null => {
-                    if nibble_depth == 0 {
-                        return Ok(None);
-                    } else {
-                        bail!(
-                            "Non-root null node exists with node key {:?}",
-                            next_node_key
-                        );
-                    }
-                }
-            }
-        }
-        bail!("Jellyfish Merkle tree has cyclic graph inside.");
-    }
-
     /// Gets the proof that shows a list of keys up to `rightmost_key_to_prove` exist at `version`.
     pub fn get_range_proof(
         &self,
@@ -1191,7 +1163,8 @@ where
     /// Equivalent to [`get_with_proof`](JellyfishMerkleTree::get_with_proof) and dropping the
     /// proof, but more efficient.
     pub fn get(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>> {
-        self.get_without_proof(key, version)
+        self.reader
+            .get_value_option(&ValueIdentifier::new(version, key))
     }
 
     fn get_root_node(&self, version: Version) -> Result<Node> {

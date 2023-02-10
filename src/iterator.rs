@@ -15,6 +15,7 @@ use crate::{
     storage::TreeReader,
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
+        value_identifier::ValueIdentifier,
         Version,
     },
     KeyHash, OwnedValue,
@@ -293,7 +294,12 @@ where
                     // true in `new`). Return the node and mark `self.done` so next time we return
                     // None.
                     self.done = true;
-                    return Some(Ok((leaf_node.key_hash(), leaf_node.value().to_vec())));
+                    let value_id =
+                        ValueIdentifier::new(root_node_key.version(), leaf_node.key_hash());
+                    return match self.reader.get_value(&value_id) {
+                        Ok(value) => Some(Ok((leaf_node.key_hash(), value))),
+                        Err(e) => Some(Err(e)),
+                    };
                 }
                 Ok(Node::Internal(_)) => {
                     // This means `starting_key` is bigger than every key in this tree, or we have
@@ -326,9 +332,15 @@ where
                     self.parent_stack.push(visit_info);
                 }
                 Ok(Node::Leaf(leaf_node)) => {
-                    let ret = (leaf_node.key_hash(), leaf_node.value().to_vec());
-                    Self::cleanup_stack(&mut self.parent_stack);
-                    return Some(Ok(ret));
+                    let value_id = ValueIdentifier::new(node_key.version(), leaf_node.key_hash());
+                    match self.reader.get_value(&value_id) {
+                        Ok(value) => {
+                            let ret = (leaf_node.key_hash(), value);
+                            Self::cleanup_stack(&mut self.parent_stack);
+                            return Some(Ok(ret));
+                        }
+                        Err(e) => return Some(Err(e)),
+                    }
                 }
                 Ok(Node::Null) => return Some(Err(format_err!("Should not reach a null node."))),
                 Err(err) => return Some(Err(err)),
