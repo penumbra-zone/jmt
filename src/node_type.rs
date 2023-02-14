@@ -225,12 +225,12 @@ impl Arbitrary for Children {
 }
 
 impl Children {
-    /// Create an empty set of children
+    /// Create an empty set of children.
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Insert a new child. Insert is guaranteed not to allocate
+    /// Insert a new child. Insert is guaranteed not to allocate.
     pub fn insert(&mut self, nibble: Nibble, child: Child) {
         let idx = nibble.as_usize();
         if self.children[idx].is_none() {
@@ -239,17 +239,17 @@ impl Children {
         self.children[idx] = Some(child);
     }
 
-    /// Get the child at the provided nibble
+    /// Get the child at the provided nibble.
     pub fn get(&self, nibble: Nibble) -> &Option<Child> {
         &self.children[nibble.as_usize()]
     }
 
-    /// Check if the struct contains any children
+    /// Check if the struct contains any children.
     pub fn is_empty(&self) -> bool {
         self.num_children == 0
     }
 
-    /// Remove the child at the provided nibble
+    /// Remove the child at the provided nibble.
     pub fn remove(&mut self, nibble: Nibble) {
         let idx = nibble.as_usize();
         if self.children[idx].is_some() {
@@ -258,17 +258,17 @@ impl Children {
         self.children[idx] = None;
     }
 
-    /// Returns a (possibly unsorted) iterator over the children
+    /// Returns a (possibly unsorted) iterator over the children.
     pub fn values(&self) -> impl Iterator<Item = &Child> {
         self.children.iter().filter_map(|child| child.as_ref())
     }
 
-    /// Returns a (possibly unsorted) iterator over the children and their respective Nibbles
+    /// Returns a (possibly unsorted) iterator over the children and their respective Nibbles.
     pub fn iter(&self) -> impl Iterator<Item = (Nibble, &Child)> {
         self.iter_sorted()
     }
 
-    /// Returns a (possibly unsorted) mutable iterator over the children, also yielding their respective nibbles
+    /// Returns a (possibly unsorted) mutable iterator over the children, also yielding their respective nibbles.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Nibble, &mut Child)> {
         self.children
             .iter_mut()
@@ -282,12 +282,12 @@ impl Children {
             })
     }
 
-    /// Returns the number of children
+    /// Returns the number of children.
     pub fn num_children(&self) -> usize {
         self.num_children
     }
 
-    /// Returns an iterator that yields the children and their respective Nibbles in sorted order
+    /// Returns an iterator that yields the children and their respective Nibbles in sorted order.
     pub fn iter_sorted(&self) -> impl Iterator<Item = (Nibble, &Child)> {
         self.children
             .iter()
