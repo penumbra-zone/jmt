@@ -793,7 +793,8 @@ impl NaiveInternalNode {
     fn node_for_subtree(begin: u8, width: u8, children: &Children) -> BinaryTreeNode {
         if width == 1 {
             return children
-                .get(&begin.into())
+                .get(begin.into())
+                .as_ref()
                 .map_or(BinaryTreeNode::Null, |child| {
                     BinaryTreeNode::new_child(begin, child)
                 });

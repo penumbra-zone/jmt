@@ -40,6 +40,12 @@ impl fmt::LowerHex for Nibble {
     }
 }
 
+impl Nibble {
+    pub fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// An iterator that iterates the index range (inclusive) of each different nibble at given
 /// `nibble_idx` of all the keys in a sorted key-value pairs.
 pub(crate) struct NibbleRangeIterator<'a> {
