@@ -1,14 +1,12 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use crate::{
     mock::MockTreeStore,
-    node_type::{Child, Node, NodeKey, NodeType},
+    node_type::{Child, Children, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
     tests::helper::{
         arb_existent_kvs_and_deletions_and_nonexistent_keys, arb_existent_kvs_and_nonexistent_keys,
@@ -142,7 +140,7 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let leaf1 = Node::new_leaf(key1, value1);
     let leaf2 = Node::new_leaf(key2, value2);
-    let mut children = HashMap::new();
+    let mut children = Children::new();
     children.insert(
         Nibble::from(0),
         Child::new(leaf1.hash(), 1 /* version */, NodeType::Leaf),
@@ -209,7 +207,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
     let leaf1 = Node::new_leaf(key1, value1.clone());
     let leaf2 = Node::new_leaf(key2, value2.clone());
     let internal = {
-        let mut children = HashMap::new();
+        let mut children = Children::new();
         children.insert(
             Nibble::from(0),
             Child::new(leaf1.hash(), 1 /* version */, NodeType::Leaf),
@@ -222,7 +220,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
     };
 
     let root_internal = {
-        let mut children = HashMap::new();
+        let mut children = Children::new();
         children.insert(
             Nibble::from(0),
             Child::new(
