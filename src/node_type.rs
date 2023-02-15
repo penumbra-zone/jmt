@@ -10,7 +10,6 @@
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
 use std::{
-    collections::hash_map::HashMap,
     convert::TryFrom,
     io::{prelude::*, Cursor, Read, SeekFrom, Write},
     mem::size_of,
@@ -21,7 +20,7 @@ use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::FromPrimitive;
 #[cfg(any(test, feature = "fuzzing"))]
-use proptest::{collection::hash_map, prelude::*};
+use proptest::prelude::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
@@ -200,7 +199,108 @@ impl Child {
 
 /// [`Children`] is just a collection of children belonging to a [`InternalNode`], indexed from 0 to
 /// 15, inclusive.
-pub(crate) type Children = HashMap<Nibble, Child>;
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Children {
+    /// The actual children. We box this array to avoid stack overflows, since the space consumed
+    /// is somewhat large
+    children: Box<[Option<Child>; 16]>,
+    num_children: usize,
+}
+
+#[cfg(any(test, feature = "fuzzing"))]
+impl Arbitrary for Children {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        (any::<Box<[Option<Child>; 16]>>().prop_map(|children| {
+            let num_children = children.iter().filter(|child| child.is_some()).count();
+            Self {
+                children,
+                num_children,
+            }
+        }))
+        .boxed()
+    }
+}
+
+impl Children {
+    /// Create an empty set of children.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Insert a new child. Insert is guaranteed not to allocate.
+    pub fn insert(&mut self, nibble: Nibble, child: Child) {
+        let idx = nibble.as_usize();
+        if self.children[idx].is_none() {
+            self.num_children += 1;
+        }
+        self.children[idx] = Some(child);
+    }
+
+    /// Get the child at the provided nibble.
+    pub fn get(&self, nibble: Nibble) -> &Option<Child> {
+        &self.children[nibble.as_usize()]
+    }
+
+    /// Check if the struct contains any children.
+    pub fn is_empty(&self) -> bool {
+        self.num_children == 0
+    }
+
+    /// Remove the child at the provided nibble.
+    pub fn remove(&mut self, nibble: Nibble) {
+        let idx = nibble.as_usize();
+        if self.children[idx].is_some() {
+            self.num_children -= 1;
+        }
+        self.children[idx] = None;
+    }
+
+    /// Returns a (possibly unsorted) iterator over the children.
+    pub fn values(&self) -> impl Iterator<Item = &Child> {
+        self.children.iter().filter_map(|child| child.as_ref())
+    }
+
+    /// Returns a (possibly unsorted) iterator over the children and their respective Nibbles.
+    pub fn iter(&self) -> impl Iterator<Item = (Nibble, &Child)> {
+        self.iter_sorted()
+    }
+
+    /// Returns a (possibly unsorted) mutable iterator over the children, also yielding their respective nibbles.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Nibble, &mut Child)> {
+        self.children
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(nibble, child)| {
+                if let Some(child) = child {
+                    Some((Nibble::from(nibble as u8), child))
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Returns the number of children.
+    pub fn num_children(&self) -> usize {
+        self.num_children
+    }
+
+    /// Returns an iterator that yields the children and their respective Nibbles in sorted order.
+    pub fn iter_sorted(&self) -> impl Iterator<Item = (Nibble, &Child)> {
+        self.children
+            .iter()
+            .enumerate()
+            .filter_map(|(nibble, child)| {
+                if let Some(child) = child {
+                    Some((Nibble::from(nibble as u8), child))
+                } else {
+                    None
+                }
+            })
+    }
+}
 
 /// Represents a 4-level subtree with 16 children at the bottom level. Theoretically, this reduces
 /// IOPS to query a tree by 4x since we compress 4 levels in a standard Merkle tree into 1 node.
@@ -269,16 +369,15 @@ impl Arbitrary for InternalNode {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: ()) -> Self::Strategy {
-        hash_map(any::<Nibble>(), any::<Child>(), 1..=16)
-            .prop_filter(
-                "InternalNode constructor panics when its only child is a leaf.",
-                |children| {
-                    !(children.len() == 1
-                        && children.values().next().expect("Must exist.").is_leaf())
-                },
-            )
-            .prop_map(InternalNode::new)
-            .boxed()
+        (any::<Children>().prop_filter(
+            "InternalNode constructor panics when its only child is a leaf.",
+            |children| {
+                !(children.num_children() == 1
+                    && children.values().next().expect("Must exist.").is_leaf())
+            },
+        ))
+        .prop_map(InternalNode::new)
+        .boxed()
     }
 }
 
@@ -296,7 +395,7 @@ impl InternalNode {
         // Assert the internal node must have >= 1 children. If it only has one child, it cannot be
         // a leaf node. Otherwise, the leaf node should be a child of this internal node's parent.
         ensure!(!children.is_empty(), "Children must not be empty");
-        if children.len() == 1 {
+        if children.num_children() == 1 {
             ensure!(
                 !children
                     .values()
@@ -346,13 +445,11 @@ impl InternalNode {
         )
     }
 
-    pub fn children_sorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
+    pub fn children_sorted(&self) -> impl Iterator<Item = (Nibble, &Child)> {
         // Previously this used `.sorted_by_key()` directly on the iterator but this does not appear
         // to be available in itertools (it does not seem to ever have existed???) for unknown
         // reasons. This satisfies the same behavior. ¯\_(ツ)_/¯
-        let mut sorted: Vec<(&Nibble, &Child)> = self.children.iter().collect();
-        sorted.sort_by_key(|(&nibble, _)| nibble);
-        sorted.into_iter()
+        self.children.iter_sorted()
     }
 
     pub fn children_unsorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
@@ -365,7 +462,11 @@ impl InternalNode {
         binary.write_u16::<LittleEndian>(leaf_bitmap)?;
         for _ in 0..existence_bitmap.count_ones() {
             let next_child = existence_bitmap.trailing_zeros() as u8;
-            let child = &self.children[&Nibble::from(next_child)];
+            let child = self
+                .children
+                .get(Nibble::from(next_child))
+                .as_ref()
+                .expect("child must exist");
             serialize_u64_varint(child.version, binary);
             binary.extend(child.hash.to_vec());
             match child.node_type {
@@ -411,7 +512,7 @@ impl InternalNode {
         }
 
         // Reconstruct children
-        let mut children = HashMap::new();
+        let mut children = Children::new();
         for _ in 0..existence_bitmap.count_ones() {
             let next_child = existence_bitmap.trailing_zeros() as u8;
             let version = deserialize_u64_varint(&mut reader)?;
@@ -456,7 +557,7 @@ impl InternalNode {
 
     /// Gets the `n`-th child.
     pub fn child(&self, n: Nibble) -> Option<&Child> {
-        self.children.get(&n)
+        self.children.get(n).as_ref()
     }
 
     /// Generates `existence_bitmap` and `leaf_bitmap` as a pair of `u16`s: child at index `i`
@@ -466,7 +567,7 @@ impl InternalNode {
         let mut existence_bitmap = 0;
         let mut leaf_bitmap = 0;
         for (nibble, child) in self.children.iter() {
-            let i = u8::from(*nibble);
+            let i = u8::from(nibble);
             existence_bitmap |= 1u16 << i;
             if child.is_leaf() {
                 leaf_bitmap |= 1u16 << i;

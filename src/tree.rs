@@ -571,7 +571,7 @@ where
             }
             PutResult::Removed => {
                 // remove child
-                children.remove(&child_index);
+                children.remove(child_index);
             }
         }
 
@@ -583,7 +583,7 @@ where
         if let Some((child_nibble, child)) = it.next() {
             if it.next().is_none() && child.is_leaf() {
                 // internal node has only one child left and it's leaf node, replace it with the leaf node
-                let child_key = node_key.gen_child_node_key(child.version, *child_nibble);
+                let child_key = node_key.gen_child_node_key(child.version, child_nibble);
                 let child_node = tree_cache.get_node(&child_key)?;
                 tree_cache.delete_node(&child_key, true /* is_leaf */);
 
@@ -591,6 +591,7 @@ where
                 tree_cache.put_node(node_key.clone(), child_node.clone())?;
                 Ok(PutResult::Updated((node_key, child_node)))
             } else {
+                drop(it);
                 let new_internal_node: InternalNode = InternalNode::new(children);
 
                 node_key.set_version(version);

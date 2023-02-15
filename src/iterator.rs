@@ -265,7 +265,7 @@ where
             if *leaves_skipped + child_leaf_count <= target_leaf_idx {
                 *leaves_skipped += child_leaf_count;
             } else {
-                return Ok((*nibble, child));
+                return Ok((nibble, child));
             }
         }
 
