@@ -841,17 +841,17 @@ where
                 // Rightmost left neighbor
                 Extreme::Left => node
                     .children_unsorted()
-                    .filter(|(&nibble, _)| nibble < child_index)
-                    .max_by_key(|(&nibble, _)| nibble)
+                    .filter(|(nibble, _)| *nibble < child_index)
+                    .max_by_key(|(nibble, _)| *nibble)
                     .map(|p| p.0)
-                    .copied(),
+                    .clone(),
                 // Leftmost right neighbor
                 Extreme::Right => node
                     .children_unsorted()
-                    .filter(|(&nibble, _)| nibble > child_index)
-                    .min_by_key(|(&nibble, _)| nibble)
+                    .filter(|(nibble, _)| *nibble > child_index)
+                    .min_by_key(|(nibble, _)| *nibble)
                     .map(|p| p.0)
-                    .copied(),
+                    .clone(),
             }
         }
 
@@ -1072,10 +1072,10 @@ where
         // Depending on the extreme specified, get either the least nibble or the most nibble
         let min_or_max = |internal_node: &InternalNode| {
             match extreme {
-                Extreme::Left => internal_node.children_unsorted().min_by_key(|c| *c.0),
-                Extreme::Right => internal_node.children_unsorted().max_by_key(|c| *c.0),
+                Extreme::Left => internal_node.children_unsorted().min_by_key(|c| c.0),
+                Extreme::Right => internal_node.children_unsorted().max_by_key(|c| c.0),
             }
-            .map(|(nibble, _)| *nibble)
+            .map(|(nibble, _)| nibble)
         };
 
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {

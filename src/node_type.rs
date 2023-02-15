@@ -452,7 +452,7 @@ impl InternalNode {
         self.children.iter_sorted()
     }
 
-    pub fn children_unsorted(&self) -> impl Iterator<Item = (&Nibble, &Child)> {
+    pub fn children_unsorted(&self) -> impl Iterator<Item = (Nibble, &Child)> {
         self.children.iter()
     }
 
