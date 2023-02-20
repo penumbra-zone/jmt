@@ -7,6 +7,7 @@ use proptest_derive::Arbitrary;
 use crate::{
     node_type::{Node, NodeKey},
     types::Version,
+    KeyHash, OwnedValue,
 };
 
 /// Defines the interface used to write a batch of updates from a
@@ -18,7 +19,64 @@ pub trait TreeWriter {
 }
 
 /// Node batch that will be written into db atomically with other batches.
-pub type NodeBatch = BTreeMap<NodeKey, Node>;
+#[derive(Debug, Clone, PartialEq, Default, Eq)]
+pub struct NodeBatch {
+    nodes: BTreeMap<NodeKey, Node>,
+    values: BTreeMap<(Version, KeyHash), Option<OwnedValue>>,
+}
+
+impl NodeBatch {
+    /// Reset a NodeBatch to its empty state.
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.values.clear()
+    }
+
+    /// Get a node by key.
+    pub fn get_node(&self, node_key: &NodeKey) -> Option<&Node> {
+        self.nodes.get(node_key)
+    }
+
+    /// Returns a reference to the current set of nodes.
+    pub fn nodes(&self) -> &BTreeMap<NodeKey, Node> {
+        &self.nodes
+    }
+
+    /// Insert a node into the batch.
+    pub fn insert_node(&mut self, node_key: NodeKey, node: Node) -> Option<Node> {
+        self.nodes.insert(node_key, node)
+    }
+
+    /// Insert a node into the batch.
+    pub fn insert_value(&mut self, version: Version, key_hash: KeyHash, value: OwnedValue) {
+        self.values.insert((version, key_hash), Some(value));
+    }
+
+    /// Returns a reference to the current set of nodes.
+    pub fn values(&self) -> &BTreeMap<(Version, KeyHash), std::option::Option<Vec<u8>>> {
+        &self.values
+    }
+
+    /// Extend a node batch.
+    pub fn extend(
+        &mut self,
+        nodes: impl IntoIterator<Item = (NodeKey, Node)>,
+        values: impl IntoIterator<Item = ((Version, KeyHash), Option<OwnedValue>)>,
+    ) {
+        self.nodes.extend(nodes);
+        self.values.extend(values);
+    }
+
+    /// Merge two NodeBatches into a single one.
+    pub fn merge(&mut self, rhs: Self) {
+        self.extend(rhs.nodes, rhs.values)
+    }
+
+    /// Check if the node batch contains any items.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty() && self.values.is_empty()
+    }
+}
 /// [`StaleNodeIndex`](struct.StaleNodeIndex.html) batch that will be written into db atomically
 /// with other batches.
 pub type StaleNodeIndexBatch = BTreeSet<StaleNodeIndex>;

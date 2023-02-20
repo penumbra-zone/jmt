@@ -601,7 +601,7 @@ fn verify_range_proof(
     // that would cause `X` to end up in the above position.
     let mut btree1 = BTreeMap::new();
     for (key, value) in &btree {
-        let leaf = LeafNode::new(*key, value.clone());
+        let leaf = LeafNode::new(*key, value.as_slice().into());
         btree1.insert(*key, leaf.hash());
     }
     // Using the above example, `last_proven_key` is `e`. We look at the path from root to `e`.

@@ -66,7 +66,7 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use anyhow::{bail, Result};
 
@@ -77,7 +77,7 @@ use crate::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
     },
     types::{Version, PRE_GENESIS_VERSION},
-    RootHash,
+    KeyHash, OwnedValue, RootHash,
 };
 
 /// `FrozenTreeCache` is used as a field of `TreeCache` storing all the nodes and values that
@@ -101,7 +101,7 @@ struct FrozenTreeCache {
 impl FrozenTreeCache {
     fn new() -> Self {
         Self {
-            node_cache: BTreeMap::new(),
+            node_cache: Default::default(),
             stale_node_index_cache: BTreeSet::new(),
             node_stats: Vec::new(),
             root_hashes: Vec::new(),
@@ -117,8 +117,15 @@ pub struct TreeCache<'a, R> {
     /// The version of the transaction to which the upcoming `put`s will be related.
     next_version: Version,
 
-    /// Intermediate nodes keyed by node hash
+    /// Intermediate nodes keyed by node hash.
     node_cache: HashMap<NodeKey, Node>,
+
+    /// Values keyed by version and keyhash.
+    // TODO(@preston-evans98): Convert to a once we remove the non-batch APIs.
+    // The Hashmap guarantees that if the same (version, key) pair is written several times, only the last
+    // change is saved, which means that the TreeWriter can process node batches in parallel without racing.
+    // The batch APIs already deduplicate operations on each key, so they don't need this HashMap.
+    value_cache: HashMap<(Version, KeyHash), Option<OwnedValue>>,
 
     /// # of leaves in the `node_cache`,
     num_new_leaves: usize,
@@ -174,6 +181,7 @@ where
             reader,
             num_stale_leaves: 0,
             num_new_leaves: 0,
+            value_cache: Default::default(),
         })
     }
 
@@ -181,7 +189,7 @@ where
     pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             node.clone()
-        } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
+        } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             node.clone()
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
@@ -194,7 +202,7 @@ where
     pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             Some(node.clone())
-        } else if let Some(node) = self.frozen_cache.node_cache.get(node_key) {
+        } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             Some(node.clone())
         } else {
             DIEM_JELLYFISH_STORAGE_READS.inc();
@@ -224,6 +232,10 @@ where
             Entry::Occupied(o) => bail!("Node with key {:?} already exists in NodeBatch", o.key()),
         };
         Ok(())
+    }
+
+    pub fn put_value(&mut self, version: Version, key_hash: KeyHash, value: Option<OwnedValue>) {
+        self.value_cache.insert((version, key_hash), value);
     }
 
     /// Deletes a node with given hash.
@@ -286,7 +298,9 @@ where
             stale_leaves: self.num_stale_leaves,
         };
         self.frozen_cache.node_stats.push(node_stats);
-        self.frozen_cache.node_cache.extend(self.node_cache.drain());
+        self.frozen_cache
+            .node_cache
+            .extend(self.node_cache.drain(), self.value_cache.drain());
         let stale_since_version = self.next_version;
         self.frozen_cache
             .stale_node_index_cache

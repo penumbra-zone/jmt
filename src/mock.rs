@@ -11,10 +11,18 @@ use crate::{
     node_type::{LeafNode, Node, NodeKey},
     storage::{NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
+    KeyHash, OwnedValue,
 };
 
 mod rwlock;
 use rwlock::RwLock;
+
+#[derive(Default, Debug)]
+struct MockTreeStoreInner {
+    nodes: HashMap<NodeKey, Node>,
+    stale_nodes: BTreeSet<StaleNodeIndex>,
+    value_history: HashMap<KeyHash, Vec<(Version, Option<OwnedValue>)>>,
+}
 
 /// A mock, in-memory tree store useful for testing.
 ///
@@ -22,14 +30,14 @@ use rwlock::RwLock;
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
 pub struct MockTreeStore {
-    data: RwLock<(HashMap<NodeKey, Node>, BTreeSet<StaleNodeIndex>)>,
+    data: RwLock<MockTreeStoreInner>,
     allow_overwrite: bool,
 }
 
 impl Default for MockTreeStore {
     fn default() -> Self {
         Self {
-            data: RwLock::new((HashMap::new(), BTreeSet::new())),
+            data: RwLock::new(Default::default()),
             allow_overwrite: false,
         }
     }
@@ -37,14 +45,14 @@ impl Default for MockTreeStore {
 
 impl TreeReader for MockTreeStore {
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
-        Ok(self.data.read().0.get(node_key).cloned())
+        Ok(self.data.read().nodes.get(node_key).cloned())
     }
 
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode)>> {
         let locked = self.data.read();
         let mut node_key_and_node: Option<(NodeKey, LeafNode)> = None;
 
-        for (key, value) in locked.0.iter() {
+        for (key, value) in locked.nodes.iter() {
             if let Node::Leaf(leaf_node) = value {
                 if node_key_and_node.is_none()
                     || leaf_node.key_hash() > node_key_and_node.as_ref().unwrap().1.key_hash()
@@ -56,19 +64,74 @@ impl TreeReader for MockTreeStore {
 
         Ok(node_key_and_node)
     }
+
+    fn get_value_option(
+        &self,
+        max_version: Version,
+        key_hash: crate::KeyHash,
+    ) -> Result<Option<crate::OwnedValue>> {
+        match self.data.read().value_history.get(&key_hash) {
+            Some(version_history) => {
+                for (version, value) in version_history.iter().rev() {
+                    if *version <= max_version {
+                        return Ok(value.clone());
+                    }
+                }
+                Ok(None)
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 impl TreeWriter for MockTreeStore {
     fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()> {
         let mut locked = self.data.write();
-        for (node_key, node) in node_batch.clone() {
-            let replaced = locked.0.insert(node_key, node);
+        for (node_key, node) in node_batch.nodes() {
+            let replaced = locked.nodes.insert(node_key.clone(), node.clone());
             if !self.allow_overwrite {
                 assert_eq!(replaced, None);
             }
         }
+        for ((version, key_hash), value) in node_batch.values() {
+            put_value(
+                &mut locked.value_history,
+                *version,
+                *key_hash,
+                value.clone(),
+            )?
+        }
         Ok(())
     }
+}
+
+/// Place a value into the provided value history map. Versions must be pushed in non-decreasing order per key.
+pub fn put_value(
+    value_history: &mut HashMap<KeyHash, Vec<(Version, Option<OwnedValue>)>>,
+    version: Version,
+    key: KeyHash,
+    value: Option<OwnedValue>,
+) -> Result<()> {
+    match value_history.entry(key) {
+        Entry::Occupied(mut occupied) => {
+            if let Some((last_version, last_value)) = occupied.get_mut().last_mut() {
+                match version.cmp(last_version) {
+                    std::cmp::Ordering::Less => bail!("values must be pushed in order"),
+                    std::cmp::Ordering::Equal => {
+                        *last_value = value;
+                        return Ok(());
+                    }
+                    // If the new value has a higher version than the previous one, fall through and push it to the array
+                    std::cmp::Ordering::Greater => {}
+                }
+            }
+            occupied.get_mut().push((version, value));
+        }
+        Entry::Vacant(vacant) => {
+            vacant.insert(vec![(version, value)]);
+        }
+    }
+    Ok(())
 }
 
 impl MockTreeStore {
@@ -79,28 +142,27 @@ impl MockTreeStore {
         }
     }
 
-    pub fn put_node(&self, node_key: NodeKey, node: Node) -> Result<()> {
-        match self.data.write().0.entry(node_key) {
+    pub fn put_leaf(&self, node_key: NodeKey, leaf: LeafNode, value: Vec<u8>) -> Result<()> {
+        let key_hash = leaf.key_hash();
+        let version = node_key.version();
+        let mut locked = self.data.write();
+        match locked.nodes.entry(node_key) {
             Entry::Occupied(o) => bail!("Key {:?} exists.", o.key()),
             Entry::Vacant(v) => {
-                v.insert(node);
+                v.insert(leaf.into());
             }
         }
-        Ok(())
+        put_value(&mut locked.value_history, version, key_hash, Some(value))
     }
 
     fn put_stale_node_index(&self, index: StaleNodeIndex) -> Result<()> {
-        let is_new_entry = self.data.write().1.insert(index);
+        let is_new_entry = self.data.write().stale_nodes.insert(index);
         ensure!(is_new_entry, "Duplicated retire log.");
         Ok(())
     }
 
     pub fn write_tree_update_batch(&self, batch: TreeUpdateBatch) -> Result<()> {
-        batch
-            .node_batch
-            .into_iter()
-            .map(|(k, v)| self.put_node(k, v))
-            .collect::<Result<Vec<_>>>()?;
+        self.write_node_batch(&batch.node_batch)?;
         batch
             .stale_node_index_batch
             .into_iter()
@@ -115,22 +177,22 @@ impl MockTreeStore {
         // Only records retired before or at `least_readable_version` can be purged in order
         // to keep that version still readable.
         let to_prune = wlocked
-            .1
+            .stale_nodes
             .iter()
             .take_while(|log| log.stale_since_version <= least_readable_version)
             .cloned()
             .collect::<Vec<_>>();
 
         for log in to_prune {
-            let removed = wlocked.0.remove(&log.node_key).is_some();
+            let removed = wlocked.nodes.remove(&log.node_key).is_some();
             ensure!(removed, "Stale node index refers to non-existent node.");
-            wlocked.1.remove(&log);
+            wlocked.stale_nodes.remove(&log);
         }
 
         Ok(())
     }
 
     pub fn num_nodes(&self) -> usize {
-        self.data.read().0.len()
+        self.data.read().nodes.len()
     }
 }
