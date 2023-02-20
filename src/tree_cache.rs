@@ -121,7 +121,7 @@ pub struct TreeCache<'a, R> {
     node_cache: HashMap<NodeKey, Node>,
 
     /// Values keyed by version and keyhash.
-    // TODO(@preston-evans98): Convert to a once we remove the non-batch APIs.
+    // TODO(@preston-evans98): Convert to a vector once we remove the non-batch APIs.
     // The Hashmap guarantees that if the same (version, key) pair is written several times, only the last
     // change is saved, which means that the TreeWriter can process node batches in parallel without racing.
     // The batch APIs already deduplicate operations on each key, so they don't need this HashMap.
