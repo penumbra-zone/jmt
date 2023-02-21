@@ -24,7 +24,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, OwnedValue, RootHash, ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, OwnedValue, RootHash, ValueHash, ROOT_NIBBLE_HEIGHT,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,7 +193,7 @@ impl JellyfishMerkleRestore {
             store,
             version,
             partial_nodes,
-            frozen_nodes: NodeBatch::new(),
+            frozen_nodes: Default::default(),
             previous_leaf,
             num_keys_received: 0,
             expected_root_hash,
@@ -210,7 +211,7 @@ impl JellyfishMerkleRestore {
             store,
             version,
             partial_nodes: vec![InternalInfo::new_empty(NodeKey::new_empty_path(version))],
-            frozen_nodes: NodeBatch::new(),
+            frozen_nodes: Default::default(),
             previous_leaf: None,
             num_keys_received: 0,
             expected_root_hash,
@@ -307,10 +308,13 @@ impl JellyfishMerkleRestore {
                 ensure!(
                     key > prev_leaf.key_hash(),
                     "Account keys must come in increasing order.",
-                )
+                );
             }
-            self.add_one(key, value.clone());
-            self.previous_leaf.replace(LeafNode::new(key, value));
+            let value_hash = value.as_slice().into();
+            self.frozen_nodes.insert_value(self.version, key, value);
+
+            self.add_one(key, value_hash);
+            self.previous_leaf.replace(LeafNode::new(key, value_hash));
             self.num_keys_received += 1;
         }
 
@@ -325,7 +329,7 @@ impl JellyfishMerkleRestore {
     }
 
     /// Restores one account.
-    fn add_one(&mut self, new_key: KeyHash, new_value: OwnedValue) {
+    fn add_one(&mut self, new_key: KeyHash, value_hash: ValueHash) {
         let nibble_path = NibblePath::new(new_key.0.to_vec());
         let mut nibbles = nibble_path.nibbles();
 
@@ -350,7 +354,7 @@ impl JellyfishMerkleRestore {
                             child_index,
                             existing_leaf,
                             new_key,
-                            new_value,
+                            value_hash,
                             nibbles,
                         );
                         break;
@@ -365,7 +369,7 @@ impl JellyfishMerkleRestore {
                     self.partial_nodes[i].set_child(
                         child_index,
                         ChildInfo::Leaf {
-                            node: LeafNode::new(new_key, new_value),
+                            node: LeafNode::new(new_key, value_hash),
                         },
                     );
 
@@ -385,7 +389,7 @@ impl JellyfishMerkleRestore {
         child_index: usize,
         existing_leaf: LeafNode,
         new_key: KeyHash,
-        new_value: OwnedValue,
+        value_hash: ValueHash,
         mut remaining_nibbles: NibbleIterator,
     ) {
         let num_existing_partial_nodes = self.partial_nodes.len();
@@ -454,7 +458,7 @@ impl JellyfishMerkleRestore {
             .set_child(
                 u8::from(new_child_index) as usize,
                 ChildInfo::Leaf {
-                    node: LeafNode::new(new_key, new_value),
+                    node: LeafNode::new(new_key, value_hash),
                 },
             );
     }
@@ -489,7 +493,7 @@ impl JellyfishMerkleRestore {
                     .node_key
                     .gen_child_node_key(self.version, (rightmost_child_index as u8).into());
                 self.frozen_nodes
-                    .insert(child_node_key, node.clone().into());
+                    .insert_node(child_node_key, node.clone().into());
             }
             _ => panic!("Must have at least one child and must not have further internal nodes."),
         }
@@ -506,7 +510,8 @@ impl JellyfishMerkleRestore {
             // its parent later.
             let node_hash = internal_node.hash();
             let node_leaf_count = internal_node.leaf_count();
-            self.frozen_nodes.insert(node_key, internal_node.into());
+            self.frozen_nodes
+                .insert_node(node_key, internal_node.into());
 
             // Now that we have computed the hash of the internal node above, we will also update
             // its parent unless it is root node.
@@ -670,7 +675,7 @@ impl JellyfishMerkleRestore {
                 if let Some(node) = leaf {
                     let node_key = NodeKey::new_empty_path(self.version);
                     assert!(self.frozen_nodes.is_empty());
-                    self.frozen_nodes.insert(node_key, node.into());
+                    self.frozen_nodes.insert_node(node_key, node.into());
                     self.store.write_node_batch(&self.frozen_nodes)?;
                     return Ok(());
                 }

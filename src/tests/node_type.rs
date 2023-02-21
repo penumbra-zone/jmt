@@ -49,9 +49,9 @@ fn test_encode_decode() {
     let internal_node_key = random_63nibbles_node_key();
 
     let leaf1_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(1));
-    let leaf1_node = Node::new_leaf(leaf1_keys.1, vec![0x00]);
+    let leaf1_node = Node::new_leaf(leaf1_keys.1, vec![0x00].into());
     let leaf2_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(2));
-    let leaf2_node = Node::new_leaf(leaf2_keys.1, vec![0x01]);
+    let leaf2_node = Node::new_leaf(leaf2_keys.1, vec![0x01].into());
 
     let mut children = Children::default();
     children.insert(
@@ -66,7 +66,7 @@ fn test_encode_decode() {
     let account_key = KeyHash(OsRng.gen());
     let nodes = vec![
         Node::new_internal(children),
-        Node::new_leaf(account_key, vec![0x02]),
+        Node::new_leaf(account_key, vec![0x02].into()),
     ];
     for n in &nodes {
         let v = n.encode().unwrap();
@@ -135,7 +135,7 @@ fn test_leaf_hash() {
         let blob = vec![0x02];
         let value_hash: ValueHash = blob.as_slice().into();
         let hash = hash_leaf(address, value_hash);
-        let leaf_node = Node::new_leaf(address, blob);
+        let leaf_node = Node::new_leaf(address, blob.into());
         assert_eq!(leaf_node.hash(), hash);
     }
 }

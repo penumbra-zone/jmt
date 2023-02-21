@@ -18,7 +18,7 @@ use crate::{
     },
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
-        Version, PRE_GENESIS_VERSION,
+        Version,
     },
     JellyfishMerkleTree, KeyHash, MissingRootError, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
@@ -57,41 +57,6 @@ fn test_insert_to_empty_tree() {
     db.write_tree_update_batch(batch).unwrap();
 
     assert_eq!(tree.get(KeyHash::from(key), 0).unwrap().unwrap(), value);
-}
-
-#[test]
-fn test_insert_to_pre_genesis() {
-    // Set up DB with pre-genesis state (one single leaf node).
-    let db = MockTreeStore::default();
-    let key1 = KeyHash([0x00u8; 32]);
-    let value1 = vec![1u8, 2u8];
-    let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
-    db.put_node(pre_genesis_root_key, Node::new_leaf(key1, value1.clone()))
-        .unwrap();
-
-    // Genesis inserts one more leaf.
-    let tree = JellyfishMerkleTree::new(&db);
-    let key2 = update_nibble(&key1, 0, 15);
-    let value2 = vec![3u8, 4u8];
-    // batch version
-    let (_root_hash, batch) = tree
-        .batch_put_value_sets(
-            vec![vec![(key2, value2.clone())]],
-            None,
-            0, /* version */
-        )
-        .unwrap();
-
-    // Check pre-genesis node prunes okay.
-    assert_eq!(batch.stale_node_index_batch.len(), 1);
-    db.write_tree_update_batch(batch).unwrap();
-    assert_eq!(db.num_nodes(), 4);
-    db.purge_stale_nodes(0).unwrap();
-    assert_eq!(db.num_nodes(), 3);
-
-    // Check mixed state reads okay.
-    assert_eq!(tree.get(key1, 0).unwrap().unwrap(), value1);
-    assert_eq!(tree.get(key2, 0).unwrap().unwrap(), value2);
 }
 
 #[test]
@@ -138,8 +103,8 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let internal_node_key = NodeKey::new_empty_path(1);
 
-    let leaf1 = Node::new_leaf(key1, value1);
-    let leaf2 = Node::new_leaf(key2, value2);
+    let leaf1 = Node::new_leaf(key1, value1.into());
+    let leaf2 = Node::new_leaf(key2, value2.into());
     let mut children = Children::new();
     children.insert(
         Nibble::from(0),
@@ -204,8 +169,8 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let internal_node_key = NodeKey::new(1, NibblePath::new_odd(vec![0x00]));
 
-    let leaf1 = Node::new_leaf(key1, value1.clone());
-    let leaf2 = Node::new_leaf(key2, value2.clone());
+    let leaf1 = Node::new_leaf(key1, value1.as_slice().into());
+    let leaf2 = Node::new_leaf(key2, value2.as_slice().into());
     let internal = {
         let mut children = Children::new();
         children.insert(
@@ -572,7 +537,7 @@ fn test_put_value_sets() {
                 .unwrap();
             db.write_tree_update_batch(batch.clone()).unwrap();
             root_hashes_one_by_one.push(root);
-            batch_one_by_one.node_batch.extend(batch.node_batch);
+            batch_one_by_one.node_batch.merge(batch.node_batch);
             batch_one_by_one
                 .stale_node_index_batch
                 .extend(batch.stale_node_index_batch);

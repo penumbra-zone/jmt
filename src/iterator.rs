@@ -293,7 +293,13 @@ where
                     // true in `new`). Return the node and mark `self.done` so next time we return
                     // None.
                     self.done = true;
-                    return Some(Ok((leaf_node.key_hash(), leaf_node.value().to_vec())));
+                    return match self
+                        .reader
+                        .get_value(root_node_key.version(), leaf_node.key_hash())
+                    {
+                        Ok(value) => Some(Ok((leaf_node.key_hash(), value))),
+                        Err(e) => Some(Err(e)),
+                    };
                 }
                 Ok(Node::Internal(_)) => {
                     // This means `starting_key` is bigger than every key in this tree, or we have
@@ -326,9 +332,17 @@ where
                     self.parent_stack.push(visit_info);
                 }
                 Ok(Node::Leaf(leaf_node)) => {
-                    let ret = (leaf_node.key_hash(), leaf_node.value().to_vec());
-                    Self::cleanup_stack(&mut self.parent_stack);
-                    return Some(Ok(ret));
+                    return match self
+                        .reader
+                        .get_value(node_key.version(), leaf_node.key_hash())
+                    {
+                        Ok(value) => {
+                            let ret = (leaf_node.key_hash(), value);
+                            Self::cleanup_stack(&mut self.parent_stack);
+                            Some(Ok(ret))
+                        }
+                        Err(e) => Some(Err(e)),
+                    }
                 }
                 Ok(Node::Null) => return Some(Err(format_err!("Should not reach a null node."))),
                 Err(err) => return Some(Err(err)),

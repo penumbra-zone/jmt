@@ -800,29 +800,20 @@ pub struct LeafNode {
     key_hash: KeyHash,
     /// The hash of the value for this entry.
     value_hash: ValueHash,
-    /// The value associated with the key.
-    value: Vec<u8>,
 }
 
 impl LeafNode {
     /// Creates a new leaf node.
-    pub fn new(key_hash: KeyHash, value: Vec<u8>) -> Self {
-        let value_hash = value.as_slice().into();
+    pub fn new(key_hash: KeyHash, value_hash: ValueHash) -> Self {
         Self {
             key_hash,
             value_hash,
-            value,
         }
     }
 
     /// Gets the key hash.
     pub fn key_hash(&self) -> KeyHash {
         self.key_hash
-    }
-
-    /// Gets the associated value itself.
-    pub fn value(&self) -> &[u8] {
-        self.value.as_ref()
     }
 
     /// Gets the associated value hash.
@@ -892,10 +883,9 @@ impl Node {
     }
 
     /// Creates the [`Leaf`](Node::Leaf) variant.
-    pub(crate) fn new_leaf(key_hash: KeyHash, value: Vec<u8>) -> Self {
-        Node::Leaf(LeafNode::new(key_hash, value))
+    pub(crate) fn new_leaf(key_hash: KeyHash, value_hash: ValueHash) -> Self {
+        Node::Leaf(LeafNode::new(key_hash, value_hash))
     }
-
     /// Returns `true` if the node is a leaf node.
     pub(crate) fn is_leaf(&self) -> bool {
         matches!(self, Node::Leaf(_))

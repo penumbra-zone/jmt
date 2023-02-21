@@ -13,7 +13,7 @@ use std::fmt;
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{Bytes32Ext, KeyHash, OwnedValue};
+use crate::{Bytes32Ext, KeyHash, ValueHash};
 
 /// The hardcoded maximum height of a state merkle tree in nibbles.
 pub const ROOT_NIBBLE_HEIGHT: usize = 32 * 2;
@@ -49,13 +49,13 @@ impl Nibble {
 /// An iterator that iterates the index range (inclusive) of each different nibble at given
 /// `nibble_idx` of all the keys in a sorted key-value pairs.
 pub(crate) struct NibbleRangeIterator<'a> {
-    sorted_kvs: &'a [(KeyHash, OwnedValue)],
+    sorted_kvs: &'a [(KeyHash, ValueHash)],
     nibble_idx: usize,
     pos: usize,
 }
 
 impl<'a> NibbleRangeIterator<'a> {
-    pub fn new(sorted_kvs: &'a [(KeyHash, OwnedValue)], nibble_idx: usize) -> Self {
+    pub fn new(sorted_kvs: &'a [(KeyHash, ValueHash)], nibble_idx: usize) -> Self {
         assert!(nibble_idx < ROOT_NIBBLE_HEIGHT);
         NibbleRangeIterator {
             sorted_kvs,
