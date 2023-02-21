@@ -96,7 +96,7 @@ use bytes32ext::Bytes32Ext;
 #[cfg(feature = "ics23")]
 pub use ics23_impl::ics23_spec;
 pub use iterator::JellyfishMerkleIterator;
-pub use tree::JellyfishMerkleTree;
+pub use tree::{JellyfishMerkleTree, Sha2JMT};
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;

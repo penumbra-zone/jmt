@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, format_err, Context, Result};
+use sha2::Sha256;
 
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
@@ -21,7 +22,12 @@ use crate::{
     ValueHash,
 };
 
-/// The Jellyfish Merkle tree data structure. See [`crate`] for description.
+/// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
+/// This is a sensible default choice for most applications.
+pub type Sha2JMT<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
+
+/// A Jellyfish Merkle tree data structure, parameterized by a [`TreeReader`] `R`
+/// and a [`SimpleHasher`] `H`. See [`crate`] for description.
 pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
     reader: &'a R,
     leaf_count_migration: bool,
