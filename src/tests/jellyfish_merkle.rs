@@ -3,6 +3,7 @@
 
 use proptest::{collection::hash_set, prelude::*};
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use sha2::Sha256;
 
 use crate::{
     mock::MockTreeStore,
@@ -23,6 +24,8 @@ use crate::{
     JellyfishMerkleTree, KeyHash, MissingRootError, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
+use super::helper::Sha2JMT;
+
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
     assert!(nibble < 16);
     let mut key = original_key.0;
@@ -37,7 +40,7 @@ fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
 #[test]
 fn test_insert_to_empty_tree() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     // Tree is initially empty. Root is a null node. We'll insert a key-value pair which creates a
     // leaf node.
@@ -47,7 +50,7 @@ fn test_insert_to_empty_tree() {
     // batch version
     let (_new_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(key.into(), value.clone())]],
+            vec![vec![(KeyHash::with::<Sha256>(key), value.clone())]],
             None,
             0, /* version */
         )
@@ -56,13 +59,16 @@ fn test_insert_to_empty_tree() {
 
     db.write_tree_update_batch(batch).unwrap();
 
-    assert_eq!(tree.get(KeyHash::from(key), 0).unwrap().unwrap(), value);
+    assert_eq!(
+        tree.get(KeyHash::with::<Sha256>(key), 0).unwrap().unwrap(),
+        value
+    );
 }
 
 #[test]
 fn test_insert_at_leaf_with_internal_created() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     let key1 = KeyHash([0u8; 32]);
     let value1 = vec![1u8, 2u8];
@@ -103,8 +109,8 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let internal_node_key = NodeKey::new_empty_path(1);
 
-    let leaf1 = Node::new_leaf(key1, value1.into());
-    let leaf2 = Node::new_leaf(key2, value2.into());
+    let leaf1 = Node::leaf_from_value::<Sha256>(key1, &value1);
+    let leaf2 = Node::leaf_from_value::<Sha256>(key2, &value2);
     let mut children = Children::new();
     children.insert(
         Nibble::from(0),
@@ -132,7 +138,7 @@ fn test_insert_at_leaf_with_internal_created() {
 #[test]
 fn test_insert_at_leaf_with_multiple_internals_created() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     // 1. Insert the first leaf into empty tree
     let key1 = KeyHash([0u8; 32]);
@@ -169,8 +175,8 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let internal_node_key = NodeKey::new(1, NibblePath::new_odd(vec![0x00]));
 
-    let leaf1 = Node::new_leaf(key1, value1.as_slice().into());
-    let leaf2 = Node::new_leaf(key2, value2.as_slice().into());
+    let leaf1 = Node::leaf_from_value::<Sha256>(key1, value1.as_slice());
+    let leaf2 = Node::leaf_from_value::<Sha256>(key2, value2.as_slice());
     let internal = {
         let mut children = Children::new();
         children.insert(
@@ -292,7 +298,7 @@ fn test_batch_insertion() {
     let mut to_verify = one_batch.clone();
     // key2 was updated so we remove it.
     to_verify.remove(1);
-    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore>, version: Version| {
+    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore, Sha256>, version: Version| {
         to_verify
             .iter()
             .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
@@ -417,7 +423,7 @@ fn test_batch_insertion() {
 #[test]
 fn test_non_existence() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
     // ```text
     //                     internal(root)
     //                    /        \
@@ -488,9 +494,9 @@ fn test_non_existence() {
 #[test]
 fn test_missing_root() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
     let err = tree
-        .get_with_proof(KeyHash::from(b"testkey"), 0)
+        .get_with_proof(KeyHash::with::<Sha256>(b"testkey"), 0)
         .err()
         .unwrap()
         .downcast::<MissingRootError>()
@@ -501,7 +507,7 @@ fn test_missing_root() {
 #[test]
 fn test_non_batch_empty_write_set() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
     let (_, batch) = tree.put_value_set(vec![], 0 /* version */).unwrap();
     db.write_tree_update_batch(batch).unwrap();
     let root = tree.get_root_hash(0).unwrap();
@@ -514,7 +520,7 @@ fn test_put_value_sets() {
     let mut values = vec![];
     let total_updates = 20;
     for i in 0..total_updates {
-        keys.push(format!("key{}", i).into());
+        keys.push(KeyHash::with::<Sha256>(format!("key{}", i)));
         values.push(format!("value{}", i).into_bytes());
     }
 
@@ -526,7 +532,7 @@ fn test_put_value_sets() {
             .into_iter()
             .zip(values.clone().into_iter().map(Some));
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::new(&db);
+        let tree = Sha2JMT::new(&db);
         for version in 0..10 {
             let mut keyed_value_set = vec![];
             for _ in 0..total_updates / 10 {
@@ -547,7 +553,7 @@ fn test_put_value_sets() {
     {
         let mut iter = keys.into_iter().zip(values.into_iter());
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::new(&db);
+        let tree = Sha2JMT::new(&db);
         let mut value_sets = vec![];
         for _ in 0..10 {
             let mut keyed_value_set = vec![];
@@ -571,11 +577,11 @@ fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     let _rng: StdRng = StdRng::from_seed(actual_seed);
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     let mut kvs = vec![];
     for i in 0..num_keys {
-        let key = format!("key{}", i).into();
+        let key = KeyHash::with::<Sha256>(format!("key{}", i));
         let value = format!("value{}", i).into_bytes();
         kvs.push((key, value));
     }
@@ -605,13 +611,13 @@ fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize
     let mut rng: StdRng = StdRng::from_seed(actual_seed);
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     let mut kvs = vec![];
     let mut roots = vec![];
 
     for i in 0..num_versions {
-        let key = format!("key{}", i).into();
+        let key = KeyHash::with::<Sha256>(format!("key{}", i));
         let value = format!("value{}", i).into_bytes();
         let new_value = format!("new_value{}", i).into_bytes();
         kvs.push((key, value.clone(), new_value.clone()));
@@ -659,7 +665,7 @@ fn test_1000_versions() {
 #[test]
 fn test_delete_then_get_in_one() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     let key1: KeyHash = KeyHash([1; 32]);
     let key2: KeyHash = KeyHash([2; 32]);
@@ -678,7 +684,7 @@ fn test_delete_then_get_in_one() {
 #[test]
 fn test_two_gets_then_delete() {
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha2JMT::new(&db);
 
     let key1: KeyHash = KeyHash([1; 32]);
 

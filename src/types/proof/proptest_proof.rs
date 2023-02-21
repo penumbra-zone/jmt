@@ -8,7 +8,7 @@ use proptest::{collection::vec, prelude::*};
 
 use crate::{
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
-    SPARSE_MERKLE_PLACEHOLDER_HASH,
+    SimpleHasher, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn arb_non_placeholder_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
@@ -24,7 +24,7 @@ fn arb_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
     ]
 }
 
-impl Arbitrary for SparseMerkleProof {
+impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
