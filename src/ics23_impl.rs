@@ -112,12 +112,12 @@ mod tests {
     use sha2::Sha256;
 
     use super::*;
-    use crate::{mock::MockTreeStore, KeyHash};
+    use crate::{mock::MockTreeStore, KeyHash, Sha256JMT};
 
     #[test]
     fn test_jmt_ics23_existence() {
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
+        let tree = Sha256JMT::new(&db);
 
         let key = b"key";
         let key_hash = KeyHash::with::<Sha256>(&key);
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn test_jmt_ics23_existence_random_keys() {
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
+        let tree = Sha256JMT::new(&db);
 
         const MAX_VERSION: u64 = 1 << 14;
 
