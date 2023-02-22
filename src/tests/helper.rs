@@ -13,6 +13,7 @@ use proptest::{
     prelude::*,
     sample,
 };
+use sha2::Sha256;
 
 use crate::{
     mock::MockTreeStore,
@@ -23,7 +24,7 @@ use crate::{
         Version, PRE_GENESIS_VERSION,
     },
     Bytes32Ext, JellyfishMerkleIterator, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
-    SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Sha256JMT, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// Computes the key immediately after `key`.
@@ -47,7 +48,7 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
@@ -68,7 +69,7 @@ pub fn init_mock_db_with_deletions_afterwards(
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
@@ -97,7 +98,7 @@ fn init_mock_db_versioned(
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
 
     if operations_by_version
         .iter()
@@ -134,7 +135,7 @@ fn init_mock_db_versioned_with_deletions(
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
 
     if operations_by_version
         .iter()
@@ -210,7 +211,7 @@ pub fn arb_interleaved_insertions_and_deletions(
         // use them in order
         Just(
             (0..num_keys)
-                .map(|n| KeyHash::from(n.to_le_bytes().to_vec()))
+                .map(|n| KeyHash::with::<Sha256>(n.to_le_bytes()))
                 .collect::<Vec<_>>(),
         )
         .prop_shuffle(),
@@ -374,7 +375,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
     // `Result` which we haven't unwrapped yet)
     let (db_without_deletions, version_without_deletions) =
         init_mock_db_versioned(clairvoyant_operations_by_version);
-    let tree_without_deletions = JellyfishMerkleTree::new(&db_without_deletions);
+    let tree_without_deletions = Sha256JMT::new(&db_without_deletions);
 
     let root_hash_without_deletions =
         tree_without_deletions.get_root_hash(version_without_deletions);
@@ -383,7 +384,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
     // `Result` which we haven't unwrapped yet)
     let (db_with_deletions, version_with_deletions) =
         init_mock_db_versioned_with_deletions(operations_by_version);
-    let tree_with_deletions = JellyfishMerkleTree::new(&db_with_deletions);
+    let tree_with_deletions = Sha256JMT::new(&db_with_deletions);
 
     let root_hash_with_deletions = tree_with_deletions.get_root_hash(version_with_deletions);
 
@@ -521,7 +522,7 @@ pub fn arb_tree_with_index(
 
 pub fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) {
     let (db, version) = init_mock_db(&btree.clone().into_iter().collect());
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
 
     let nth_key = btree.keys().nth(n).unwrap();
 
@@ -534,7 +535,7 @@ pub fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) 
 }
 
 fn test_existent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore>,
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
     version: Version,
     existent_kvs: &HashMap<KeyHash, OwnedValue>,
 ) {
@@ -548,7 +549,7 @@ fn test_existent_keys_impl<'a>(
 }
 
 fn test_nonexistent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore>,
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
     version: Version,
     nonexistent_keys: &[KeyHash],
 ) {
@@ -601,7 +602,7 @@ fn verify_range_proof(
     // that would cause `X` to end up in the above position.
     let mut btree1 = BTreeMap::new();
     for (key, value) in &btree {
-        let leaf = LeafNode::new(*key, value.as_slice().into());
+        let leaf = LeafNode::new(*key, ValueHash::with::<Sha256>(value.as_slice()));
         btree1.insert(*key, leaf.hash());
     }
     // Using the above example, `last_proven_key` is `e`. We look at the path from root to `e`.
@@ -727,6 +728,6 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
 pub fn test_get_leaf_count(keys: HashSet<KeyHash>) {
     let kvs = keys.into_iter().map(|k| (k, vec![])).collect();
     let (db, version) = init_mock_db(&kvs);
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = Sha256JMT::new(&db);
     assert_eq!(tree.get_leaf_count(version).unwrap().unwrap(), kvs.len())
 }

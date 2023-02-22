@@ -69,7 +69,12 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
+use std::fmt::Debug;
+
 use serde::{Deserialize, Serialize};
+use sha2::digest::generic_array::GenericArray;
+use sha2::digest::OutputSizeUser;
+use sha2::Digest;
 use thiserror::Error;
 
 mod bytes32ext;
@@ -91,7 +96,7 @@ use bytes32ext::Bytes32Ext;
 #[cfg(feature = "ics23")]
 pub use ics23_impl::ics23_spec;
 pub use iterator::JellyfishMerkleIterator;
-pub use tree::JellyfishMerkleTree;
+pub use tree::{JellyfishMerkleTree, Sha256JMT};
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;
@@ -148,21 +153,15 @@ pub struct KeyHash(pub [u8; 32]);
 #[doc(hidden)]
 pub struct ValueHash(pub [u8; 32]);
 
-impl<V: AsRef<[u8]>> From<V> for ValueHash {
-    fn from(value: V) -> Self {
-        use sha2::Digest;
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(value.as_ref());
-        Self(*hasher.finalize().as_ref())
+impl ValueHash {
+    pub fn with<H: SimpleHasher>(value: impl AsRef<[u8]>) -> Self {
+        Self(H::hash(value))
     }
 }
 
-impl<K: AsRef<[u8]>> From<K> for KeyHash {
-    fn from(key: K) -> Self {
-        use sha2::Digest;
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(key.as_ref());
-        let key_hash = Self(*hasher.finalize().as_ref());
+impl KeyHash {
+    pub fn with<H: SimpleHasher>(key: impl AsRef<[u8]>) -> Self {
+        let key_hash = Self(H::hash(key.as_ref()));
         // Adding a tracing event here allows cross-referencing the key hash
         // with the original key bytes when looking through logs.
         tracing::debug!(key = ?EscapedByteSlice(key.as_ref()), ?key_hash);
@@ -221,5 +220,66 @@ impl<'a> std::fmt::Debug for EscapedByteSlice<'a> {
         }
         write!(f, "\"")?;
         Ok(())
+    }
+}
+
+/// A minimal trait representing a hash function. We implement our own
+/// rather than relying on `Digest` for broader compatibility.
+pub trait SimpleHasher: Sized {
+    /// Creates a new hasher with default state.
+    fn new() -> Self;
+    /// Ingests the provided data, updating the hasher's state.
+    fn update(&mut self, data: &[u8]);
+    /// Consumes the hasher state to produce a digest.
+    fn finalize(self) -> [u8; 32];
+    /// Returns the digest of the provided data.
+    fn hash(data: impl AsRef<[u8]>) -> [u8; 32] {
+        let mut hasher = Self::new();
+        hasher.update(data.as_ref());
+        hasher.finalize()
+    }
+}
+
+/// A wrapper around `std::marker::Phatomdata` which implements
+/// Debug, PartialEq, Eq, and Clone  This allows higher level
+/// structs to derive these traits even if the concrete hasher does not
+/// implement them.
+#[derive(Clone, Eq, Serialize, Deserialize)]
+pub struct PhantomHasher<H: SimpleHasher>(std::marker::PhantomData<H>);
+
+impl<H: SimpleHasher> Debug for PhantomHasher<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PhantomHasher")
+            .field(&stringify!(H))
+            .finish()
+    }
+}
+
+impl<H: SimpleHasher> PartialEq for PhantomHasher<H> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<H: SimpleHasher> Default for PhantomHasher<H> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<T: Digest> SimpleHasher for T
+where
+    [u8; 32]: From<GenericArray<u8, <T as OutputSizeUser>::OutputSize>>,
+{
+    fn new() -> Self {
+        <T as Digest>::new()
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        self.update(data)
+    }
+
+    fn finalize(self) -> [u8; 32] {
+        self.finalize().into()
     }
 }

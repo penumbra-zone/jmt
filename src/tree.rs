@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, format_err, Context, Result};
+use sha2::Sha256;
 
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
@@ -17,24 +18,33 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, ValueHash,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, PhantomHasher, RootHash, SimpleHasher,
+    ValueHash,
 };
 
-/// The Jellyfish Merkle tree data structure. See [`crate`] for description.
-pub struct JellyfishMerkleTree<'a, R> {
+/// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
+/// This is a sensible default choice for most applications.
+pub type Sha256JMT<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
+
+/// A Jellyfish Merkle tree data structure, parameterized by a [`TreeReader`] `R`
+/// and a [`SimpleHasher`] `H`. See [`crate`] for description.
+pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
     reader: &'a R,
     leaf_count_migration: bool,
+    _phantom_hasher: PhantomHasher<H>,
 }
 
-impl<'a, R> JellyfishMerkleTree<'a, R>
+impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader,
+    H: SimpleHasher,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
             leaf_count_migration: true,
+            _phantom_hasher: Default::default(),
         }
     }
 
@@ -42,6 +52,7 @@ where
         Self {
             reader,
             leaf_count_migration,
+            _phantom_hasher: Default::default(),
         }
     }
 
@@ -87,7 +98,7 @@ where
                 .collect::<BTreeMap<_, _>>()
                 .into_iter()
                 .map(|(key, value)| {
-                    let value_hash = value.as_slice().into();
+                    let value_hash = ValueHash::with::<H>(value.as_slice());
                     tree_cache.put_value(version, key, Some(value));
                     (key, value_hash)
                 })
@@ -403,7 +414,7 @@ where
                 .enumerate()
                 .try_for_each(|(i, (key, value))| {
                     let action = if value.is_some() { "insert" } else { "delete" };
-                    let value_hash = value.as_ref().map(|v| v.into());
+                    let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
                     tree_cache.put_value(version, key, value);
                     self.put(key, value_hash, version, &mut tree_cache)
                         .with_context(|| {
@@ -762,7 +773,7 @@ where
         &self,
         key: KeyHash,
         version: Version,
-    ) -> Result<(Option<OwnedValue>, SparseMerkleProof)> {
+    ) -> Result<(Option<OwnedValue>, SparseMerkleProof<H>)> {
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut siblings = vec![];

@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Result};
 
-use crate::{storage::TreeReader, JellyfishMerkleTree, Version};
+use crate::{storage::TreeReader, JellyfishMerkleTree, KeyHash, SimpleHasher, Version};
 
-impl<'a, R> JellyfishMerkleTree<'a, R>
+impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader,
+    H: SimpleHasher,
 {
     /// Returns the value and an [`ics23::ExistenceProof`].
     pub fn get_with_ics23_proof(
@@ -12,7 +13,7 @@ where
         key: Vec<u8>,
         version: Version,
     ) -> Result<ics23::ExistenceProof> {
-        let key_hash = key.as_slice().into();
+        let key_hash = KeyHash::with::<H>(key.as_slice());
         let (value, proof) = self.get_with_proof(key_hash, version)?;
         let value = value.ok_or_else(|| {
             anyhow!(
@@ -108,17 +109,18 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 #[cfg(test)]
 mod tests {
     use ics23::HostFunctionsManager;
+    use sha2::Sha256;
 
     use super::*;
-    use crate::{mock::MockTreeStore, KeyHash};
+    use crate::{mock::MockTreeStore, KeyHash, Sha256JMT};
 
     #[test]
     fn test_jmt_ics23_existence() {
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::new(&db);
+        let tree = Sha256JMT::new(&db);
 
         let key = b"key";
-        let key_hash = KeyHash::from(&key);
+        let key_hash = KeyHash::with::<Sha256>(&key);
 
         // For testing, insert multiple values into the tree
         let mut kvs = Vec::new();
@@ -151,7 +153,7 @@ mod tests {
     #[test]
     fn test_jmt_ics23_existence_random_keys() {
         let db = MockTreeStore::default();
-        let tree = JellyfishMerkleTree::new(&db);
+        let tree = Sha256JMT::new(&db);
 
         const MAX_VERSION: u64 = 1 << 14;
 
@@ -159,7 +161,7 @@ mod tests {
             let key = format!("key{}", version).into_bytes();
             let value = format!("value{}", version).into_bytes();
             let (_root, batch) = tree
-                .put_value_set(vec![(key.as_slice().into(), Some(value))], version)
+                .put_value_set(vec![(KeyHash::with::<Sha256>(key), Some(value))], version)
                 .unwrap();
             db.write_tree_update_batch(batch).unwrap();
         }

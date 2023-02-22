@@ -5,6 +5,7 @@ use std::{convert::TryInto, io::Cursor, panic, rc::Rc};
 
 use proptest::prelude::*;
 use rand::rngs::OsRng;
+use sha2::Sha256;
 
 use crate::{
     node_type::{
@@ -49,9 +50,9 @@ fn test_encode_decode() {
     let internal_node_key = random_63nibbles_node_key();
 
     let leaf1_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(1));
-    let leaf1_node = Node::new_leaf(leaf1_keys.1, vec![0x00].into());
+    let leaf1_node = Node::leaf_from_value::<Sha256>(leaf1_keys.1, vec![0x00]);
     let leaf2_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(2));
-    let leaf2_node = Node::new_leaf(leaf2_keys.1, vec![0x01].into());
+    let leaf2_node = Node::leaf_from_value::<Sha256>(leaf2_keys.1, vec![0x01]);
 
     let mut children = Children::default();
     children.insert(
@@ -66,7 +67,7 @@ fn test_encode_decode() {
     let account_key = KeyHash(OsRng.gen());
     let nodes = vec![
         Node::new_internal(children),
-        Node::new_leaf(account_key, vec![0x02].into()),
+        Node::leaf_from_value::<Sha256>(account_key, vec![0x02]),
     ];
     for n in &nodes {
         let v = n.encode().unwrap();
@@ -133,9 +134,9 @@ fn test_leaf_hash() {
     {
         let address = KeyHash(OsRng.gen());
         let blob = vec![0x02];
-        let value_hash: ValueHash = blob.as_slice().into();
+        let value_hash = ValueHash::with::<Sha256>(blob.as_slice());
         let hash = hash_leaf(address, value_hash);
-        let leaf_node = Node::new_leaf(address, blob.into());
+        let leaf_node = Node::leaf_from_value::<Sha256>(address, blob);
         assert_eq!(leaf_node.hash(), hash);
     }
 }

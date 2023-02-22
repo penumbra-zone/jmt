@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rand::{rngs::OsRng, Rng};
+use sha2::Sha256;
 
 use crate::{
     mock::MockTreeStore,
@@ -9,14 +10,14 @@ use crate::{
     storage::LeafNode,
     tree_cache::TreeCache,
     types::{nibble::nibble_path::NibblePath, Version, PRE_GENESIS_VERSION},
-    KeyHash, OwnedValue,
+    KeyHash, OwnedValue, ValueHash,
 };
 
 fn random_leaf_with_key(next_version: Version) -> (LeafNode, OwnedValue, NodeKey) {
     let key: [u8; 32] = OsRng.gen();
     let value: [u8; 32] = OsRng.gen();
-    let key_hash: KeyHash = key.as_ref().into();
-    let node = LeafNode::new(key_hash, value.as_slice().into());
+    let key_hash: KeyHash = KeyHash::with::<Sha256>(key);
+    let node = LeafNode::new(key_hash, ValueHash::with::<Sha256>(value));
     let node_key = NodeKey::new(next_version, NibblePath::new(key_hash.0.to_vec()));
     (node, value.to_vec(), node_key)
 }

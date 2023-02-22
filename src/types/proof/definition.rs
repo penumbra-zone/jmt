@@ -7,12 +7,15 @@ use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
-use crate::{Bytes32Ext, KeyHash, RootHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use crate::{
+    Bytes32Ext, KeyHash, PhantomHasher, RootHash, SimpleHasher, ValueHash,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
+};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SparseMerkleProof {
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SparseMerkleProof<H: SimpleHasher> {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
     ///     - If this is `Some(leaf_node)`
     ///         - If `leaf_node.key` equals requested key, this is an inclusion proof and
@@ -27,12 +30,31 @@ pub struct SparseMerkleProof {
     /// All siblings in this proof, including the default ones. Siblings are ordered from the bottom
     /// level to the root level.
     siblings: Vec<[u8; 32]>,
+
+    /// A marker type showing which hash function is used in this proof.
+    phantom_hasher: PhantomHasher<H>,
 }
 
-impl SparseMerkleProof {
+// Deriving Debug fails since H is not Debug though phantom_hasher implements it
+// generically. Implement Debug manually as a workaround to enable Proptest
+impl<H: SimpleHasher> std::fmt::Debug for SparseMerkleProof<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SparseMerkleProof")
+            .field("leaf", &self.leaf)
+            .field("siblings", &self.siblings)
+            .field("phantom_hasher", &self.phantom_hasher)
+            .finish()
+    }
+}
+
+impl<H: SimpleHasher> SparseMerkleProof<H> {
     /// Constructs a new `SparseMerkleProof` using leaf and a list of siblings.
     pub(crate) fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<[u8; 32]>) -> Self {
-        SparseMerkleProof { leaf, siblings }
+        SparseMerkleProof {
+            leaf,
+            siblings,
+            phantom_hasher: Default::default(),
+        }
     }
 
     /// Returns the leaf node in this proof.
@@ -94,7 +116,7 @@ impl SparseMerkleProof {
                     leaf.key_hash,
                     element_key
                 );
-                let hash: ValueHash = value.into();
+                let hash: ValueHash = ValueHash::with::<H>(value);
                 ensure!(
                     hash == leaf.value_hash,
                     "Value hashes do not match. Value hash in proof: {:?}. \

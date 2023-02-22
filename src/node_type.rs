@@ -36,6 +36,9 @@ use crate::{
     KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
+#[cfg(any(test, feature = "fuzzing"))]
+use crate::SimpleHasher;
+
 /// The unique key of each node.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
@@ -886,6 +889,16 @@ impl Node {
     pub(crate) fn new_leaf(key_hash: KeyHash, value_hash: ValueHash) -> Self {
         Node::Leaf(LeafNode::new(key_hash, value_hash))
     }
+
+    /// Creates the [`Leaf`](Node::Leaf) variant by hashing a raw value.
+    #[cfg(any(test, feature = "fuzzing"))]
+    pub(crate) fn leaf_from_value<H: SimpleHasher>(
+        key_hash: KeyHash,
+        value: impl AsRef<[u8]>,
+    ) -> Self {
+        Node::Leaf(LeafNode::new(key_hash, ValueHash::with::<H>(value)))
+    }
+
     /// Returns `true` if the node is a leaf node.
     pub(crate) fn is_leaf(&self) -> bool {
         matches!(self, Node::Leaf(_))

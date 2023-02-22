@@ -24,8 +24,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, OwnedValue, RootHash, ValueHash, ROOT_NIBBLE_HEIGHT,
-    SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, OwnedValue, PhantomHasher, RootHash, SimpleHasher, ValueHash,
+    ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,7 +109,7 @@ impl InternalInfo {
 /// Implements the functionality to restore a
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
 /// key-value pairs.
-pub struct JellyfishMerkleRestore {
+pub struct JellyfishMerkleRestore<H: SimpleHasher> {
     /// The underlying storage.
     store: Arc<dyn TreeWriter>,
 
@@ -163,9 +163,11 @@ pub struct JellyfishMerkleRestore {
 
     /// Whether to use the new internal node format where leaf counts are written.
     leaf_count_migration: bool,
+
+    _phantom_hasher: PhantomHasher<H>,
 }
 
-impl JellyfishMerkleRestore {
+impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
     pub fn new<D: 'static + TreeReader + TreeWriter>(
         store: Arc<D>,
         version: Version,
@@ -198,6 +200,7 @@ impl JellyfishMerkleRestore {
             num_keys_received: 0,
             expected_root_hash,
             leaf_count_migration,
+            _phantom_hasher: Default::default(),
         })
     }
 
@@ -216,6 +219,7 @@ impl JellyfishMerkleRestore {
             num_keys_received: 0,
             expected_root_hash,
             leaf_count_migration,
+            _phantom_hasher: Default::default(),
         })
     }
 
@@ -310,7 +314,7 @@ impl JellyfishMerkleRestore {
                     "Account keys must come in increasing order.",
                 );
             }
-            let value_hash = value.as_slice().into();
+            let value_hash = ValueHash::with::<H>(value.as_slice());
             self.frozen_nodes.insert_value(self.version, key, value);
 
             self.add_one(key, value_hash);
@@ -700,7 +704,7 @@ pub trait StateSnapshotReceiver {
     fn finish_box(self: Box<Self>) -> Result<()>;
 }
 
-impl StateSnapshotReceiver for JellyfishMerkleRestore {
+impl<H: SimpleHasher> StateSnapshotReceiver for JellyfishMerkleRestore<H> {
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
