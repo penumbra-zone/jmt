@@ -24,7 +24,7 @@ use crate::{
 
 /// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
 /// This is a sensible default choice for most applications.
-pub type Sha256JMT<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
+pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
 
 /// A Jellyfish Merkle tree data structure, parameterized by a [`TreeReader`] `R`
 /// and a [`SimpleHasher`] `H`. See [`crate`] for description.

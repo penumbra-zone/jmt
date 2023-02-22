@@ -11,7 +11,7 @@ use crate::{
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
     storage::TreeReader,
     tests::helper::init_mock_db,
-    KeyHash, OwnedValue, RootHash, Sha256JMT, Version,
+    KeyHash, OwnedValue, RootHash, Sha256Jmt, Version,
 };
 
 proptest! {
@@ -40,7 +40,7 @@ proptest! {
                 .into_iter()
                 .collect()
         );
-        let tree = Sha256JMT::new(&db);
+        let tree = Sha256Jmt::new(&db);
         let expected_root_hash = tree.get_root_hash(version).unwrap();
         let batch1: Vec<_> = all.clone().into_iter().take(batch1_size).collect();
 
@@ -113,7 +113,7 @@ fn assert_success(
     btree: &BTreeMap<KeyHash, OwnedValue>,
     version: Version,
 ) {
-    let tree = Sha256JMT::new(db);
+    let tree = Sha256Jmt::new(db);
     for (key, value) in btree {
         assert_eq!(tree.get(*key, version).unwrap(), Some(value.clone()));
     }
@@ -129,7 +129,7 @@ fn restore_without_interruption(
     try_resume: bool,
 ) {
     let (db, source_version) = init_mock_db(&btree.clone().into_iter().collect());
-    let tree = Sha256JMT::new(&db);
+    let tree = Sha256Jmt::new(&db);
     let expected_root_hash = tree.get_root_hash(source_version).unwrap();
 
     let mut restore = if try_resume {
