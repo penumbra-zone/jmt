@@ -17,8 +17,13 @@ where
         let (value, proof) = self.get_with_proof(key_hash, version)?;
         let value = value.ok_or_else(|| {
             anyhow!(
-                "Requested proof of inclusion for non-existent key {:?}",
-                key
+                "Requested proof of inclusion for non-existent key {}",
+                String::from_utf8(
+                    key.iter()
+                        .flat_map(|b| std::ascii::escape_default(*b))
+                        .collect::<Vec<u8>>()
+                )
+                .unwrap()
             )
         })?;
 
