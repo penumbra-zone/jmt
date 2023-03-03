@@ -43,7 +43,7 @@ where
     R: 'a + TreeReader,
     H: SimpleHasher,
 {
-    /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`](trait.TreeReader.html).
+    /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`].
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
