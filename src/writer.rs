@@ -20,6 +20,10 @@ pub trait TreeWriter {
 
 /// Node batch that will be written into db atomically with other batches.
 #[derive(Debug, Clone, PartialEq, Default, Eq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct NodeBatch {
     nodes: BTreeMap<NodeKey, Node>,
     values: BTreeMap<(Version, KeyHash), Option<OwnedValue>>,
@@ -82,6 +86,10 @@ impl NodeBatch {
 pub type StaleNodeIndexBatch = BTreeSet<StaleNodeIndex>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct NodeStats {
     pub new_nodes: usize,
     pub new_leaves: usize,
@@ -92,6 +100,10 @@ pub struct NodeStats {
 /// Indicates a node becomes stale since `stale_since_version`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct StaleNodeIndex {
     /// The version since when the node is overwritten and becomes stale.
     pub stale_since_version: Version,
@@ -105,6 +117,10 @@ pub struct StaleNodeIndex {
 /// the incremental updates of a tree and pruning indices after applying a write set,
 /// which is a vector of `hashed_account_address` and `new_value` pairs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct TreeUpdateBatch {
     pub node_batch: NodeBatch,
     pub stale_node_index_batch: StaleNodeIndexBatch,

@@ -43,6 +43,10 @@ impl SparseMerkleInternalNode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct SparseMerkleLeafNode {
     key_hash: KeyHash,
     value_hash: ValueHash,

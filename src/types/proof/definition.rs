@@ -15,6 +15,10 @@ use crate::{
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct SparseMerkleProof<H: SimpleHasher> {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
     ///     - If this is `Some(leaf_node)`
@@ -231,6 +235,10 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 /// if the proof wants show that `[a, b, c, d, e]` exists in the tree, it would need the siblings
 /// `X` and `h` on the right.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct SparseMerkleRangeProof {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
