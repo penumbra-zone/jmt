@@ -235,7 +235,7 @@ pub fn ics23_spec() -> ics23::ProofSpec {
         }),
         min_depth: 0,
         max_depth: 64,
-        prehash_compare_key: true,
+        prehash_key_before_comparison: true,
     }
 }
 
