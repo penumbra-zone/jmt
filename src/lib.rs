@@ -252,6 +252,10 @@ pub trait SimpleHasher: Sized {
 /// structs to derive these traits even if the concrete hasher does not
 /// implement them.
 #[derive(Clone, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct PhantomHasher<H: SimpleHasher>(std::marker::PhantomData<H>);
 
 impl<H: SimpleHasher> Debug for PhantomHasher<H> {
