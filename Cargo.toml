@@ -17,10 +17,12 @@ publish = true
 
 [features]
 default = ["ics23"]
+borsh = ["dep:borsh"]
 
 [dependencies]
 ics23 = { git = "https://github.com/penumbra-zone/ics23", branch = "compare-prehashed-keys", optional = true }
 anyhow = "1.0.38"
+borsh = { version = "0.10.0", optional = true}
 byteorder = "1.4.3"
 itertools = { version = "0.10.0", default-features = false }
 mirai-annotations = "1.10.1"

@@ -42,6 +42,10 @@ use crate::SimpleHasher;
 /// The unique key of each node.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct NodeKey {
     // The version at which the node is created.
     version: Version,
@@ -138,6 +142,10 @@ impl NodeKey {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub enum NodeType {
     Leaf,
     /// A internal node that haven't been finished the leaf count migration, i.e. None or not all
@@ -166,6 +174,10 @@ impl Arbitrary for NodeType {
 /// Each child of [`InternalNode`] encapsulates a nibble forking at this node.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct Child {
     /// The hash value of this child node.
     pub hash: [u8; 32],
@@ -203,6 +215,10 @@ impl Child {
 /// [`Children`] is just a collection of children belonging to a [`InternalNode`], indexed from 0 to
 /// 15, inclusive.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct Children {
     /// The actual children. We box this array to avoid stack overflows, since the space consumed
     /// is somewhat large
@@ -311,6 +327,10 @@ impl Children {
 /// computation logic is similar to a 4-level sparse Merkle tree except for some customizations. See
 /// the `CryptoHash` trait implementation below for details.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct InternalNode {
     /// Up to 16 children.
     children: Children,
@@ -802,6 +822,10 @@ pub(crate) fn get_child_half_start(n: Nibble, height: u8) -> u8 {
 ///
 /// Note: this does not store the key itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct LeafNode {
     /// The hash of the key for this entry.
     key_hash: KeyHash,
@@ -850,6 +874,10 @@ enum NodeTag {
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub enum Node {
     /// Represents `null`.
     Null,

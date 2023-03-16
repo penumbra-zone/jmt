@@ -143,10 +143,18 @@ pub struct RootHash(pub [u8; 32]);
 /// keys can be converted to a [`KeyHash`] using the provided `From` impl.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct KeyHash(pub [u8; 32]);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 // This needs to be public for the fuzzing/Arbitrary feature, but we don't
 // really want it to be, so #[doc(hidden)] is the next best thing.
 #[doc(hidden)]
@@ -244,6 +252,10 @@ pub trait SimpleHasher: Sized {
 /// structs to derive these traits even if the concrete hasher does not
 /// implement them.
 #[derive(Clone, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct PhantomHasher<H: SimpleHasher>(std::marker::PhantomData<H>);
 
 impl<H: SimpleHasher> Debug for PhantomHasher<H> {
