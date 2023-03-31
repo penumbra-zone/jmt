@@ -27,7 +27,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
+    metrics::{
+        inc_internal_encoded_bytes_metric_if_enabled, inc_leaf_encoded_bytes_metric_if_enabled,
+    },
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
@@ -973,12 +975,12 @@ impl Node {
                 };
                 out.push(tag as u8);
                 internal_node.serialize(&mut out, persist_leaf_count)?;
-                DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES.inc_by(out.len() as u64);
+                inc_internal_encoded_bytes_metric_if_enabled(out.len() as u64);
             }
             Node::Leaf(leaf_node) => {
                 out.push(NodeTag::Leaf as u8);
                 out.extend(bcs::to_bytes(&leaf_node)?);
-                DIEM_JELLYFISH_LEAF_ENCODED_BYTES.inc_by(out.len() as u64);
+                inc_leaf_encoded_bytes_metric_if_enabled(out.len() as u64);
             }
         }
         Ok(out)
