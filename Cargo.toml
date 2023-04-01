@@ -24,7 +24,6 @@ metrics = ["std", "dep:prometheus", "dep:once_cell"]
 ics23 = { git = "https://github.com/penumbra-zone/ics23", branch = "compare-prehashed-keys", optional = true }
 anyhow = "1.0.38"
 borsh =  "0.10.0" 
-byteorder = "1.4.3"
 hashbrown = "0.13.2"
 itertools = { version = "0.10.0", default-features = false }
 mirai-annotations = "1.10.1"
