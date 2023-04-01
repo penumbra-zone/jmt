@@ -1,17 +1,17 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{convert::TryInto, io::Cursor, panic, rc::Rc};
+use alloc::{rc::Rc, vec::Vec};
+use borsh::{BorshDeserialize, BorshSerialize};
+use core::{convert::TryInto, panic};
 
+use alloc::{format, vec};
 use proptest::prelude::*;
 use rand::rngs::OsRng;
 use sha2::Sha256;
 
 use crate::{
-    node_type::{
-        deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, Node,
-        NodeDecodeError, NodeKey, NodeType,
-    },
+    node_type::{Child, Children, InternalNode, Node, NodeKey, NodeType},
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
@@ -45,72 +45,20 @@ fn gen_leaf_keys(version: Version, nibble_path: &NibblePath, nibble: Nibble) -> 
     (NodeKey::new(version, np), account_key)
 }
 
-#[test]
-fn test_encode_decode() {
-    let internal_node_key = random_63nibbles_node_key();
-
-    let leaf1_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(1));
-    let leaf1_node = Node::leaf_from_value::<Sha256>(leaf1_keys.1, vec![0x00]);
-    let leaf2_keys = gen_leaf_keys(0, internal_node_key.nibble_path(), Nibble::from(2));
-    let leaf2_node = Node::leaf_from_value::<Sha256>(leaf2_keys.1, vec![0x01]);
-
-    let mut children = Children::default();
-    children.insert(
-        Nibble::from(1),
-        Child::new(leaf1_node.hash(), 0 /* version */, NodeType::Leaf),
-    );
-    children.insert(
-        Nibble::from(2),
-        Child::new(leaf2_node.hash(), 0 /* version */, NodeType::Leaf),
-    );
-
-    let account_key = KeyHash(OsRng.gen());
-    let nodes = vec![
-        Node::new_internal(children),
-        Node::leaf_from_value::<Sha256>(account_key, vec![0x02]),
-    ];
-    for n in &nodes {
-        let v = n.encode().unwrap();
-        assert_eq!(*n, Node::decode(&v).unwrap());
-    }
-    // Error cases
-    if let Err(e) = Node::decode(&[]) {
-        assert_eq!(
-            e.downcast::<NodeDecodeError>().unwrap(),
-            NodeDecodeError::EmptyInput
-        );
-    }
-    if let Err(e) = Node::decode(&[100]) {
-        assert_eq!(
-            e.downcast::<NodeDecodeError>().unwrap(),
-            NodeDecodeError::UnknownTag { unknown_tag: 100 }
-        );
-    }
-}
-
 proptest! {
-    #[test]
-    fn test_u64_varint_roundtrip(input in any::<u64>()) {
-        let mut vec = vec![];
-        serialize_u64_varint(input, &mut vec);
-        assert_eq!(deserialize_u64_varint(&mut Cursor::new(vec)).unwrap(), input);
-    }
+
 
     #[test]
     fn test_internal_node_roundtrip(input in any::<InternalNode>()) {
         let mut vec = vec![];
-        input.serialize(&mut vec, false /* persist_leaf_count */).unwrap();
-        let deserialized = InternalNode::deserialize(&vec, false /* read_leaf_count */).unwrap();
-        assert_eq!(deserialized, input.clone().into_legacy_internal());
-
-        let mut vec = vec![];
-        input.serialize(&mut vec, true /* persist_leaf_count */).unwrap();
-        let deserialized = InternalNode::deserialize(&vec, true /* read_leaf_count */).unwrap();
-        assert_eq!(deserialized, input);
+        input.serialize(&mut vec, ).unwrap();
+        let deserialized = InternalNode::deserialize(&mut vec.as_ref()).unwrap();
+        assert_eq!(deserialized, input.clone());
     }
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn test_internal_validity() {
     let result = panic::catch_unwind(|| {
         let children = Children::default();

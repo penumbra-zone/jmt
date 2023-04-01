@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use anyhow::{format_err, Result};
 
 use crate::node_type::{LeafNode, Node, NodeKey};

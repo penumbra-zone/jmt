@@ -7,7 +7,7 @@
 
 pub mod nibble_path;
 
-use std::fmt;
+use core::fmt;
 
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::prelude::*;
@@ -65,7 +65,7 @@ impl<'a> NibbleRangeIterator<'a> {
     }
 }
 
-impl<'a> std::iter::Iterator for NibbleRangeIterator<'a> {
+impl<'a> core::iter::Iterator for NibbleRangeIterator<'a> {
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -66,7 +66,11 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use alloc::{collections::BTreeSet, vec::Vec};
+#[cfg(not(feature = "std"))]
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
+#[cfg(feature = "std")]
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use anyhow::{bail, Result};
 

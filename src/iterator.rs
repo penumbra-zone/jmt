@@ -6,7 +6,7 @@
 //! smallest key that is greater or equal to the given key, by performing a depth first traversal
 //! on the tree.
 
-use std::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 
 use anyhow::{bail, ensure, format_err, Result};
 
@@ -122,7 +122,7 @@ where
     /// following `next` call will yield the smallest key that is greater or equal to
     /// `starting_key`.
     pub fn new(reader: Arc<R>, version: Version, starting_key: KeyHash) -> Result<Self> {
-        let mut parent_stack = vec![];
+        let mut parent_stack = Vec::new();
         let mut done = false;
 
         let mut current_node_key = NodeKey::new_empty_path(version);
@@ -202,7 +202,7 @@ where
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the leaf at `start_idx`.
     pub fn new_by_index(reader: Arc<R>, version: Version, start_idx: usize) -> Result<Self> {
-        let mut parent_stack = vec![];
+        let mut parent_stack = Vec::new();
 
         let mut current_node_key = NodeKey::new_empty_path(version);
         let mut current_node = reader.get_node(&current_node_key)?;

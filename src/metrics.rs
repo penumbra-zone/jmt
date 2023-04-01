@@ -47,7 +47,5 @@ mod metrics {
 
 #[cfg(not(feature = "metrics"))]
 mod metrics {
-    pub fn inc_leaf_encoded_bytes_metric_if_enabled(_amount: u64) {}
-    pub fn inc_internal_encoded_bytes_metric_if_enabled(_amount: u64) {}
     pub fn inc_storage_reads_metric_if_enabled(_amount: u64) {}
 }

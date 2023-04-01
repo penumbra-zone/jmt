@@ -1,4 +1,4 @@
-use std::ops::Index;
+use core::ops::Index;
 
 use mirai_annotations::*;
 
@@ -66,7 +66,7 @@ impl Bytes32Ext for [u8; 32] {
 pub struct HashValueBitIterator<'a> {
     /// The reference to the bytes that represent the `HashValue`.
     hash_bytes: &'a [u8],
-    pos: std::ops::Range<usize>,
+    pos: core::ops::Range<usize>,
     // invariant hash_bytes.len() == HashValue::LENGTH;
     // invariant pos.end == hash_bytes.len() * 8;
 }
@@ -91,7 +91,7 @@ impl<'a> HashValueBitIterator<'a> {
     }
 }
 
-impl<'a> std::iter::Iterator for HashValueBitIterator<'a> {
+impl<'a> core::iter::Iterator for HashValueBitIterator<'a> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -103,10 +103,10 @@ impl<'a> std::iter::Iterator for HashValueBitIterator<'a> {
     }
 }
 
-impl<'a> std::iter::DoubleEndedIterator for HashValueBitIterator<'a> {
+impl<'a> core::iter::DoubleEndedIterator for HashValueBitIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.pos.next_back().map(|x| self.get_bit(x))
     }
 }
 
-impl<'a> std::iter::ExactSizeIterator for HashValueBitIterator<'a> {}
+impl<'a> core::iter::ExactSizeIterator for HashValueBitIterator<'a> {}

@@ -102,7 +102,7 @@ impl AccessPath {
 }
 
 impl fmt::Debug for AccessPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "AccessPath {{ address: {:x}, path: {} }}",

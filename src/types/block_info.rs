@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::types::{epoch_state::EpochState, on_chain_config::ValidatorSet, transaction::Version};
+use core::fmt::{Display, Formatter};
 use diem_crypto::hash::{HashValue, ACCUMULATOR_PLACEHOLDER_HASH};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
 
 /// The round of a block is a consensus-internal counter, which starts with 0 and increases
 /// monotonically.
@@ -194,7 +194,7 @@ impl BlockInfo {
 }
 
 impl Display for BlockInfo {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
         write!(
             f,
             "BlockInfo: [epoch: {}, round: {}, id: {}, executed_state_id: {}, version: {}, timestamp (us): {}, next_epoch_state: {}]",

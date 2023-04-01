@@ -1,7 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, sync::Arc};
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{format, vec};
 
 use anyhow::Result;
 use rand::{rngs::StdRng, Rng, SeedableRng};

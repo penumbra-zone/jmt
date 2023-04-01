@@ -1,7 +1,7 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, sync::Arc};
+use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 
 use proptest::{collection::btree_map, prelude::*};
 use sha2::Sha256;
@@ -152,7 +152,7 @@ fn restore_without_interruption(
     for (key, value) in btree {
         let proof = tree.get_range_proof(*key, source_version).unwrap();
         restore
-            .add_chunk(vec![(*key, value.clone())], proof)
+            .add_chunk(alloc::vec![(*key, value.clone())], proof)
             .unwrap();
     }
     Box::new(restore).finish().unwrap();

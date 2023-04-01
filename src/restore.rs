@@ -5,7 +5,9 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
 //! key/value pairs.
 
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::{sync::Arc, vec::Vec};
 
 use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;
