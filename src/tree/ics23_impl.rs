@@ -248,102 +248,112 @@ mod tests {
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
+    #[test]
+    fn test_jmt_ics23_nonexistence_single_empty_key() {
+        test_jmt_ics23_nonexistence_with_keys(vec![vec![]]);
+    }
+
     proptest! {
         #[test]
-        fn test_jmt_ics23_nonexistence(
-            keys: Vec<Vec<u8>>,
-        ) {
-            let db = MockTreeStore::default();
-            let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
-
-            let mut kvs = Vec::new();
-
-            // Ensure that the tree contains at least one key-value pair
-            kvs.push((KeyHash::with::<Sha256>(b"key"), Some(b"value1".to_vec())));
-            db.put_key_preimage(&b"key".to_vec());
-
-            for key_preimage in keys {
-                // Since we hardcode the check for key, ensure that it's not inserted randomly by proptest
-                if key_preimage == b"notexist" {
-                    continue
-                }
-                let key_hash = KeyHash::with::<Sha256>(key_preimage.as_slice());
-                let value = vec![0u8; 32];
-                kvs.push((key_hash, Some(value)));
-                db.put_key_preimage(&key_preimage.to_vec());
-            }
-
-            let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
-            db.write_tree_update_batch(batch).unwrap();
-
-            let commitment_proof = tree
-                .get_with_ics23_proof(b"notexist".to_vec(), 0)
-                .unwrap();
-
-            let key_hash = KeyHash::with::<Sha256>(b"notexist".as_slice());
-            let proof_or_exclusion = tree.get_with_exclusion_proof(key_hash, 0).unwrap();
-
-            use crate::tree::ExclusionProof::{Leftmost, Rightmost, Middle};
-            match proof_or_exclusion {
-                Ok(_) => panic!("expected nonexistence proof"),
-                Err(exclusion_proof) => {
-                    match exclusion_proof {
-                        Leftmost { leftmost_right_proof } => {
-                            if leftmost_right_proof.root_hash() != new_root_hash {
-                                panic!("root hash mismatch. siblings: {:?}, smph: {:?}", leftmost_right_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
-                            }
-
-                            assert!(ics23::verify_non_membership::<HostFunctionsManager>(
-                                &commitment_proof,
-                                &ics23_spec(),
-                                &new_root_hash.0.to_vec(),
-                                b"notexist"
-                            ))
-                        },
-                        Rightmost { rightmost_left_proof } => {
-                            if rightmost_left_proof.root_hash() != new_root_hash {
-                                panic!("root hash mismatch. siblings: {:?}, smph: {:?}", rightmost_left_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
-                            }
-
-                            assert!(ics23::verify_non_membership::<HostFunctionsManager>(
-                                &commitment_proof,
-                                &ics23_spec(),
-                                &new_root_hash.0.to_vec(),
-                                b"notexist"
-                            ))
-                        },
-                        Middle {
-                            leftmost_right_proof,
-                            rightmost_left_proof,
-                        } => {
-                            if leftmost_right_proof.root_hash() != new_root_hash {
-                                let good_proof = tree.get_with_proof(leftmost_right_proof.leaf().unwrap().key_hash(), 0).unwrap();
-                                panic!("root hash mismatch. bad proof: {:?}, good proof: {:?}", leftmost_right_proof, good_proof);
-                            }
-                            if rightmost_left_proof.root_hash() != new_root_hash {
-                                panic!("root hash mismatch. siblings: {:?}", rightmost_left_proof.siblings());
-                            }
-
-                            assert!(ics23::verify_non_membership::<HostFunctionsManager>(
-                                &commitment_proof,
-                                &ics23_spec(),
-                                &new_root_hash.0.to_vec(),
-                                b"notexist"
-                            ))
-
-                        },
-                    }
-                }
-            }
-
-
-            assert!(!ics23::verify_non_membership::<HostFunctionsManager>(
-                &commitment_proof,
-                &ics23_spec(),
-                &new_root_hash.0.to_vec(),
-                b"key",
-            ));
+        fn test_jmt_ics23_nonexistence(keys: Vec<Vec<u8>>) {
+            test_jmt_ics23_nonexistence_with_keys(keys);
         }
+    }
+
+    fn test_jmt_ics23_nonexistence_with_keys(
+        keys: Vec<Vec<u8>>,
+    ) {
+
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
+
+        let mut kvs = Vec::new();
+
+        // Ensure that the tree contains at least one key-value pair
+        kvs.push((KeyHash::with::<Sha256>(b"key"), Some(b"value1".to_vec())));
+        db.put_key_preimage(&b"key".to_vec());
+
+        for key_preimage in keys {
+            // Since we hardcode the check for key, ensure that it's not inserted randomly by proptest
+            if key_preimage == b"notexist" {
+                continue
+            }
+            let key_hash = KeyHash::with::<Sha256>(key_preimage.as_slice());
+            let value = vec![0u8; 32];
+            kvs.push((key_hash, Some(value)));
+            db.put_key_preimage(&key_preimage.to_vec());
+        }
+
+        let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+
+        let commitment_proof = tree
+            .get_with_ics23_proof(b"notexist".to_vec(), 0)
+            .unwrap();
+
+        let key_hash = KeyHash::with::<Sha256>(b"notexist".as_slice());
+        let proof_or_exclusion = tree.get_with_exclusion_proof(key_hash, 0).unwrap();
+
+        use crate::tree::ExclusionProof::{Leftmost, Rightmost, Middle};
+        match proof_or_exclusion {
+            Ok(_) => panic!("expected nonexistence proof"),
+            Err(exclusion_proof) => {
+                match exclusion_proof {
+                    Leftmost { leftmost_right_proof } => {
+                        if leftmost_right_proof.root_hash() != new_root_hash {
+                            panic!("root hash mismatch. siblings: {:?}, smph: {:?}", leftmost_right_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
+                        }
+
+                        assert!(ics23::verify_non_membership::<HostFunctionsManager>(
+                            &commitment_proof,
+                            &ics23_spec(),
+                            &new_root_hash.0.to_vec(),
+                            b"notexist"
+                        ))
+                    },
+                    Rightmost { rightmost_left_proof } => {
+                        if rightmost_left_proof.root_hash() != new_root_hash {
+                            panic!("root hash mismatch. siblings: {:?}, smph: {:?}", rightmost_left_proof.siblings(), SPARSE_MERKLE_PLACEHOLDER_HASH);
+                        }
+
+                        assert!(ics23::verify_non_membership::<HostFunctionsManager>(
+                            &commitment_proof,
+                            &ics23_spec(),
+                            &new_root_hash.0.to_vec(),
+                            b"notexist"
+                        ))
+                    },
+                    Middle {
+                        leftmost_right_proof,
+                        rightmost_left_proof,
+                    } => {
+                        if leftmost_right_proof.root_hash() != new_root_hash {
+                            let good_proof = tree.get_with_proof(leftmost_right_proof.leaf().unwrap().key_hash(), 0).unwrap();
+                            panic!("root hash mismatch. bad proof: {:?}, good proof: {:?}", leftmost_right_proof, good_proof);
+                        }
+                        if rightmost_left_proof.root_hash() != new_root_hash {
+                            panic!("root hash mismatch. siblings: {:?}", rightmost_left_proof.siblings());
+                        }
+
+                        assert!(ics23::verify_non_membership::<HostFunctionsManager>(
+                            &commitment_proof,
+                            &ics23_spec(),
+                            &new_root_hash.0.to_vec(),
+                            b"notexist"
+                        ))
+
+                    },
+                }
+            }
+        }
+
+
+        assert!(!ics23::verify_non_membership::<HostFunctionsManager>(
+            &commitment_proof,
+            &ics23_spec(),
+            &new_root_hash.0.to_vec(),
+            b"key",
+        ));
     }
 
     #[test]
