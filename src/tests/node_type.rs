@@ -60,6 +60,7 @@ proptest! {
 #[test]
 #[cfg(feature = "std")]
 fn test_internal_validity() {
+    use std::panic;
     let result = panic::catch_unwind(|| {
         let children = Children::default();
         InternalNode::new(children)

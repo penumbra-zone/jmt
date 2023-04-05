@@ -732,7 +732,7 @@ impl From<LeafNode> for SparseMerkleLeafNode {
 }
 
 #[repr(u8)]
-#[derive(FromPrimitive, ToPrimitive)]
+#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize)]
 enum NodeTag {
     Null = 0,
     Leaf = 1,
@@ -761,13 +761,13 @@ impl BorshSerialize for Node {
                 let mut buffer = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
                 NodeTag::Internal.serialize(&mut buffer)?;
                 internal.serialize(&mut buffer)?;
-                inc_internal_encoded_bytes_metric_if_enabled(buffer.len());
+                inc_internal_encoded_bytes_metric_if_enabled(buffer.len() as u64);
                 writer.write_all(&buffer)
             }
             Node::Leaf(leaf) => {
-                inc_leaf_encoded_bytes_metric_if_enabled(SERIALIZED_LEAF_SIZE);
+                inc_leaf_encoded_bytes_metric_if_enabled(SERIALIZED_LEAF_SIZE as u64);
                 NodeTag::Leaf.serialize(writer)?;
-                leaf.serialize(writer)
+                BorshSerialize::serialize(&leaf, writer)
             }
         }
     }

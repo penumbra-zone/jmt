@@ -68,7 +68,7 @@
 //! [`TreeUpdateBatch`]: struct.TreeUpdateBatch.html
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
-#![cfg(not(feature = "std"))]
+
 extern crate alloc;
 
 use core::fmt::Debug;
