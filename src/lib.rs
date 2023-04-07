@@ -1,6 +1,6 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
-
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 
 //! This module implements [`JellyfishMerkleTree`] backed by storage module. The tree itself doesn't
@@ -69,12 +69,15 @@
 //! [`InternalNode`]: node_type/struct.InternalNode.html
 //! [`LeafNode`]: node_type/struct.LeafNode.html
 
-use std::fmt::Debug;
+extern crate alloc;
+
+use core::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::digest::generic_array::GenericArray;
 use sha2::digest::OutputSizeUser;
 use sha2::Digest;
+#[cfg(feature = "std")]
 use thiserror::Error;
 
 mod bytes32ext;
@@ -87,6 +90,7 @@ mod tree_cache;
 mod types;
 mod writer;
 
+#[cfg(any(test, feature = "mocks"))]
 pub mod mock;
 pub mod restore;
 
@@ -102,7 +106,7 @@ pub use types::Version;
 /// Contains types used to bridge a [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
 /// to the backing storage recording the tree's internal data.
 pub mod storage {
-    pub use node_type::{LeafNode, Node, NodeDecodeError, NodeKey};
+    pub use node_type::{LeafNode, Node, NodeKey};
     pub use reader::HasPreimage;
     pub use reader::TreeReader;
     pub use writer::{
@@ -116,10 +120,25 @@ pub mod storage {
 mod tests;
 
 /// An error that occurs when the state root for a requested version is missing (e.g., because it was pruned).
-#[derive(Error, Debug)]
-#[error("Missing state root node at version {version}, probably pruned.")]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(Error))]
+#[cfg_attr(
+    feature = "std",
+    error("Missing state root node at version {version}, probably pruned.")
+)]
 pub struct MissingRootError {
     pub version: Version,
+}
+
+#[cfg(not(feature = "std"))]
+impl core::fmt::Display for MissingRootError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            "Missing state root node at version {}, probably pruned.",
+            self.version
+        )
+    }
 }
 
 // TODO: reorg
@@ -127,7 +146,7 @@ pub struct MissingRootError {
 const SPARSE_MERKLE_PLACEHOLDER_HASH: [u8; 32] = *b"SPARSE_MERKLE_PLACEHOLDER_HASH__";
 
 /// An owned value stored in the [`JellyfishMerkleTree`].
-pub type OwnedValue = Vec<u8>;
+pub type OwnedValue = alloc::vec::Vec<u8>;
 
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
@@ -145,20 +164,36 @@ pub struct RootHash(pub [u8; 32]);
 /// before creating `KeyHash`es.
 ///
 /// The [`JellyfishMerkleTree`] only stores key hashes, not full keys.  
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct KeyHash(pub [u8; 32]);
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 // This needs to be public for the fuzzing/Arbitrary feature, but we don't
 // really want it to be, so #[doc(hidden)] is the next best thing.
 #[doc(hidden)]
@@ -185,24 +220,24 @@ impl KeyHash {
     }
 }
 
-impl std::fmt::Debug for KeyHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for KeyHash {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("KeyHash")
             .field(&hex::encode(&self.0))
             .finish()
     }
 }
 
-impl std::fmt::Debug for ValueHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ValueHash {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("ValueHash")
             .field(&hex::encode(&self.0))
             .finish()
     }
 }
 
-impl std::fmt::Debug for RootHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for RootHash {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("RootHash")
             .field(&hex::encode(&self.0))
             .finish()
@@ -211,8 +246,8 @@ impl std::fmt::Debug for RootHash {
 
 struct EscapedByteSlice<'a>(&'a [u8]);
 
-impl<'a> std::fmt::Debug for EscapedByteSlice<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Debug for EscapedByteSlice<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "b\"")?;
         for &b in self.0 {
             // https://doc.rust-lang.org/reference/tokens.html#byte-escapes
@@ -256,19 +291,15 @@ pub trait SimpleHasher: Sized {
     }
 }
 
-/// A wrapper around `std::marker::Phatomdata` which implements
+/// A wrapper around `core::marker::Phatomdata` which implements
 /// Debug, PartialEq, Eq, and Clone  This allows higher level
 /// structs to derive these traits even if the concrete hasher does not
 /// implement them.
-#[derive(Clone, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
-pub struct PhantomHasher<H: SimpleHasher>(std::marker::PhantomData<H>);
+#[derive(Clone, Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct PhantomHasher<H: SimpleHasher>(core::marker::PhantomData<H>);
 
 impl<H: SimpleHasher> Debug for PhantomHasher<H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("PhantomHasher")
             .field(&stringify!(H))
             .finish()
@@ -283,7 +314,7 @@ impl<H: SimpleHasher> PartialEq for PhantomHasher<H> {
 
 impl<H: SimpleHasher> Default for PhantomHasher<H> {
     fn default() -> Self {
-        Self(std::marker::PhantomData)
+        Self(core::marker::PhantomData)
     }
 }
 

@@ -3,6 +3,7 @@
 
 //! This module has definition of various proofs.
 
+use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +15,8 @@ use crate::{
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Clone, Eq, PartialEq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize,
 )]
 pub struct SparseMerkleProof<H: SimpleHasher> {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
@@ -41,8 +40,8 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
 
 // Deriving Debug fails since H is not Debug though phantom_hasher implements it
 // generically. Implement Debug manually as a workaround to enable Proptest
-impl<H: SimpleHasher> std::fmt::Debug for SparseMerkleProof<H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleProof<H> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SparseMerkleProof")
             .field("leaf", &self.leaf)
             .field("siblings", &self.siblings)
@@ -234,10 +233,15 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 ///
 /// if the proof wants show that `[a, b, c, d, e]` exists in the tree, it would need the siblings
 /// `X` and `h` on the right.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
 pub struct SparseMerkleRangeProof {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the

@@ -66,12 +66,16 @@
 //! Updating node could be operated as deletion of the node followed by insertion of the updated
 //! node.
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use alloc::{collections::BTreeSet, vec::Vec};
+#[cfg(not(feature = "std"))]
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
+#[cfg(feature = "std")]
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use anyhow::{bail, Result};
 
 use crate::{
-    metrics::DIEM_JELLYFISH_STORAGE_READS,
+    metrics::inc_storage_reads_metric_if_enabled,
     node_type::{Node, NodeKey},
     storage::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
@@ -192,7 +196,7 @@ where
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             node.clone()
         } else {
-            DIEM_JELLYFISH_STORAGE_READS.inc();
+            inc_storage_reads_metric_if_enabled(1);
             self.reader.get_node(node_key)?
         })
     }
@@ -205,7 +209,7 @@ where
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             Some(node.clone())
         } else {
-            DIEM_JELLYFISH_STORAGE_READS.inc();
+            inc_storage_reads_metric_if_enabled(1);
             self.reader.get_node_option(node_key)?
         })
     }

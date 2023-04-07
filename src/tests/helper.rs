@@ -1,15 +1,17 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fmt::Debug,
-    ops::Bound,
-    sync::Arc,
-};
+#[cfg(not(feature = "std"))]
+use hashbrown::{HashMap, HashSet};
+#[cfg(feature = "std")]
+use std::collections::{HashMap, HashSet};
+
+use alloc::vec;
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use core::{fmt::Debug, ops::Bound};
 
 use proptest::{
-    collection::{btree_map, hash_map, vec},
+    collection::{btree_map, vec},
     prelude::*,
     sample,
 };
@@ -162,41 +164,45 @@ pub fn arb_existent_kvs_and_nonexistent_keys(
     num_kvs: usize,
     num_non_existing_keys: usize,
 ) -> impl Strategy<Value = (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>)> {
-    hash_map(any::<KeyHash>(), any::<OwnedValue>(), 1..num_kvs).prop_flat_map(move |kvs| {
-        let kvs_clone = kvs.clone();
-        (
-            Just(kvs),
-            vec(
-                any::<KeyHash>().prop_filter(
-                    "Make sure these keys do not exist in the tree.",
-                    move |key| !kvs_clone.contains_key(key),
+    btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..num_kvs)
+        .prop_flat_map(move |kvs| {
+            let kvs_clone = kvs.clone();
+            (
+                Just(kvs),
+                vec(
+                    any::<KeyHash>().prop_filter(
+                        "Make sure these keys do not exist in the tree.",
+                        move |key| !kvs_clone.contains_key(key),
+                    ),
+                    num_non_existing_keys,
                 ),
-                num_non_existing_keys,
-            ),
-        )
-    })
+            )
+        })
+        .prop_map(|(map, v)| (map.into_iter().collect(), v))
 }
 
 pub fn arb_existent_kvs_and_deletions_and_nonexistent_keys(
     num_kvs: usize,
     num_non_existing_keys: usize,
 ) -> impl Strategy<Value = (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>, Vec<KeyHash>)> {
-    hash_map(any::<KeyHash>(), any::<OwnedValue>(), 1..num_kvs).prop_flat_map(move |kvs| {
-        let kvs_clone = kvs.clone();
-        let keys: Vec<_> = kvs.keys().cloned().collect();
-        let keys_count = keys.len();
-        (
-            Just(kvs),
-            sample::subsequence(keys, 0..keys_count),
-            vec(
-                any::<KeyHash>().prop_filter(
-                    "Make sure these keys do not exist in the tree.",
-                    move |key| !kvs_clone.contains_key(key),
+    btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..num_kvs)
+        .prop_flat_map(move |kvs| {
+            let kvs_clone = kvs.clone();
+            let keys: Vec<_> = kvs.keys().cloned().collect();
+            let keys_count = keys.len();
+            (
+                Just(kvs),
+                sample::subsequence(keys, 0..keys_count),
+                vec(
+                    any::<KeyHash>().prop_filter(
+                        "Make sure these keys do not exist in the tree.",
+                        move |key| !kvs_clone.contains_key(key),
+                    ),
+                    num_non_existing_keys,
                 ),
-                num_non_existing_keys,
-            ),
-        )
-    })
+            )
+        })
+        .prop_map(|(map, v1, v2)| (map.into_iter().collect(), v1, v2))
 }
 
 pub fn arb_interleaved_insertions_and_deletions(
@@ -643,7 +649,7 @@ fn verify_range_proof(
         // We take the longest common prefix of the current key and its neighbors. That's how much
         // we need to keep.
         let len = match (prev_common_prefix_len, next_common_prefix_len) {
-            (Some(plen), Some(nlen)) => std::cmp::max(plen, nlen),
+            (Some(plen), Some(nlen)) => core::cmp::max(plen, nlen),
             (Some(plen), None) => plen,
             (None, Some(nlen)) => nlen,
             (None, None) => 0,

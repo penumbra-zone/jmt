@@ -1,8 +1,10 @@
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap},
-    convert::TryInto,
-};
+use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{format, vec};
+use core::{cmp::Ordering, convert::TryInto};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use anyhow::{bail, ensure, format_err, Context, Result};
 use sha2::Sha256;
@@ -789,7 +791,7 @@ where
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
-                    MissingRootError { version }.into()
+                    anyhow::anyhow!(MissingRootError { version })
                 } else {
                     err
                 }
@@ -913,7 +915,7 @@ where
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
-                    MissingRootError { version }.into()
+                    anyhow::anyhow!(MissingRootError { version })
                 } else {
                     err
                 }
@@ -1097,7 +1099,7 @@ where
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
             let node = self.reader.get_node(&node_key).map_err(|err| {
                 if nibble_depth == 0 {
-                    MissingRootError { version }.into()
+                    anyhow::anyhow!(MissingRootError { version })
                 } else {
                     err
                 }

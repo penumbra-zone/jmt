@@ -4,8 +4,10 @@
 //! NibblePath library simplify operations with nibbles in a compact format for modified sparse
 //! Merkle tree by providing powerful iterators advancing by either bit or nibble.
 
-use std::{fmt, iter::FromIterator};
+use alloc::vec;
+use core::{fmt, iter::FromIterator};
 
+use alloc::vec::Vec;
 use mirai_annotations::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::{collection::vec, prelude::*};
@@ -14,10 +16,17 @@ use serde::{Deserialize, Serialize};
 use crate::types::nibble::{Nibble, ROOT_NIBBLE_HEIGHT};
 
 /// NibblePath defines a path in Merkle tree in the unit of nibble (4 bits).
-#[derive(Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Clone,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
 pub struct NibblePath {
     /// Indicates the total number of nibbles in bytes. Either `bytes.len() * 2 - 1` or
@@ -199,7 +208,7 @@ pub trait Peekable: Iterator {
 /// BitIterator iterates a nibble path by bit.
 pub struct BitIterator<'a> {
     nibble_path: &'a NibblePath,
-    pos: std::ops::Range<usize>,
+    pos: core::ops::Range<usize>,
 }
 
 impl<'a> Peekable for BitIterator<'a> {
@@ -236,7 +245,7 @@ pub struct NibbleIterator<'a> {
 
     /// The current index, `pos.start`, will bump by 1 after calling `next()` until `pos.start ==
     /// pos.end`.
-    pos: std::ops::Range<usize>,
+    pos: core::ops::Range<usize>,
 
     /// The start index of the iterator. At the beginning, `pos.start == start`. [start, pos.end)
     /// defines the range of `nibble_path` this iterator iterates over. `nibble_path` refers to
@@ -328,7 +337,7 @@ pub fn skip_common_prefix<I1, I2>(x: &mut I1, y: &mut I2) -> usize
 where
     I1: Iterator + Peekable,
     I2: Iterator + Peekable,
-    <I1 as Iterator>::Item: std::cmp::PartialEq<<I2 as Iterator>::Item>,
+    <I1 as Iterator>::Item: core::cmp::PartialEq<<I2 as Iterator>::Item>,
 {
     let mut count = 0;
     loop {

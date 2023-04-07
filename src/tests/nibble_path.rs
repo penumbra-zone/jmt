@@ -1,6 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
+use alloc::{format, vec};
 use proptest::prelude::*;
 
 use crate::types::nibble::{

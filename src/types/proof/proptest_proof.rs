@@ -4,6 +4,7 @@
 //! All proofs generated in this module are not valid proofs. They are only for the purpose of
 //! testing conversion between Rust and Protobuf.
 
+use alloc::vec::Vec;
 use proptest::{collection::vec, prelude::*};
 
 use crate::{
@@ -33,7 +34,7 @@ impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
             any::<Option<SparseMerkleLeafNode>>(),
             (0..=256usize).prop_flat_map(|len| {
                 if len == 0 {
-                    Just(vec![]).boxed()
+                    Just(Vec::new()).boxed()
                 } else {
                     (
                         arb_non_placeholder_sparse_merkle_sibling(),

@@ -1,7 +1,11 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use proptest::{collection::hash_set, prelude::*};
+use alloc::string::ToString;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+use proptest::collection::btree_set;
+use proptest::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sha2::Sha256;
 
@@ -755,7 +759,7 @@ proptest! {
     }
 
     #[test]
-    fn proptest_get_leaf_count(keys in hash_set(any::<KeyHash>(), 1..1000)) {
+    fn proptest_get_leaf_count(keys in btree_set(any::<KeyHash>(), 1..1000).prop_map(|m| m.into_iter().collect())) {
         test_get_leaf_count(keys)
     }
 }

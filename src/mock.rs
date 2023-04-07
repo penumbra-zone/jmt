@@ -3,10 +3,17 @@
 
 //! A mock, in-memory tree store useful for testing.
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+use alloc::{collections::BTreeSet, vec};
+use parking_lot::RwLock;
 
+use alloc::vec::Vec;
 use anyhow::{bail, ensure, Result};
 use sha2::Sha256;
+
+#[cfg(not(feature = "std"))]
+use hashbrown::{hash_map::Entry, HashMap};
+#[cfg(feature = "std")]
+use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
@@ -14,9 +21,6 @@ use crate::{
     types::Version,
     KeyHash, OwnedValue,
 };
-
-mod rwlock;
-use rwlock::RwLock;
 
 #[derive(Default, Debug)]
 struct MockTreeStoreInner {
@@ -124,13 +128,13 @@ pub fn put_value(
         Entry::Occupied(mut occupied) => {
             if let Some((last_version, last_value)) = occupied.get_mut().last_mut() {
                 match version.cmp(last_version) {
-                    std::cmp::Ordering::Less => bail!("values must be pushed in order"),
-                    std::cmp::Ordering::Equal => {
+                    core::cmp::Ordering::Less => bail!("values must be pushed in order"),
+                    core::cmp::Ordering::Equal => {
                         *last_value = value;
                         return Ok(());
                     }
                     // If the new value has a higher version than the previous one, fall through and push it to the array
-                    std::cmp::Ordering::Greater => {}
+                    core::cmp::Ordering::Greater => {}
                 }
             }
             occupied.get_mut().push((version, value));

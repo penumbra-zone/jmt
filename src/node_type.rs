@@ -9,27 +9,38 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
-use std::{
-    convert::TryFrom,
-    io::{prelude::*, Cursor, Read, SeekFrom, Write},
-    mem::size_of,
-};
-
+use alloc::format;
+use alloc::vec::Vec;
+use alloc::{boxed::Box, vec};
 use anyhow::{ensure, Context, Result};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use borsh::{BorshDeserialize, BorshSerialize};
 use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::cast::FromPrimitive;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::prelude::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+
+#[cfg(feature = "metrics")]
+use crate::metrics::{
+    inc_internal_encoded_bytes_metric_if_enabled, inc_leaf_encoded_bytes_metric_if_enabled,
+};
+
+/// The maximum size of a serialized internal node, in bytes.
+///
+/// A serialized internal node has 16 optional "child" nodes, plus 10 bytes of metadata (an optional usize and a bool)
+/// Each child node is (if present) 32 bytes for the hash, 8 bytes for the optional version,
+/// 9 bytes for the node type, and one byte for the outer option.
+#[cfg(feature = "metrics")]
+const MAX_SERIALIZED_INTERNAL_NODE_SIZE: usize = 16 * (32 + 8 + 9 + 1 + 1) + 10;
+
+/// The size of a leaf serialized with borsh. 32 bytes each for the key hash and value hash.
+#[cfg(feature = "metrics")]
+const SERIALIZED_LEAF_SIZE: usize = 32 + 32;
 
 use crate::{
-    metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
     types::{
-        nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
+        nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
         Version,
     },
@@ -40,12 +51,18 @@ use crate::{
 use crate::SimpleHasher;
 
 /// The unique key of each node.
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct NodeKey {
     // The version at which the node is created.
     version: Version,
@@ -98,54 +115,9 @@ impl NodeKey {
     pub(crate) fn set_version(&mut self, version: Version) {
         self.version = version;
     }
-
-    /// Serializes to bytes for physical storage enforcing the same order as that in memory.
-    pub fn encode(&self) -> Result<Vec<u8>> {
-        let mut out = vec![];
-        out.write_u64::<BigEndian>(self.version())?;
-        out.write_u8(self.nibble_path().num_nibbles() as u8)?;
-        out.write_all(self.nibble_path().bytes())?;
-        Ok(out)
-    }
-
-    /// Recovers from serialized bytes in physical storage.
-    pub fn decode(val: &[u8]) -> Result<NodeKey> {
-        let mut reader = Cursor::new(val);
-        let version = reader.read_u64::<BigEndian>()?;
-        let num_nibbles = reader.read_u8()? as usize;
-        ensure!(
-            num_nibbles <= ROOT_NIBBLE_HEIGHT,
-            "Invalid number of nibbles: {}",
-            num_nibbles,
-        );
-        let mut nibble_bytes = Vec::with_capacity((num_nibbles + 1) / 2);
-        reader.read_to_end(&mut nibble_bytes)?;
-        ensure!(
-            (num_nibbles + 1) / 2 == nibble_bytes.len(),
-            "encoded num_nibbles {} mismatches nibble path bytes {:?}",
-            num_nibbles,
-            nibble_bytes
-        );
-        let nibble_path = if num_nibbles % 2 == 0 {
-            NibblePath::new(nibble_bytes)
-        } else {
-            let padding = nibble_bytes.last().unwrap() & 0x0f;
-            ensure!(
-                padding == 0,
-                "Padding nibble expected to be 0, got: {}",
-                padding,
-            );
-            NibblePath::new_odd(nibble_bytes)
-        };
-        Ok(NodeKey::new(version, nibble_path))
-    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub enum NodeType {
     Leaf,
     /// A internal node that haven't been finished the leaf count migration, i.e. None or not all
@@ -172,12 +144,8 @@ impl Arbitrary for NodeType {
 }
 
 /// Each child of [`InternalNode`] encapsulates a nibble forking at this node.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
 pub struct Child {
     /// The hash value of this child node.
     pub hash: [u8; 32],
@@ -214,11 +182,7 @@ impl Child {
 
 /// [`Children`] is just a collection of children belonging to a [`InternalNode`], indexed from 0 to
 /// 15, inclusive.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct Children {
     /// The actual children. We box this array to avoid stack overflows, since the space consumed
     /// is somewhat large
@@ -326,11 +290,7 @@ impl Children {
 /// Though we choose the same internal node structure as that of Patricia Merkle tree, the root hash
 /// computation logic is similar to a 4-level sparse Merkle tree except for some customizations. See
 /// the `CryptoHash` trait implementation below for details.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct InternalNode {
     /// Up to 16 children.
     children: Children,
@@ -477,105 +437,6 @@ impl InternalNode {
 
     pub fn children_unsorted(&self) -> impl Iterator<Item = (Nibble, &Child)> {
         self.children.iter()
-    }
-
-    pub fn serialize(&self, binary: &mut Vec<u8>, persist_leaf_counts: bool) -> Result<()> {
-        let (mut existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
-        binary.write_u16::<LittleEndian>(existence_bitmap)?;
-        binary.write_u16::<LittleEndian>(leaf_bitmap)?;
-        for _ in 0..existence_bitmap.count_ones() {
-            let next_child = existence_bitmap.trailing_zeros() as u8;
-            let child = self
-                .children
-                .get(Nibble::from(next_child))
-                .as_ref()
-                .expect("child must exist");
-            serialize_u64_varint(child.version, binary);
-            binary.extend(child.hash.to_vec());
-            match child.node_type {
-                NodeType::Leaf => (),
-                NodeType::InternalLegacy => {
-                    if persist_leaf_counts {
-                        // It's impossible that a internal node has 0 leaves, use 0 to indicate
-                        // "known".
-                        // Also n.b., a not-fully-migrated internal is of `NodeType::InternalLegacy`
-                        // in memory, but serialized with `NodeTag::Internal` anyway once the
-                        // migration starts.
-                        serialize_u64_varint(0, binary);
-                    }
-                }
-                NodeType::Internal { leaf_count } => {
-                    if persist_leaf_counts {
-                        serialize_u64_varint(leaf_count as u64, binary);
-                    }
-                }
-            };
-            existence_bitmap &= !(1 << next_child);
-        }
-        Ok(())
-    }
-
-    pub fn deserialize(data: &[u8], read_leaf_counts: bool) -> Result<Self> {
-        let mut reader = Cursor::new(data);
-        let len = data.len();
-
-        // Read and validate existence and leaf bitmaps
-        let mut existence_bitmap = reader.read_u16::<LittleEndian>()?;
-        let leaf_bitmap = reader.read_u16::<LittleEndian>()?;
-        match existence_bitmap {
-            0 => return Err(NodeDecodeError::NoChildren.into()),
-            _ if (existence_bitmap & leaf_bitmap) != leaf_bitmap => {
-                return Err(NodeDecodeError::ExtraLeaves {
-                    existing: existence_bitmap,
-                    leaves: leaf_bitmap,
-                }
-                .into())
-            }
-            _ => (),
-        }
-
-        // Reconstruct children
-        let mut children = Children::new();
-        for _ in 0..existence_bitmap.count_ones() {
-            let next_child = existence_bitmap.trailing_zeros() as u8;
-            let version = deserialize_u64_varint(&mut reader)?;
-            let pos = reader.position() as usize;
-            let remaining = len - pos;
-
-            ensure!(
-                remaining >= size_of::<[u8; 32]>(),
-                "not enough bytes left, children: {}, bytes: {}",
-                existence_bitmap.count_ones(),
-                remaining
-            );
-            let hash = <[u8; 32]>::try_from(&reader.get_ref()[pos..pos + size_of::<[u8; 32]>()])?;
-            reader.seek(SeekFrom::Current(size_of::<[u8; 32]>() as i64))?;
-
-            let child_bit = 1 << next_child;
-            let node_type = if (leaf_bitmap & child_bit) != 0 {
-                NodeType::Leaf
-            } else if read_leaf_counts {
-                let leaf_count = deserialize_u64_varint(&mut reader)? as usize;
-                if leaf_count == 0 {
-                    NodeType::InternalLegacy
-                } else {
-                    NodeType::Internal { leaf_count }
-                }
-            } else {
-                NodeType::InternalLegacy
-            };
-
-            children.insert(
-                Nibble::from(next_child),
-                Child::new(hash, version, node_type),
-            );
-            existence_bitmap &= !child_bit;
-        }
-        assert_eq!(existence_bitmap, 0);
-
-        // The "leaf_count_migration" flag doesn't matter here, since a deserialized node should
-        // not be persisted again to the DB.
-        Self::new_impl(children, read_leaf_counts /* leaf_count_migration */)
     }
 
     /// Gets the `n`-th child.
@@ -778,18 +639,6 @@ impl InternalNode {
     }
 
     #[cfg(test)]
-    pub(crate) fn into_legacy_internal(self) -> InternalNode {
-        let mut children = self.children;
-        children.iter_mut().for_each(|(_, mut child)| {
-            if matches!(child.node_type, NodeType::Internal { .. }) {
-                child.node_type = NodeType::InternalLegacy
-            }
-        });
-
-        InternalNode::new_migration(children, false /* leaf_count_migration */)
-    }
-
-    #[cfg(test)]
     pub(crate) fn children(&self) -> &Children {
         &self.children
     }
@@ -821,10 +670,15 @@ pub(crate) fn get_child_half_start(n: Nibble, height: u8) -> u8 {
 /// Represents a key-value pair in the map.
 ///
 /// Note: this does not store the key itself.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
 )]
 pub struct LeafNode {
     /// The hash of the key for this entry.
@@ -864,20 +718,16 @@ impl From<LeafNode> for SparseMerkleLeafNode {
 }
 
 #[repr(u8)]
-#[derive(FromPrimitive, ToPrimitive)]
+#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize)]
 enum NodeTag {
     Null = 0,
-    InternalLegacy = 1,
-    Leaf = 2,
-    Internal = 3,
+    Leaf = 1,
+    Internal = 2,
 }
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "borsh",
-    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
-)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize)]
+#[cfg_attr(not(feature = "metrics"), derive(BorshSerialize))]
 pub enum Node {
     /// Represents `null`.
     Null,
@@ -885,6 +735,28 @@ pub enum Node {
     Internal(InternalNode),
     /// A wrapper of [`LeafNode`].
     Leaf(LeafNode),
+}
+
+// Manually implement serialize to enable metrics
+#[cfg(feature = "metrics")]
+impl BorshSerialize for Node {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        match self {
+            Node::Null => NodeTag::Null.serialize(writer),
+            Node::Internal(internal) => {
+                let mut buffer = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
+                NodeTag::Internal.serialize(&mut buffer)?;
+                internal.serialize(&mut buffer)?;
+                inc_internal_encoded_bytes_metric_if_enabled(buffer.len() as u64);
+                writer.write_all(&buffer)
+            }
+            Node::Leaf(leaf) => {
+                inc_leaf_encoded_bytes_metric_if_enabled(SERIALIZED_LEAF_SIZE as u64);
+                NodeTag::Leaf.serialize(writer)?;
+                BorshSerialize::serialize(&leaf, writer)
+            }
+        }
+    }
 }
 
 impl From<InternalNode> for Node {
@@ -956,34 +828,6 @@ impl Node {
         }
     }
 
-    /// Serializes to bytes for physical storage.
-    pub fn encode(&self) -> Result<Vec<u8>> {
-        let mut out = vec![];
-
-        match self {
-            Node::Null => {
-                out.push(NodeTag::Null as u8);
-            }
-            Node::Internal(internal_node) => {
-                let persist_leaf_count = internal_node.leaf_count_migration;
-                let tag = if persist_leaf_count {
-                    NodeTag::Internal
-                } else {
-                    NodeTag::InternalLegacy
-                };
-                out.push(tag as u8);
-                internal_node.serialize(&mut out, persist_leaf_count)?;
-                DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES.inc_by(out.len() as u64);
-            }
-            Node::Leaf(leaf_node) => {
-                out.push(NodeTag::Leaf as u8);
-                out.extend(bcs::to_bytes(&leaf_node)?);
-                DIEM_JELLYFISH_LEAF_ENCODED_BYTES.inc_by(out.len() as u64);
-            }
-        }
-        Ok(out)
-    }
-
     /// Computes the hash of nodes.
     pub(crate) fn hash(&self) -> [u8; 32] {
         match self {
@@ -992,89 +836,43 @@ impl Node {
             Node::Leaf(leaf_node) => leaf_node.hash(),
         }
     }
-
-    /// Recovers from serialized bytes in physical storage.
-    pub fn decode(val: &[u8]) -> Result<Node> {
-        if val.is_empty() {
-            return Err(NodeDecodeError::EmptyInput.into());
-        }
-        let tag = val[0];
-        let node_tag = NodeTag::from_u8(tag);
-        match node_tag {
-            Some(NodeTag::Null) => Ok(Node::Null),
-            Some(NodeTag::InternalLegacy) => {
-                Ok(Node::Internal(InternalNode::deserialize(&val[1..], false)?))
-            }
-            Some(NodeTag::Internal) => {
-                Ok(Node::Internal(InternalNode::deserialize(&val[1..], true)?))
-            }
-            Some(NodeTag::Leaf) => Ok(Node::Leaf(bcs::from_bytes(&val[1..])?)),
-            None => Err(NodeDecodeError::UnknownTag { unknown_tag: tag }.into()),
-        }
-    }
 }
 
-/// Error thrown when a [`Node`] fails to be deserialized out of a byte sequence stored in physical
-/// storage, via [`Node::decode`].
-#[derive(Debug, Error, Eq, PartialEq)]
-pub enum NodeDecodeError {
-    /// Input is empty.
-    #[error("Missing tag due to empty input")]
-    EmptyInput,
+#[cfg(all(test, feature = "metrics"))]
+mod tests {
+    use alloc::vec::Vec;
+    use borsh::BorshSerialize;
 
-    /// The first byte of the input is not a known tag representing one of the variants.
-    #[error("lead tag byte is unknown: {}", unknown_tag)]
-    UnknownTag { unknown_tag: u8 },
+    use super::{Children, MAX_SERIALIZED_INTERNAL_NODE_SIZE, SERIALIZED_LEAF_SIZE};
 
-    /// No children found in internal node
-    #[error("No children found in internal node")]
-    NoChildren,
-
-    /// Extra leaf bits set
-    #[error(
-        "Non-existent leaf bits set, existing: {}, leaves: {}",
-        existing,
-        leaves
-    )]
-    ExtraLeaves { existing: u16, leaves: u16 },
-}
-
-/// Helper function to serialize version in a more efficient encoding.
-/// We use a super simple encoding - the high bit is set if more bytes follow.
-pub(crate) fn serialize_u64_varint(mut num: u64, binary: &mut Vec<u8>) {
-    for _ in 0..8 {
-        let low_bits = num as u8 & 0x7f;
-        num >>= 7;
-        let more = match num {
-            0 => 0u8,
-            _ => 0x80,
-        };
-        binary.push(low_bits | more);
-        if more == 0 {
-            return;
-        }
+    #[test]
+    fn serialized_leaf_size_is_correct() {
+        let leaf = crate::node_type::LeafNode::new(
+            crate::node_type::KeyHash([0; 32]),
+            crate::node_type::ValueHash([0; 32]),
+        );
+        let mut out = Vec::with_capacity(SERIALIZED_LEAF_SIZE);
+        leaf.serialize(&mut out).unwrap();
+        assert_eq!(out.len(), SERIALIZED_LEAF_SIZE)
     }
-    // Last byte is encoded raw; this means there are no bad encodings.
-    assert_ne!(num, 0);
-    assert!(num <= 0xff);
-    binary.push(num as u8);
-}
 
-/// Helper function to deserialize versions from above encoding.
-pub(crate) fn deserialize_u64_varint<T>(reader: &mut T) -> Result<u64>
-where
-    T: Read,
-{
-    let mut num = 0u64;
-    for i in 0..8 {
-        let byte = reader.read_u8()?;
-        num |= u64::from(byte & 0x7f) << (i * 7);
-        if (byte & 0x80) == 0 {
-            return Ok(num);
+    #[test]
+    fn max_serialized_internal_node_size_is_correct() {
+        let mut children: Children = Default::default();
+        for nibble in 0u8..16 {
+            children.insert(
+                nibble.into(),
+                super::Child {
+                    hash: [1u8; 32],
+                    version: u64::MAX,
+                    node_type: super::NodeType::Internal { leaf_count: 16 },
+                },
+            )
         }
+
+        let internal = crate::node_type::InternalNode::new(children);
+        let mut out = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
+        internal.serialize(&mut out).unwrap();
+        assert!(out.len() <= MAX_SERIALIZED_INTERNAL_NODE_SIZE);
     }
-    // Last byte is encoded as is.
-    let byte = reader.read_u8()?;
-    num |= u64::from(byte) << 56;
-    Ok(num)
 }

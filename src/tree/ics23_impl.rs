@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use anyhow::Result;
 
 use crate::{
@@ -241,6 +243,7 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use ics23::HostFunctionsManager;
     use proptest::prelude::*;
     use sha2::Sha256;
