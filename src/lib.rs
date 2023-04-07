@@ -139,8 +139,12 @@ pub struct RootHash(pub [u8; 32]);
 
 /// A hashed key used to index a [`JellyfishMerkleTree`].
 ///
-/// The [`JellyfishMerkleTree`] only stores key hashes, not full keys.  Byte
-/// keys can be converted to a [`KeyHash`] using the provided `From` impl.
+/// # 🚨 Danger 🚨
+/// ics23 non-existence proofs require that all key preimages are non-empty. If you
+/// plan to use ics23 non-existence proofs, you must ensure that keys are non-empty
+/// before creating `KeyHash`es.
+///
+/// The [`JellyfishMerkleTree`] only stores key hashes, not full keys.  
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 #[cfg_attr(
@@ -167,6 +171,11 @@ impl ValueHash {
 }
 
 impl KeyHash {
+    /// Hash the provided key with the provided hasher and return a new `KeyHash`.
+    ///
+    /// # 🚨 Danger 🚨
+    /// If you will use ics23 non-existence proofs,
+    /// you must ensure that the key is non-empty before calling this function.
     pub fn with<H: SimpleHasher>(key: impl AsRef<[u8]>) -> Self {
         let key_hash = Self(H::hash(key.as_ref()));
         // Adding a tracing event here allows cross-referencing the key hash

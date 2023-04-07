@@ -249,18 +249,19 @@ mod tests {
     use crate::{mock::MockTreeStore, KeyHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
     #[test]
+    #[should_panic]
     fn test_jmt_ics23_nonexistence_single_empty_key() {
-        test_jmt_ics23_nonexistence_with_keys(vec![vec![]]);
+        test_jmt_ics23_nonexistence_with_keys(vec![vec![]].into_iter());
     }
 
     proptest! {
         #[test]
         fn test_jmt_ics23_nonexistence(keys: Vec<Vec<u8>>) {
-            test_jmt_ics23_nonexistence_with_keys(keys);
+            test_jmt_ics23_nonexistence_with_keys(keys.into_iter().filter(|k| k.len() != 0));
         }
     }
 
-    fn test_jmt_ics23_nonexistence_with_keys(keys: Vec<Vec<u8>>) {
+    fn test_jmt_ics23_nonexistence_with_keys(keys: impl Iterator<Item = Vec<u8>>) {
         let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
