@@ -20,8 +20,6 @@ use proptest::prelude::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
-use thiserror::Error;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
@@ -862,35 +860,6 @@ impl Node {
             Node::Leaf(leaf_node) => leaf_node.hash(),
         }
     }
-}
-
-/// Error thrown when a [`Node`] fails to be deserialized out of a byte sequence stored in physical
-/// storage, via [`Node::decode`].
-#[derive(Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "std", derive(Error))]
-pub enum NodeDecodeError {
-    /// Input is empty.
-    #[cfg_attr(feature = "std", error("Missing tag due to empty input"))]
-    EmptyInput,
-
-    /// The first byte of the input is not a known tag representing one of the variants.
-    #[cfg_attr(feature = "std", error("lead tag byte is unknown: {}", unknown_tag))]
-    UnknownTag { unknown_tag: u8 },
-
-    /// No children found in internal node
-    #[cfg_attr(feature = "std", error("No children found in internal node"))]
-    NoChildren,
-
-    /// Extra leaf bits set
-    #[cfg_attr(
-        feature = "std",
-        error(
-            "Non-existent leaf bits set, existing: {}, leaves: {}",
-            existing,
-            leaves
-        )
-    )]
-    ExtraLeaves { existing: u16, leaves: u16 },
 }
 
 #[cfg(all(test, feature = "metrics"))]
