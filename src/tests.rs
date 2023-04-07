@@ -1,4 +1,5 @@
 #![cfg(test)]
+mod compute_vectors;
 mod helper;
 mod iterator;
 mod jellyfish_merkle;

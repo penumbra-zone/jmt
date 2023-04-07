@@ -1,23 +1,24 @@
-use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
 use crate::{mock::MockTreeStore, KeyHash, Sha256Jmt};
 
 #[derive(Serialize, Deserialize)]
-struct TestVectorWrapper {
+pub(crate) struct TestVectorWrapper {
+    pub description: String,
+    pub hash_function: String,
     pub vectors: Vec<TestVector>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct TestVector {
+pub(crate) struct TestVector {
     #[serde(with = "hex::serde")]
     pub expected_root: [u8; 32],
     pub data: Vec<KeyValuePair>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct KeyValuePair {
+pub(crate) struct KeyValuePair {
     #[serde(with = "hex::serde")]
     pub key: Vec<u8>,
     #[serde(with = "hex::serde")]
