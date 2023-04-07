@@ -1,3 +1,4 @@
+use alloc::{string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
