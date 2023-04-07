@@ -1,4 +1,4 @@
-#![cfg(any(test, feature = "integ_tests"))]
+#![cfg(test)]
 mod helper;
 mod iterator;
 mod jellyfish_merkle;

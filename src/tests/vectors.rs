@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
@@ -25,16 +26,16 @@ struct KeyValuePair {
 
 #[test]
 fn test_with_vectors() {
-    let reader = std::fs::File::open("src/tests/sha2_256_vectors.json").unwrap();
+    let test_vectors = include_str!("sha2_256_vectors.json");
 
     let test_file: TestVectorWrapper =
-        serde_json::from_reader(reader).expect("test vectors must be valid json");
+        serde_json::from_str(test_vectors).expect("test vectors must be valid json");
 
     let store = &MockTreeStore::default();
 
     let jmt = Sha256Jmt::new(store);
     for vector in test_file.vectors {
-        let mut key_value_pairs = vec![];
+        let mut key_value_pairs = Vec::new();
         for pair in vector.data {
             let key_hash = KeyHash::with::<Sha256>(&pair.key);
             key_value_pairs.push((key_hash, Some(pair.value)));

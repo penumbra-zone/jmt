@@ -90,6 +90,7 @@ mod tree_cache;
 mod types;
 mod writer;
 
+#[cfg(any(test, feature = "mocks"))]
 pub mod mock;
 pub mod restore;
 
