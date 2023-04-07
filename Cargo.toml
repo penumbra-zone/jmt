@@ -17,6 +17,7 @@ publish = true
 
 [features]
 default = ["ics23", "std", "metrics"]
+integ_test = ["dep:serde_json", "dep:parking_lot", "hex/serde"]
 std = ["dep:thiserror"]
 metrics = ["std", "dep:prometheus", "dep:once_cell"]
 
@@ -30,9 +31,11 @@ mirai-annotations = "1.10.1"
 num-derive = "0.3.3"
 num-traits = "0.2.14"
 once_cell = { version = "1.7.2", optional = true } 
+parking_lot = { version = "0.12.1", optional = true } 
 proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.3.0" }
 serde = { version = "1.0.124", features = ["derive"] }
+serde_json = { version  = "1.0.95", optional = true }
 thiserror = { version = "1.0.24", optional = true } 
 prometheus = { version = "0.13", optional = true } 
 sha2 = "0.10"
@@ -40,4 +43,7 @@ hex = "0.4"
 tracing = "0.1"
 
 [dev-dependencies]
+hex = { version = "0.4", features = ["serde"] }
 rand = { version = "0.8.3" }
+parking_lot = { version = "0.12.1" } 
+serde_json = { version  = "1.0.95" }
