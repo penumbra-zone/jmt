@@ -115,18 +115,6 @@ impl NodeKey {
     pub(crate) fn set_version(&mut self, version: Version) {
         self.version = version;
     }
-    /// Serializes to bytes for physical storage enforcing the same order as that in memory.
-    ///
-    /// BorshSerialize::Seserialize instead
-    pub fn encode(&self) -> Result<Vec<u8>> {
-        self.try_to_vec().map_err(|e| e.into())
-    }
-    /// Recovers from serialized bytes in physical storage.
-    ///
-    /// Provided for backwards compatibility. Prefer using BorshDeserialize::deserialize instead
-    pub fn decode(val: &[u8]) -> Result<NodeKey> {
-        Self::deserialize(&mut val.as_ref()).map_err(|e| e.into())
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
@@ -840,18 +828,6 @@ impl Node {
         }
     }
 
-    /// Serializes to bytes for physical storage enforcing the same order as that in memory.
-    ///
-    /// BorshSerialize::Seserialize instead
-    pub fn encode(&self) -> Result<Vec<u8>> {
-        self.try_to_vec().map_err(|e| e.into())
-    }
-    /// Recovers from serialized bytes in physical storage.
-    ///
-    /// Provided for backwards compatibility. Prefer using BorshDeserialize::deserialize instead
-    pub fn decode(val: &[u8]) -> Result<Self> {
-        Self::deserialize(&mut val.as_ref()).map_err(|e| e.into())
-    }
     /// Computes the hash of nodes.
     pub(crate) fn hash(&self) -> [u8; 32] {
         match self {
