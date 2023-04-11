@@ -1,6 +1,6 @@
 [package]
 name = "jmt"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
     "Penumbra Labs <team@penumbra.zone>",
     "Diem Association <opensource@diem.com>",
@@ -32,8 +32,6 @@ num-derive = "0.3.3"
 num-traits = "0.2.14"
 once_cell = { version = "1.7.2", optional = true } 
 parking_lot = { version = "0.12.1", optional = true } 
-proptest = { version = "1.0.0" }
-proptest-derive = { version = "0.3.0" }
 serde = { version = "1.0.124", features = ["derive"] }
 thiserror = { version = "1.0.24", optional = true } 
 prometheus = { version = "0.13", optional = true } 
@@ -46,3 +44,5 @@ hex = { version = "0.4", features = ["serde"] }
 rand = { version = "0.8.3" }
 parking_lot = { version = "0.12.1" } 
 serde_json = { version  = "1.0.95" }
+proptest = { version = "1.0.0" }
+proptest-derive = { version = "0.3.0" }
