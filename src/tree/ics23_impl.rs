@@ -185,12 +185,14 @@ where
         }
     }
 
-    /// Returns the value and an [`JMTProof`].
+    /// Returns the value corresponding to the specified `key` along with a [`CommitmentProof`].
+    ///
+    /// If the value is not found, return `None` along with a non-exisstence proof.
     pub fn get_with_ics23_proof(
         &self,
         key: Vec<u8>,
         version: Version,
-    ) -> Result<ics23::CommitmentProof> {
+    ) -> Result<(Option<Vec<u8>>, ics23::CommitmentProof)> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
@@ -199,9 +201,12 @@ where
                 let ics23_exist =
                     sparse_merkle_proof_to_ics23_existence_proof(key, value.clone(), &proof);
 
-                Ok(ics23::CommitmentProof {
-                    proof: Some(ics23::commitment_proof::Proof::Exist(ics23_exist)),
-                })
+                Ok((
+                    Some(value),
+                    ics23::CommitmentProof {
+                        proof: Some(ics23::commitment_proof::Proof::Exist(ics23_exist)),
+                    },
+                ))
             }
             Err(exclusion_proof) => {
                 let ics23_nonexist = self.exclusion_proof_to_ics23_nonexistence_proof(
@@ -210,9 +215,12 @@ where
                     &exclusion_proof,
                 )?;
 
-                Ok(ics23::CommitmentProof {
-                    proof: Some(ics23::commitment_proof::Proof::Nonexist(ics23_nonexist)),
-                })
+                Ok((
+                    None,
+                    ics23::CommitmentProof {
+                        proof: Some(ics23::commitment_proof::Proof::Nonexist(ics23_nonexist)),
+                    },
+                ))
             }
         }
     }
