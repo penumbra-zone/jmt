@@ -7,7 +7,8 @@ use crate::{
     storage::HasPreimage,
     storage::TreeReader,
     tree::ExclusionProof,
-    JellyfishMerkleTree, KeyHash, SimpleHasher, Version, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    JellyfishMerkleTree, KeyHash, OwnedValue, SimpleHasher, Version,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn sparse_merkle_proof_to_ics23_existence_proof<H: SimpleHasher>(
@@ -192,7 +193,7 @@ where
         &self,
         key: Vec<u8>,
         version: Version,
-    ) -> Result<(Option<Vec<u8>>, ics23::CommitmentProof)> {
+    ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof)> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
@@ -296,7 +297,8 @@ mod tests {
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
         db.write_tree_update_batch(batch).unwrap();
 
-        let commitment_proof = tree.get_with_ics23_proof(b"notexist".to_vec(), 0).unwrap();
+        let (value_retrieved, commitment_proof) =
+            tree.get_with_ics23_proof(b"notexist".to_vec(), 0).unwrap();
 
         let key_hash = KeyHash::with::<Sha256>(b"notexist".as_slice());
         let proof_or_exclusion = tree.get_with_exclusion_proof(key_hash, 0).unwrap();
@@ -321,7 +323,9 @@ mod tests {
                         &ics23_spec(),
                         &new_root_hash.0.to_vec(),
                         b"notexist"
-                    ))
+                    ));
+
+                    assert_eq!(value_retrieved, None)
                 }
                 Rightmost {
                     rightmost_left_proof,
@@ -339,7 +343,9 @@ mod tests {
                         &ics23_spec(),
                         &new_root_hash.0.to_vec(),
                         b"notexist"
-                    ))
+                    ));
+
+                    assert_eq!(value_retrieved, None)
                 }
                 Middle {
                     leftmost_right_proof,
@@ -366,7 +372,9 @@ mod tests {
                         &ics23_spec(),
                         &new_root_hash.0.to_vec(),
                         b"notexist"
-                    ))
+                    ));
+
+                    assert_eq!(value_retrieved, None)
                 }
             },
         }
@@ -400,7 +408,8 @@ mod tests {
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
         db.write_tree_update_batch(batch).unwrap();
 
-        let commitment_proof = tree.get_with_ics23_proof(b"key".to_vec(), 0).unwrap();
+        let (value_retrieved, commitment_proof) =
+            tree.get_with_ics23_proof(b"key".to_vec(), 0).unwrap();
 
         assert!(ics23::verify_membership::<HostFunctionsManager>(
             &commitment_proof,
@@ -409,6 +418,8 @@ mod tests {
             b"key",
             b"value",
         ));
+
+        assert_eq!(value_retrieved.unwrap(), b"value");
     }
 
     #[test]
@@ -427,7 +438,9 @@ mod tests {
             db.write_tree_update_batch(batch).unwrap();
         }
 
-        let commitment_proof = tree
+        let value_maxversion = format!("value{}", MAX_VERSION).into_bytes();
+
+        let (value_retrieved, commitment_proof) = tree
             .get_with_ics23_proof(format!("key{}", MAX_VERSION).into_bytes(), MAX_VERSION)
             .unwrap();
 
@@ -440,5 +453,7 @@ mod tests {
             format!("key{}", MAX_VERSION).as_bytes(),
             format!("value{}", MAX_VERSION).as_bytes(),
         ));
+
+        assert_eq!(value_retrieved.unwrap(), value_maxversion);
     }
 }
