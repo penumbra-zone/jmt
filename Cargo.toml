@@ -1,6 +1,6 @@
 [package]
 name = "jmt"
-version = "0.4.1"
+version = "0.4.2"
 authors = [
     "Penumbra Labs <team@penumbra.zone>",
     "Diem Association <opensource@diem.com>",
@@ -16,13 +16,12 @@ category = ["cryptography", "data-structures"]
 publish = true
 
 [features]
-default = ["ics23", "std", "metrics"]
+default = ["std", "metrics"]
 mocks = ["dep:parking_lot"]
 std = ["dep:thiserror"]
 metrics = ["std", "dep:prometheus", "dep:once_cell"]
 
 [dependencies]
-ics23 = { git = "https://github.com/penumbra-zone/ics23", branch = "compare-prehashed-keys", optional = true }
 anyhow = "1.0.38"
 borsh =  "0.10.0" 
 hashbrown = "0.13.2"
@@ -46,3 +45,4 @@ parking_lot = { version = "0.12.1" }
 serde_json = { version  = "1.0.95" }
 proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.3.0" }
+ics23 = "0.10.0"
