@@ -186,9 +186,9 @@ where
         }
     }
 
-    /// Returns the value corresponding to the specified `key` along with a [`CommitmentProof`].
-    ///
-    /// If the value is not found, return `None` along with a non-exisstence proof.
+    /// Returns the value corresponding to the specified key (if there is a value associated with it)
+    /// along with an [ics23::CommitmentProof] proving either the presence of the value at that key,
+    /// or the absence of any value at that key, depending on which is the case.
     pub fn get_with_ics23_proof(
         &self,
         key: Vec<u8>,
