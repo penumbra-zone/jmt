@@ -59,6 +59,8 @@ use crate::SimpleHasher;
     PartialEq,
     Ord,
     PartialOrd,
+    Serialize,
+    Deserialize,
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
@@ -117,7 +119,16 @@ impl NodeKey {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Serialize,
+    Deserialize,
+)]
 pub enum NodeType {
     Leaf,
     /// A internal node that haven't been finished the leaf count migration, i.e. None or not all
@@ -144,7 +155,16 @@ impl Arbitrary for NodeType {
 }
 
 /// Each child of [`InternalNode`] encapsulates a nibble forking at this node.
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Serialize,
+    Deserialize,
+)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct Child {
     /// The hash value of this child node.
@@ -182,7 +202,17 @@ impl Child {
 
 /// [`Children`] is just a collection of children belonging to a [`InternalNode`], indexed from 0 to
 /// 15, inclusive.
-#[derive(Debug, Clone, PartialEq, Eq, Default, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Default,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Serialize,
+    Deserialize,
+)]
 pub struct Children {
     /// The actual children. We box this array to avoid stack overflows, since the space consumed
     /// is somewhat large
@@ -290,7 +320,16 @@ impl Children {
 /// Though we choose the same internal node structure as that of Patricia Merkle tree, the root hash
 /// computation logic is similar to a 4-level sparse Merkle tree except for some customizations. See
 /// the `CryptoHash` trait implementation below for details.
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
 pub struct InternalNode {
     /// Up to 16 children.
     children: Children,
@@ -718,7 +757,7 @@ impl From<LeafNode> for SparseMerkleLeafNode {
 }
 
 #[repr(u8)]
-#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize)]
+#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 enum NodeTag {
     Null = 0,
     Leaf = 1,
@@ -726,7 +765,7 @@ enum NodeTag {
 }
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, Serialize, Deserialize)]
 #[cfg_attr(not(feature = "metrics"), derive(BorshSerialize))]
 pub enum Node {
     /// Represents `null`.
@@ -742,17 +781,17 @@ pub enum Node {
 impl BorshSerialize for Node {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         match self {
-            Node::Null => NodeTag::Null.serialize(writer),
+            Node::Null => BorshSerialize::serialize(&NodeTag::Null, writer),
             Node::Internal(internal) => {
                 let mut buffer = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
-                NodeTag::Internal.serialize(&mut buffer)?;
-                internal.serialize(&mut buffer)?;
+                BorshSerialize::serialize(&NodeTag::Internal, &mut buffer)?;
+                BorshSerialize::serialize(&internal, &mut buffer)?;
                 inc_internal_encoded_bytes_metric_if_enabled(buffer.len() as u64);
                 writer.write_all(&buffer)
             }
             Node::Leaf(leaf) => {
                 inc_leaf_encoded_bytes_metric_if_enabled(SERIALIZED_LEAF_SIZE as u64);
-                NodeTag::Leaf.serialize(writer)?;
+                BorshSerialize::serialize(&NodeTag::Leaf, writer)?;
                 BorshSerialize::serialize(&leaf, writer)
             }
         }
