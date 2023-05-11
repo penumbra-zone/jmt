@@ -22,17 +22,7 @@ pub trait TreeWriter {
 }
 
 /// Node batch that will be written into db atomically with other batches.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Default,
-    Eq,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Default, Eq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct NodeBatch {
     nodes: BTreeMap<NodeKey, Node>,
     values: BTreeMap<(Version, KeyHash), Option<OwnedValue>>,
