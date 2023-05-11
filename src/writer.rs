@@ -2,8 +2,10 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 use alloc::vec::Vec;
 use anyhow::Result;
+use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     node_type::{Node, NodeKey},
@@ -91,9 +93,8 @@ pub struct NodeStats {
 }
 
 /// Indicates a node becomes stale since `stale_since_version`.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, BorshDeserialize, BorshSerialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct StaleNodeIndex {
     /// The version since when the node is overwritten and becomes stale.
     pub stale_since_version: Version,
@@ -106,7 +107,7 @@ pub struct StaleNodeIndex {
 /// [`StaleNodeIndexBatch`](type.StaleNodeIndexBatch.html) and some stats of nodes that represents
 /// the incremental updates of a tree and pruning indices after applying a write set,
 /// which is a vector of `hashed_account_address` and `new_value` pairs.
-#[derive(Clone, Debug, Default, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct TreeUpdateBatch {
     pub node_batch: NodeBatch,
     pub stale_node_index_batch: StaleNodeIndexBatch,
