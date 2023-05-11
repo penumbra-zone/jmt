@@ -94,17 +94,7 @@ impl NodeBatch {
 /// with other batches.
 pub type StaleNodeIndexBatch = BTreeSet<StaleNodeIndex>;
 
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct NodeStats {
     pub new_nodes: usize,
     pub new_leaves: usize,
@@ -113,19 +103,7 @@ pub struct NodeStats {
 }
 
 /// Indicates a node becomes stale since `stale_since_version`.
-#[derive(
-    Clone,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    Deserialize,
-    BorshDeserialize,
-    BorshSerialize,
-)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, BorshDeserialize, BorshSerialize)]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
 pub struct StaleNodeIndex {
     /// The version since when the node is overwritten and becomes stale.
@@ -139,9 +117,7 @@ pub struct StaleNodeIndex {
 /// [`StaleNodeIndexBatch`](type.StaleNodeIndexBatch.html) and some stats of nodes that represents
 /// the incremental updates of a tree and pruning indices after applying a write set,
 /// which is a vector of `hashed_account_address` and `new_value` pairs.
-#[derive(
-    Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
-)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct TreeUpdateBatch {
     pub node_batch: NodeBatch,
     pub stale_node_index_batch: StaleNodeIndexBatch,

@@ -757,7 +757,7 @@ impl From<LeafNode> for SparseMerkleLeafNode {
 }
 
 #[repr(u8)]
-#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize)]
 enum NodeTag {
     Null = 0,
     Leaf = 1,
