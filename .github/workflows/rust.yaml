@@ -29,10 +29,10 @@ jobs:
           toolchain: stable
           override: true
       - uses: Swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-default-features
+      - name: cargo test
+        run: >-
+          cargo test --no-default-features
+          || find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   test-default-features:
     name: Test Suite with Default Features
@@ -45,13 +45,10 @@ jobs:
           toolchain: stable
           override: true
       - uses: Swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
+      - name: cargo test
+        run: >-
+          cargo test
+          || find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   test-all-features:
     name: Test Suite with All Features
@@ -64,10 +61,10 @@ jobs:
           toolchain: stable
           override: true
       - uses: Swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
+      - name: cargo test
+        run: >-
+          cargo test --all-features
+          || find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   fmt:
     name: Rustfmt
