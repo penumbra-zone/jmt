@@ -82,7 +82,6 @@ use thiserror::Error;
 
 mod bytes32ext;
 mod iterator;
-mod metrics;
 mod node_type;
 mod reader;
 mod tree;

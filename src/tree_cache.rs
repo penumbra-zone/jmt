@@ -75,7 +75,6 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use anyhow::{bail, Result};
 
 use crate::{
-    metrics::inc_storage_reads_metric_if_enabled,
     node_type::{Node, NodeKey},
     storage::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
@@ -196,7 +195,6 @@ where
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             node.clone()
         } else {
-            inc_storage_reads_metric_if_enabled(1);
             self.reader.get_node(node_key)?
         })
     }
@@ -209,7 +207,6 @@ where
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             Some(node.clone())
         } else {
-            inc_storage_reads_metric_if_enabled(1);
             self.reader.get_node_option(node_key)?
         })
     }
