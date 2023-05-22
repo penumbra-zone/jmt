@@ -21,23 +21,6 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "metrics")]
-use crate::metrics::{
-    inc_internal_encoded_bytes_metric_if_enabled, inc_leaf_encoded_bytes_metric_if_enabled,
-};
-
-/// The maximum size of a serialized internal node, in bytes.
-///
-/// A serialized internal node has 16 optional "child" nodes, plus 10 bytes of metadata (an optional usize and a bool)
-/// Each child node is (if present) 32 bytes for the hash, 8 bytes for the optional version,
-/// 9 bytes for the node type, and one byte for the outer option.
-#[cfg(feature = "metrics")]
-const MAX_SERIALIZED_INTERNAL_NODE_SIZE: usize = 16 * (32 + 8 + 9 + 1 + 1) + 10;
-
-/// The size of a leaf serialized with borsh. 32 bytes each for the key hash and value hash.
-#[cfg(feature = "metrics")]
-const SERIALIZED_LEAF_SIZE: usize = 32 + 32;
-
 use crate::{
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -765,8 +748,7 @@ enum NodeTag {
 }
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "metrics"), derive(BorshSerialize))]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub enum Node {
     /// Represents `null`.
     Null,
@@ -774,28 +756,6 @@ pub enum Node {
     Internal(InternalNode),
     /// A wrapper of [`LeafNode`].
     Leaf(LeafNode),
-}
-
-// Manually implement serialize to enable metrics
-#[cfg(feature = "metrics")]
-impl BorshSerialize for Node {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match self {
-            Node::Null => BorshSerialize::serialize(&NodeTag::Null, writer),
-            Node::Internal(internal) => {
-                let mut buffer = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
-                BorshSerialize::serialize(&NodeTag::Internal, &mut buffer)?;
-                BorshSerialize::serialize(&internal, &mut buffer)?;
-                inc_internal_encoded_bytes_metric_if_enabled(buffer.len() as u64);
-                writer.write_all(&buffer)
-            }
-            Node::Leaf(leaf) => {
-                inc_leaf_encoded_bytes_metric_if_enabled(SERIALIZED_LEAF_SIZE as u64);
-                BorshSerialize::serialize(&NodeTag::Leaf, writer)?;
-                BorshSerialize::serialize(&leaf, writer)
-            }
-        }
-    }
 }
 
 impl From<InternalNode> for Node {
@@ -874,44 +834,5 @@ impl Node {
             Node::Internal(internal_node) => internal_node.hash(),
             Node::Leaf(leaf_node) => leaf_node.hash(),
         }
-    }
-}
-
-#[cfg(all(test, feature = "metrics"))]
-mod tests {
-    use alloc::vec::Vec;
-    use borsh::BorshSerialize;
-
-    use super::{Children, MAX_SERIALIZED_INTERNAL_NODE_SIZE, SERIALIZED_LEAF_SIZE};
-
-    #[test]
-    fn serialized_leaf_size_is_correct() {
-        let leaf = crate::node_type::LeafNode::new(
-            crate::node_type::KeyHash([0; 32]),
-            crate::node_type::ValueHash([0; 32]),
-        );
-        let mut out = Vec::with_capacity(SERIALIZED_LEAF_SIZE);
-        leaf.serialize(&mut out).unwrap();
-        assert_eq!(out.len(), SERIALIZED_LEAF_SIZE)
-    }
-
-    #[test]
-    fn max_serialized_internal_node_size_is_correct() {
-        let mut children: Children = Default::default();
-        for nibble in 0u8..16 {
-            children.insert(
-                nibble.into(),
-                super::Child {
-                    hash: [1u8; 32],
-                    version: u64::MAX,
-                    node_type: super::NodeType::Internal { leaf_count: 16 },
-                },
-            )
-        }
-
-        let internal = crate::node_type::InternalNode::new(children);
-        let mut out = Vec::with_capacity(MAX_SERIALIZED_INTERNAL_NODE_SIZE);
-        internal.serialize(&mut out).unwrap();
-        assert!(out.len() <= MAX_SERIALIZED_INTERNAL_NODE_SIZE);
     }
 }

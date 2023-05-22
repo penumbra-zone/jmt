@@ -5,7 +5,6 @@ use anyhow::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest_derive::Arbitrary;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     node_type::{Node, NodeKey},

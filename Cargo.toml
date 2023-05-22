@@ -16,10 +16,9 @@ category = ["cryptography", "data-structures"]
 publish = true
 
 [features]
-default = ["ics23", "std", "metrics"]
+default = ["ics23", "std"]
 mocks = ["dep:parking_lot"]
 std = ["dep:thiserror"]
-metrics = ["std", "dep:prometheus", "dep:once_cell"]
 
 [dependencies]
 anyhow = "1.0.38"
@@ -29,11 +28,9 @@ itertools = { version = "0.10.0", default-features = false }
 mirai-annotations = "1.10.1"
 num-derive = "0.3.3"
 num-traits = "0.2.14"
-once_cell = { version = "1.7.2", optional = true } 
 parking_lot = { version = "0.12.1", optional = true } 
 serde = { version = "1.0.124", features = ["derive"] }
 thiserror = { version = "1.0.24", optional = true } 
-prometheus = { version = "0.13", optional = true } 
 sha2 = "0.10"
 hex = "0.4"
 tracing = "0.1"
