@@ -152,6 +152,14 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             }
         }
 
+        self.unsafe_verify(expected_root_hash, element_key)?;
+
+        Ok(())
+    }
+
+    /// A helper function that is used to verify the values of the Merkle tree against the root hash without
+    /// the preliminary checks
+    fn unsafe_verify(&self, expected_root_hash: RootHash, element_key: KeyHash) -> Result<()> {
         let current_hash = self
             .leaf
             .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
@@ -172,6 +180,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                     SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
                 }
             });
+
         ensure!(
             actual_root_hash == expected_root_hash.0,
             "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
@@ -192,7 +201,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     ///    2. Use the provided Merkle path and the tuple (`new_element_key`, `new_element_value`) to compute the new Merkle path.
     ///    3. Compare the new Merkle path against the new_root_hash
     /// If these steps are verified then the [`JellyfishMerkleTree`] has been soundly updated
-    pub fn verify_update<V: AsRef<[u8]> + Copy>(
+    pub fn verify_update<V: AsRef<[u8]>>(
         self,
         old_root_hash: RootHash,
         new_root_hash: RootHash,
@@ -225,12 +234,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             self.siblings,
                         );
 
-                        // Step 3: we compare the new Merkle path against the new_root_hash
-                        new_merkle_path.verify_existence(
-                            new_root_hash,
-                            new_element_key,
-                            new_element_value,
-                        )?;
+                        new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
                     } else {
                         // Case 2: The new element key is different from the leaf key (leaf creation)
                         // Step 1: we verify the old key is going to be split following the insertion of the
@@ -256,11 +260,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                     );
 
                     // Step 3: we compare the new Merkle path against the new_root_hash
-                    new_merkle_path.verify_existence(
-                        new_root_hash,
-                        new_element_key,
-                        new_element_value,
-                    )?;
+                    new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
                 }
             }
         } else {
