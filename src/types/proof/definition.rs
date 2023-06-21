@@ -261,7 +261,6 @@ pub struct SparseMerkleRangeProof<H> {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
     right_siblings: Vec<[u8; 32]>,
-    #[serde(skip)]
     _phantom: PhantomData<H>,
 }
 
@@ -359,7 +358,11 @@ impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
 }
 
 #[cfg(test)]
-mod tests {
+mod serialization_tests {
+    //! These tests ensure that the various proofs supported by the JMT can actually be serialized and deserialized
+    //! when instantiated with a specific hasher. This is done as a sanity check to ensure the trait bounds inferred by Rustc
+    //! are not too restrictive.
+
     use sha2::Sha256;
 
     use crate::{proof::SparseMerkleLeafNode, KeyHash, ValueHash};
