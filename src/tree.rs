@@ -366,6 +366,26 @@ where
         Ok((root_hashes[0], tree_update_batch))
     }
 
+    /// This is a convenient function that calls
+    /// [`put_value_sets_with_proof`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
+    /// `keyed_value_set`.
+    pub fn put_value_set_with_proof(
+        &self,
+        value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
+        version: Version,
+    ) -> Result<(RootHash, SparseMerkleProof<H>, TreeUpdateBatch)> {
+        let (mut root_hashes_and_proofs, tree_update_batch) =
+            self.put_value_sets_with_proof(vec![value_set], version)?;
+        assert_eq!(
+            root_hashes_and_proofs.len(),
+            1,
+            "root_hashes must consist of a single value.",
+        );
+        let (root_hash, proof) = root_hashes_and_proofs.pop().unwrap();
+
+        Ok((root_hash, proof, tree_update_batch))
+    }
+
     /// Returns the new nodes and values in a batch after applying `value_set`. For
     /// example, if after transaction `T_i` the committed state of tree in the persistent storage
     /// looks like the following structure:
