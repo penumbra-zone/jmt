@@ -73,10 +73,10 @@ extern crate alloc;
 
 use core::fmt::Debug;
 
+use digest::generic_array::GenericArray;
+use digest::Digest;
+use digest::OutputSizeUser;
 use serde::{Deserialize, Serialize};
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::OutputSizeUser;
-use sha2::Digest;
 #[cfg(feature = "std")]
 use thiserror::Error;
 
@@ -97,7 +97,10 @@ use bytes32ext::Bytes32Ext;
 pub use iterator::JellyfishMerkleIterator;
 #[cfg(feature = "ics23")]
 pub use tree::ics23_impl::ics23_spec;
-pub use tree::{JellyfishMerkleTree, Sha256Jmt};
+pub use tree::JellyfishMerkleTree;
+#[cfg(any(test, feature = "sha2"))]
+pub use tree::Sha256Jmt;
+
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;

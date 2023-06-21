@@ -8,7 +8,6 @@ use hashbrown::HashMap;
 use std::collections::HashMap;
 
 use anyhow::{bail, ensure, format_err, Context, Result};
-use sha2::Sha256;
 
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
@@ -27,7 +26,8 @@ use crate::{
 
 /// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
 /// This is a sensible default choice for most applications.
-pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
+#[cfg(any(test, feature = "sha2"))]
+pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, sha2::Sha256>;
 
 /// A Jellyfish Merkle tree data structure, parameterized by a [`TreeReader`] `R`
 /// and a [`SimpleHasher`] `H`. See [`crate`] for description.

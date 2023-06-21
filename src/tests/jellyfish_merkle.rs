@@ -709,12 +709,12 @@ fn test_two_gets_then_delete() {
 proptest! {
     #[test]
     fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
-        test_get_with_proof((existent_kvs, nonexistent_keys))
+        test_get_with_proof::<Sha256>((existent_kvs, nonexistent_keys))
     }
 
     #[test]
     fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
-        test_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys))
+        test_get_with_proof_with_deletions::<Sha256>((existent_kvs, deletions, nonexistent_keys))
     }
 
     // This is a replica of the test below, with the values tuned to the smallest values that were
@@ -729,7 +729,7 @@ proptest! {
                         .prop_flat_map(move |ops| arb_partitions(versions, ops))
             })
     ) {
-        test_clairvoyant_construction_matches_interleaved_construction(operations_by_version)
+        test_clairvoyant_construction_matches_interleaved_construction::<Sha256>(operations_by_version)
     }
 
     // This is a replica of the test above, but with much larger parameters for more exhaustive
@@ -745,21 +745,21 @@ proptest! {
                         .prop_flat_map(move |ops| arb_partitions(versions, ops))
             })
     ) {
-        test_clairvoyant_construction_matches_interleaved_construction(operations_by_version)
+        test_clairvoyant_construction_matches_interleaved_construction::<Sha256>(operations_by_version)
     }
 
     #[test]
     fn proptest_get_with_proof_with_distinct_last_nibble((kv1, kv2) in arb_kv_pair_with_distinct_last_nibble()) {
-        test_get_with_proof_with_distinct_last_nibble((kv1, kv2))
+        test_get_with_proof_with_distinct_last_nibble::<Sha256>((kv1, kv2))
     }
 
     #[test]
     fn proptest_get_range_proof((btree, n) in arb_tree_with_index(1000)) {
-        test_get_range_proof((btree, n))
+        test_get_range_proof::<Sha256>((btree, n))
     }
 
     #[test]
     fn proptest_get_leaf_count(keys in btree_set(any::<KeyHash>(), 1..1000).prop_map(|m| m.into_iter().collect())) {
-        test_get_leaf_count(keys)
+        test_get_leaf_count::<Sha256>(keys)
     }
 }
