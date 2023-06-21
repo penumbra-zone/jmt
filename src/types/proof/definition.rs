@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
 use crate::{
-    storage::{LeafNode, Node},
+    storage::Node,
     types::nibble::nibble_path::{skip_common_prefix, NibblePath},
     Bytes32Ext, KeyHash, PhantomHasher, RootHash, SimpleHasher, ValueHash,
     SPARSE_MERKLE_PLACEHOLDER_HASH,
@@ -70,6 +70,10 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     /// Returns the list of siblings in this proof.
     pub fn siblings(&self) -> &[[u8; 32]] {
         &self.siblings
+    }
+
+    pub fn move_siblings(self) -> Vec<[u8; 32]> {
+        self.siblings
     }
 
     /// Verifies an element whose key is `element_key` and value is
@@ -238,6 +242,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             self.siblings,
                         );
 
+                        // Step 3: we compare the new Merkle path against the new_root_hash
                         new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
                     } else {
                         // Case 2: The new element key is different from the leaf key (leaf creation)
@@ -262,11 +267,11 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
                         );
 
-                        // Fill the siblings with the former default siblings
-                        new_siblings.resize(num_default_siblings, Node::new_null().hash());
-
-                        // Then add the previous leaf node
+                        // Add the previous leaf node
                         new_siblings.push(leaf_node.hash());
+
+                        // Fill the siblings with the former default siblings
+                        new_siblings.resize(num_default_siblings + 1, Node::new_null().hash());
 
                         // Finally add the other siblings
                         new_siblings.append(&mut self.siblings);
@@ -281,6 +286,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             new_siblings,
                         );
 
+                        // Step 3: we compare the new Merkle path against the new_root_hash
                         new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
                     }
                 }
