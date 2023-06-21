@@ -50,8 +50,8 @@ pub struct SparseMerkleLeafNode<H> {
     _phantom: PhantomData<H>,
 }
 
-// Manually implement Arbitrary to get the correct bounds (proptest_derive) only allows all-or-nothing,
-// but we need H: SimpleHasher only.
+// Manually implement Arbitrary to get the correct bounds. The derived Arbitrary impl adds a spurious
+// H: Debug bound even with the proptest(no_bound) annotation
 #[cfg(any(test, feature = "fuzzing"))]
 impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
     type Parameters = ();
@@ -68,6 +68,7 @@ impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
             .boxed()
     }
 }
+
 // Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
 impl<H> Clone for SparseMerkleLeafNode<H> {
