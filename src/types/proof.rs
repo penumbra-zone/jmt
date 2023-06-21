@@ -46,7 +46,6 @@ impl<H: SimpleHasher> SparseMerkleInternalNode<H> {
 pub struct SparseMerkleLeafNode<H> {
     key_hash: KeyHash,
     value_hash: ValueHash,
-    #[serde(bound(serialize = "", deserialize = ""))]
     _phantom: PhantomData<H>,
 }
 

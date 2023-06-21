@@ -1,6 +1,5 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
-// #![cfg(feature = "sha2")]
 
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 
@@ -12,7 +11,7 @@ use crate::{
     restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
     storage::TreeReader,
     tests::helper::init_mock_db,
-    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, Sha256Jmt, SimpleHasher, Version,
+    JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, SimpleHasher, Version,
 };
 
 fn test_restore_with_interruption<H: SimpleHasher>(
@@ -75,7 +74,7 @@ fn test_restore_with_interruption<H: SimpleHasher>(
         restore.finish().unwrap();
     }
 
-    assert_success(&restore_db, expected_root_hash, &entries, version);
+    assert_success::<H>(&restore_db, expected_root_hash, &entries, version);
 }
 
 proptest! {
@@ -117,13 +116,53 @@ proptest! {
     }
 }
 
-fn assert_success(
+#[cfg(feature = "blake3_tests")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(10))]
+
+    #[test]
+    fn test_restore_without_interruption_blake3(
+        btree in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
+        target_version in 0u64..2000,
+    ) {
+        let restore_db = Arc::new(MockTreeStore::default());
+        // For this test, restore everything without interruption.
+        restore_without_interruption::<blake3::Hasher>(&btree, target_version, &restore_db, true);
+    }
+
+    #[test]
+    fn test_restore_with_interruption_blake3(
+        (entries, first_batch_size) in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 2..1000)
+            .prop_flat_map(|btree| {
+                let len = btree.len();
+                (Just(btree), 1..len)
+            })
+    ) {
+        test_restore_with_interruption::<blake3::Hasher>(entries, first_batch_size )
+    }
+
+
+
+    #[test]
+    fn test_overwrite_blake3(
+        btree1 in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
+        btree2 in btree_map(any::<KeyHash>(), any::<OwnedValue>(), 1..1000),
+        target_version in 0u64..2000,
+    ) {
+        let restore_db = Arc::new(MockTreeStore::new(true /* allow_overwrite */));
+        restore_without_interruption::<blake3::Hasher>(&btree1, target_version, &restore_db, true);
+        // overwrite, an entirely different tree
+        restore_without_interruption::<blake3::Hasher>(&btree2, target_version, &restore_db, false);
+    }
+}
+
+fn assert_success<H: SimpleHasher>(
     db: &MockTreeStore,
     expected_root_hash: RootHash,
     btree: &BTreeMap<KeyHash, OwnedValue>,
     version: Version,
 ) {
-    let tree = Sha256Jmt::new(db);
+    let tree = JellyfishMerkleTree::<_, H>::new(db);
     for (key, value) in btree {
         assert_eq!(tree.get(*key, version).unwrap(), Some(value.clone()));
     }
@@ -139,11 +178,11 @@ fn restore_without_interruption<H: SimpleHasher>(
     try_resume: bool,
 ) {
     let (db, source_version) = init_mock_db::<H>(&btree.clone().into_iter().collect());
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
     let expected_root_hash = tree.get_root_hash(source_version).unwrap();
 
     let mut restore = if try_resume {
-        JellyfishMerkleRestore::<Sha256>::new(
+        JellyfishMerkleRestore::<H>::new(
             Arc::clone(target_db),
             target_version,
             expected_root_hash,
@@ -167,5 +206,5 @@ fn restore_without_interruption<H: SimpleHasher>(
     }
     Box::new(restore).finish().unwrap();
 
-    assert_success(target_db, expected_root_hash, btree, target_version);
+    assert_success::<H>(target_db, expected_root_hash, btree, target_version);
 }

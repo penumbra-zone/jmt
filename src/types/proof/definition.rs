@@ -27,6 +27,7 @@ pub struct SparseMerkleProof<H> {
     ///           corresponding account blob.
     ///     - If this is `None`, this is also a non-inclusion proof which indicates the subtree is
     ///       empty.
+    // Prevent serde from adding a spurious Serialize/Deserialize bound on H
     #[serde(bound(serialize = "", deserialize = ""))]
     leaf: Option<SparseMerkleLeafNode<H>>,
 
@@ -35,7 +36,6 @@ pub struct SparseMerkleProof<H> {
     siblings: Vec<[u8; 32]>,
 
     /// A marker type showing which hash function is used in this proof.
-    #[serde(bound(serialize = "", deserialize = ""))]
     phantom_hasher: PhantomData<H>,
 }
 
@@ -261,7 +261,7 @@ pub struct SparseMerkleRangeProof<H> {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
     right_siblings: Vec<[u8; 32]>,
-    #[serde(bound(serialize = "", deserialize = ""))]
+    #[serde(skip)]
     _phantom: PhantomData<H>,
 }
 
