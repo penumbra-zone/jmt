@@ -295,7 +295,9 @@ pub trait SimpleHasher: Sized {
 /// structs to derive these traits even if the concrete hasher does not
 /// implement them.
 #[derive(Clone, Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct PhantomHasher<H: SimpleHasher>(core::marker::PhantomData<H>);
+pub struct PhantomHasher<H: SimpleHasher>(
+    #[serde(bound(serialize = "", deserialize = ""))] core::marker::PhantomData<H>,
+);
 
 impl<H: SimpleHasher> Debug for PhantomHasher<H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
