@@ -74,7 +74,7 @@ where
                 None => unreachable!("{:?} can not be found in hash cache", node_key),
             }
         } else {
-            node.hash()
+            node.hash::<H>()
         }
     }
 
@@ -121,7 +121,7 @@ where
             tree_cache.set_root_node_key(new_root_node_key);
 
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze()?;
+            tree_cache.freeze::<H>()?;
         }
 
         Ok(tree_cache.into())
@@ -292,7 +292,7 @@ where
                     node_key.gen_child_node_key(version, existing_leaf_bucket);
                 children.insert(
                     existing_leaf_bucket,
-                    Child::new(existing_leaf_node.hash(), version, NodeType::Leaf),
+                    Child::new(existing_leaf_node.hash::<H>(), version, NodeType::Leaf),
                 );
 
                 tree_cache.put_node(existing_leaf_node_key, existing_leaf_node.into())?;
@@ -431,7 +431,7 @@ where
                         })
                 })?;
             // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze()?;
+            tree_cache.freeze::<H>()?;
         }
 
         Ok(tree_cache.into())
@@ -586,7 +586,7 @@ where
                 // update child
                 children.insert(
                     child_index,
-                    Child::new(new_node.hash(), version, new_node.node_type()),
+                    Child::new(new_node.hash::<H>(), version, new_node.node_type()),
                 );
             }
             PutResult::Removed => {
@@ -701,7 +701,7 @@ where
             let mut children = Children::new();
             children.insert(
                 existing_leaf_index,
-                Child::new(existing_leaf_node.hash(), version, NodeType::Leaf),
+                Child::new(existing_leaf_node.hash::<H>(), version, NodeType::Leaf),
             );
             node_key = NodeKey::new(version, common_nibble_path.clone());
             tree_cache.put_node(
@@ -717,7 +717,7 @@ where
             )?;
             children.insert(
                 new_leaf_index,
-                Child::new(new_leaf_node.hash(), version, NodeType::Leaf),
+                Child::new(new_leaf_node.hash::<H>(), version, NodeType::Leaf),
             );
 
             let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
@@ -733,7 +733,7 @@ where
                 children.insert(
                     nibble,
                     Child::new(
-                        next_internal_node.hash(),
+                        next_internal_node.hash::<H>(),
                         version,
                         next_internal_node.node_type(),
                     ),
@@ -801,8 +801,8 @@ where
                     let queried_child_index = nibble_iter
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
-                    let (child_node_key, mut siblings_in_internal) =
-                        internal_node.get_child_with_siblings(&next_node_key, queried_child_index);
+                    let (child_node_key, mut siblings_in_internal) = internal_node
+                        .get_child_with_siblings::<H>(&next_node_key, queried_child_index);
                     siblings.append(&mut siblings_in_internal);
                     next_node_key = match child_node_key {
                         Some(node_key) => node_key,
@@ -1137,7 +1137,7 @@ where
         &self,
         rightmost_key_to_prove: KeyHash,
         version: Version,
-    ) -> Result<SparseMerkleRangeProof> {
+    ) -> Result<SparseMerkleRangeProof<H>> {
         let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version)?;
         ensure!(account.is_some(), "rightmost_key_to_prove must exist.");
 
@@ -1178,13 +1178,13 @@ where
     }
 
     pub fn get_root_hash(&self, version: Version) -> Result<RootHash> {
-        self.get_root_node(version).map(|n| RootHash(n.hash()))
+        self.get_root_node(version).map(|n| RootHash(n.hash::<H>()))
     }
 
     pub fn get_root_hash_option(&self, version: Version) -> Result<Option<RootHash>> {
         Ok(self
             .get_root_node_option(version)?
-            .map(|n| RootHash(n.hash())))
+            .map(|n| RootHash(n.hash::<H>())))
     }
 
     // TODO: should this be public? seems coupled to tests?

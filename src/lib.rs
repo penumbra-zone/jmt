@@ -294,10 +294,26 @@ pub trait SimpleHasher: Sized {
 /// Debug, PartialEq, Eq, and Clone  This allows higher level
 /// structs to derive these traits even if the concrete hasher does not
 /// implement them.
-#[derive(Clone, Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct PhantomHasher<H: SimpleHasher>(
     #[serde(bound(serialize = "", deserialize = ""))] core::marker::PhantomData<H>,
 );
+
+#[cfg(any(test, feature = "fuzzing"))]
+impl<H: SimpleHasher> proptest::prelude::Arbitrary for PhantomHasher<H> {
+    type Parameters = ();
+    type Strategy = proptest::strategy::Just<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        proptest::strategy::Just(Default::default())
+    }
+}
+
+impl<H: SimpleHasher> Clone for PhantomHasher<H> {
+    fn clone(&self) -> Self {
+        Self(Default::default())
+    }
+}
 
 impl<H: SimpleHasher> Debug for PhantomHasher<H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

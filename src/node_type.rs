@@ -9,6 +9,7 @@
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
 
+use crate::SimpleHasher;
 use alloc::format;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
@@ -29,9 +30,6 @@ use crate::{
     },
     KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
-
-#[cfg(any(test, feature = "fuzzing"))]
-use crate::SimpleHasher;
 
 /// The unique key of each node.
 #[derive(
@@ -442,8 +440,8 @@ impl InternalNode {
         }
     }
 
-    pub fn hash(&self) -> [u8; 32] {
-        self.merkle_hash(
+    pub fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
+        self.merkle_hash::<H>(
             0,  /* start index */
             16, /* the number of leaves in the subtree of which we want the hash of root */
             self.generate_bitmaps(),
@@ -494,7 +492,7 @@ impl InternalNode {
         (bitmaps.0 & mask, bitmaps.1 & mask)
     }
 
-    fn merkle_hash(
+    fn merkle_hash<H: SimpleHasher>(
         &self,
         start: u8,
         width: u8,
@@ -521,17 +519,17 @@ impl InternalNode {
                 .unwrap()
                 .hash
         } else {
-            let left_child = self.merkle_hash(
+            let left_child = self.merkle_hash::<H>(
                 start,
                 width / 2,
                 (range_existence_bitmap, range_leaf_bitmap),
             );
-            let right_child = self.merkle_hash(
+            let right_child = self.merkle_hash::<H>(
                 start + width / 2,
                 width / 2,
                 (range_existence_bitmap, range_leaf_bitmap),
             );
-            SparseMerkleInternalNode::new(left_child, right_child).hash()
+            SparseMerkleInternalNode::<H>::new(left_child, right_child).hash()
         }
     }
 
@@ -602,7 +600,7 @@ impl InternalNode {
     ///     |   MSB|<---------------------- uint 16 ---------------------------->|LSB
     ///  height    chs: `child_half_start`         shs: `sibling_half_start`
     /// ```
-    pub fn get_child_with_siblings(
+    pub fn get_child_with_siblings<H: SimpleHasher>(
         &self,
         node_key: &NodeKey,
         n: Nibble,
@@ -617,7 +615,7 @@ impl InternalNode {
             let width = 1 << h;
             let (child_half_start, sibling_half_start) = get_child_and_sibling_half_start(n, h);
             // Compute the root hash of the subtree rooted at the sibling of `r`.
-            siblings.push(self.merkle_hash(
+            siblings.push(self.merkle_hash::<H>(
                 sibling_half_start,
                 width,
                 (existence_bitmap, leaf_bitmap),
@@ -728,12 +726,12 @@ impl LeafNode {
         self.value_hash
     }
 
-    pub fn hash(&self) -> [u8; 32] {
-        SparseMerkleLeafNode::new(self.key_hash, self.value_hash).hash()
+    pub fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
+        SparseMerkleLeafNode::<H>::new(self.key_hash, self.value_hash).hash()
     }
 }
 
-impl From<LeafNode> for SparseMerkleLeafNode {
+impl<H: SimpleHasher> From<LeafNode> for SparseMerkleLeafNode<H> {
     fn from(leaf_node: LeafNode) -> Self {
         Self::new(leaf_node.key_hash, leaf_node.value_hash)
     }
@@ -828,11 +826,11 @@ impl Node {
     }
 
     /// Computes the hash of nodes.
-    pub(crate) fn hash(&self) -> [u8; 32] {
+    pub(crate) fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
         match self {
             Node::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
-            Node::Internal(internal_node) => internal_node.hash(),
-            Node::Leaf(leaf_node) => leaf_node.hash(),
+            Node::Internal(internal_node) => internal_node.hash::<H>(),
+            Node::Leaf(leaf_node) => leaf_node.hash::<H>(),
         }
     }
 }

@@ -17,6 +17,7 @@ use proptest::{
 };
 use sha2::Sha256;
 
+use crate::SimpleHasher;
 use crate::{
     mock::MockTreeStore,
     node_type::LeafNode,
@@ -425,7 +426,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_with_deletions.unwrap(),
-                RootHash(Node::Null.hash())
+                RootHash(Node::Null.hash::<Sha256>())
             );
         }
         (false, true) => {
@@ -437,7 +438,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_without_deletions.unwrap(),
-                RootHash(Node::Null.hash())
+                RootHash(Node::Null.hash::<Sha256>())
             );
         }
     }
@@ -569,10 +570,10 @@ fn test_nonexistent_keys_impl<'a>(
 }
 
 /// Checks if we can construct the expected root hash using the entries in the btree and the proof.
-fn verify_range_proof(
+fn verify_range_proof<H: SimpleHasher>(
     expected_root_hash: RootHash,
     btree: BTreeMap<KeyHash, OwnedValue>,
-    proof: SparseMerkleRangeProof,
+    proof: SparseMerkleRangeProof<H>,
 ) {
     // For example, given the following sparse Merkle tree:
     //
@@ -609,7 +610,7 @@ fn verify_range_proof(
     let mut btree1 = BTreeMap::new();
     for (key, value) in &btree {
         let leaf = LeafNode::new(*key, ValueHash::with::<Sha256>(value.as_slice()));
-        btree1.insert(*key, leaf.hash());
+        btree1.insert(*key, leaf.hash::<Sha256>());
     }
     // Using the above example, `last_proven_key` is `e`. We look at the path from root to `e`.
     // For each 0-bit, there should be a sibling in the proof. And we use the path from root to
@@ -728,7 +729,7 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
         }
     }
 
-    SparseMerkleInternalNode::new(left_hash, right_hash).hash()
+    SparseMerkleInternalNode::<Sha256>::new(left_hash, right_hash).hash()
 }
 
 pub fn test_get_leaf_count(keys: HashSet<KeyHash>) {

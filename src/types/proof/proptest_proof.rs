@@ -25,13 +25,13 @@ fn arb_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
     ]
 }
 
-impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
+impl<H: SimpleHasher + 'static> Arbitrary for SparseMerkleProof<H> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
-            any::<Option<SparseMerkleLeafNode>>(),
+            any::<Option<SparseMerkleLeafNode<H>>>(),
             (0..=256usize).prop_flat_map(|len| {
                 if len == 0 {
                     Just(Vec::new()).boxed()
@@ -53,7 +53,7 @@ impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
     }
 }
 
-impl Arbitrary for SparseMerkleRangeProof {
+impl<H: SimpleHasher + 'static> Arbitrary for SparseMerkleRangeProof<H> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 

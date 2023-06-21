@@ -21,11 +21,11 @@ use crate::{
 };
 
 fn hash_internal(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
-    SparseMerkleInternalNode::new(left, right).hash()
+    SparseMerkleInternalNode::<Sha256>::new(left, right).hash()
 }
 
 fn hash_leaf(key: KeyHash, value_hash: ValueHash) -> [u8; 32] {
-    SparseMerkleLeafNode::new(key, value_hash).hash()
+    SparseMerkleLeafNode::<Sha256>::new(key, value_hash).hash()
 }
 
 // Generate a random node key with 63 nibbles.
@@ -86,7 +86,7 @@ fn test_leaf_hash() {
         let value_hash = ValueHash::with::<Sha256>(blob.as_slice());
         let hash = hash_leaf(address, value_hash);
         let leaf_node = Node::leaf_from_value::<Sha256>(address, blob);
-        assert_eq!(leaf_node.hash(), hash);
+        assert_eq!(leaf_node.hash::<Sha256>(), hash);
     }
 }
 
@@ -113,17 +113,17 @@ proptest! {
         //        leaf1     leaf2
         //
         let root_hash = hash_internal(hash1, hash2);
-        prop_assert_eq!(internal_node.hash(), root_hash);
+        prop_assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         for i in 0..8 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf1_node_key.clone()), vec![hash2])
             );
         }
         for i in 8..16 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf2_node_key.clone()), vec![hash1])
             );
         }
@@ -160,18 +160,18 @@ proptest! {
         let hash_x2 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1);
 
         let root_hash = hash_internal(hash_x2, SPARSE_MERKLE_PLACEHOLDER_HASH);
-        assert_eq!(internal_node.hash(), root_hash);
+        assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         for i in 0..4 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
         for i in 4..6 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (
                     Some(leaf1_node_key.clone()),
                     vec![
@@ -185,7 +185,7 @@ proptest! {
 
         for i in 6..8 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (
                     Some(leaf2_node_key.clone()),
                     vec![
@@ -199,7 +199,7 @@ proptest! {
 
         for i in 8..16 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x2])
             );
         }
@@ -234,25 +234,25 @@ proptest! {
         //      leaf1     leaf2
         let hash_x = hash_internal(hash1, hash2);
         let root_hash = hash_internal(hash_x, hash3);
-        prop_assert_eq!(internal_node.hash(), root_hash);
+        prop_assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         for i in 0..4 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf1_node_key.clone()),vec![hash3, hash2])
             );
         }
 
         for i in 4..8 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf2_node_key.clone()),vec![hash3, hash1])
             );
         }
 
         for i in 8..16 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf3_node_key.clone()),vec![hash_x])
             );
         }
@@ -299,11 +299,11 @@ proptest! {
         let hash_x4 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
         let hash_x5 = hash_internal(hash_x2, hash_x4);
         let root_hash = hash_internal(hash_x5, hash4);
-        assert_eq!(internal_node.hash(), root_hash);
+        assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         for i in 0..2 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (
                     Some(leaf1_node_key.clone()),
                     vec![hash4, hash_x4, hash_x1]
@@ -312,7 +312,7 @@ proptest! {
         }
 
         prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, 2.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 2.into()),
             (
                 Some(internal2_node_key),
                 vec![
@@ -325,7 +325,7 @@ proptest! {
         );
 
         prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, 3.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 3.into()),
 
             (
                 None,
@@ -335,7 +335,7 @@ proptest! {
 
         for i in 4..6 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (
                     None,
                     vec![hash4, hash_x2, hash_x3]
@@ -344,7 +344,7 @@ proptest! {
         }
 
         prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, 6.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 6.into()),
             (
                 None,
                 vec![
@@ -357,7 +357,7 @@ proptest! {
         );
 
         prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, 7.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 7.into()),
             (
                 Some(internal3_node_key),
                 vec![
@@ -371,7 +371,7 @@ proptest! {
 
         for i in 8..16 {
             prop_assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (Some(leaf4_node_key.clone()), vec![hash_x5])
             );
         }
@@ -433,17 +433,17 @@ fn test_internal_hash_and_proof() {
         let hash_x5 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4);
         let hash_x6 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x5);
         let root_hash = hash_internal(hash_x3, hash_x6);
-        assert_eq!(internal_node.hash(), root_hash);
+        assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         for i in 0..4 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x6, hash_x2])
             );
         }
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, index1),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, index1),
             (
                 Some(child1_node_key),
                 vec![
@@ -456,7 +456,7 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 5.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 5.into()),
             (
                 None,
                 vec![
@@ -469,26 +469,26 @@ fn test_internal_hash_and_proof() {
         );
         for i in 6..8 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x6, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
         for i in 8..12 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x3, hash_x5])
             );
         }
 
         for i in 12..14 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x3, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4])
             );
         }
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 14.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 14.into()),
             (
                 None,
                 vec![
@@ -500,7 +500,7 @@ fn test_internal_hash_and_proof() {
             )
         );
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, index2),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, index2),
             (
                 Some(child2_node_key),
                 vec![
@@ -566,10 +566,10 @@ fn test_internal_hash_and_proof() {
         let hash_x4 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x3);
         let hash_x5 = hash_internal(hash_x2, hash_x4);
         let root_hash = hash_internal(hash_x5, SPARSE_MERKLE_PLACEHOLDER_HASH);
-        assert_eq!(internal_node.hash(), root_hash);
+        assert_eq!(internal_node.hash::<Sha256>(), root_hash);
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 0.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 0.into()),
             (
                 Some(child1_node_key),
                 vec![
@@ -582,7 +582,7 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 1.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 1.into()),
             (
                 None,
                 vec![
@@ -596,20 +596,20 @@ fn test_internal_hash_and_proof() {
 
         for i in 2..4 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4, hash_x1])
             );
         }
 
         for i in 4..6 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2, hash_x3])
             );
         }
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 6.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 6.into()),
             (
                 None,
                 vec![
@@ -622,7 +622,7 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            internal_node.get_child_with_siblings(&internal_node_key, 7.into()),
+            internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, 7.into()),
             (
                 Some(child2_node_key),
                 vec![
@@ -636,7 +636,7 @@ fn test_internal_hash_and_proof() {
 
         for i in 8..16 {
             assert_eq!(
-                internal_node.get_child_with_siblings(&internal_node_key, i.into()),
+                internal_node.get_child_with_siblings::<Sha256>(&internal_node_key, i.into()),
                 (None, vec![hash_x5])
             );
         }
@@ -665,7 +665,7 @@ impl BinaryTreeNode {
         left: BinaryTreeNode,
         right: BinaryTreeNode,
     ) -> Self {
-        let hash = SparseMerkleInternalNode::new(left.hash(), right.hash()).hash();
+        let hash = SparseMerkleInternalNode::<Sha256>::new(left.hash(), right.hash()).hash();
 
         Self::Internal(BinaryTreeInternalNode {
             begin: first_child_index,
@@ -813,7 +813,7 @@ proptest! {
     ) {
         for n in 0..16u8 {
             prop_assert_eq!(
-                node.get_child_with_siblings(&node_key, n.into()),
+                node.get_child_with_siblings::<Sha256>(&node_key, n.into()),
                 NaiveInternalNode::from_clever_node(&node).get_child_with_siblings(&node_key, n)
             )
         }

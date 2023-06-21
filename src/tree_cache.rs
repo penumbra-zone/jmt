@@ -80,7 +80,7 @@ use crate::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeReader, TreeUpdateBatch,
     },
     types::{Version, PRE_GENESIS_VERSION},
-    KeyHash, OwnedValue, RootHash,
+    KeyHash, OwnedValue, RootHash, SimpleHasher,
 };
 
 /// `FrozenTreeCache` is used as a field of `TreeCache` storing all the nodes and values that
@@ -255,7 +255,7 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze(&mut self) -> Result<()> {
+    pub fn freeze<H: SimpleHasher>(&mut self) -> Result<()> {
         let mut root_node_key = self.get_root_node_key().clone();
 
         let root_node = if let Some(root_node) = self.get_node_option(&root_node_key)? {
@@ -273,7 +273,7 @@ where
         // they can be extracted later after a sequence of transactions:
         self.frozen_cache
             .root_hashes
-            .push(RootHash(root_node.hash()));
+            .push(RootHash(root_node.hash::<H>()));
 
         // If the effect of this set of changes has been to do nothing, we still need to create a
         // new root node that matches the anticipated version; we do this by copying the previous
