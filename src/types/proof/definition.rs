@@ -372,14 +372,14 @@ mod tests {
                 KeyHash([1u8; 32]),
                 ValueHash([2u8; 32]),
             )),
-            siblings: vec![[3u8; 32], [4u8; 32]],
+            siblings: alloc::vec![[3u8; 32], [4u8; 32]],
             phantom_hasher: Default::default(),
         }
     }
 
     fn get_test_range_proof() -> SparseMerkleRangeProof<Sha256> {
         SparseMerkleRangeProof {
-            right_siblings: vec![[3u8; 32], [4u8; 32]],
+            right_siblings: alloc::vec![[3u8; 32], [4u8; 32]],
             _phantom: Default::default(),
         }
     }
