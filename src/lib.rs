@@ -290,51 +290,6 @@ pub trait SimpleHasher: Sized {
     }
 }
 
-/// A wrapper around `core::marker::Phatomdata` which implements
-/// Debug, PartialEq, Eq, and Clone  This allows higher level
-/// structs to derive these traits even if the concrete hasher does not
-/// implement them.
-#[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct PhantomHasher<H: SimpleHasher>(
-    #[serde(bound(serialize = "", deserialize = ""))] core::marker::PhantomData<H>,
-);
-
-#[cfg(any(test, feature = "fuzzing"))]
-impl<H: SimpleHasher> proptest::prelude::Arbitrary for PhantomHasher<H> {
-    type Parameters = ();
-    type Strategy = proptest::strategy::Just<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        proptest::strategy::Just(Default::default())
-    }
-}
-
-impl<H: SimpleHasher> Clone for PhantomHasher<H> {
-    fn clone(&self) -> Self {
-        Self(Default::default())
-    }
-}
-
-impl<H: SimpleHasher> Debug for PhantomHasher<H> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("PhantomHasher")
-            .field(&stringify!(H))
-            .finish()
-    }
-}
-
-impl<H: SimpleHasher> PartialEq for PhantomHasher<H> {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl<H: SimpleHasher> Default for PhantomHasher<H> {
-    fn default() -> Self {
-        Self(core::marker::PhantomData)
-    }
-}
-
 impl<T: Digest> SimpleHasher for T
 where
     [u8; 32]: From<GenericArray<u8, <T as OutputSizeUser>::OutputSize>>,

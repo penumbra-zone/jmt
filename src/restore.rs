@@ -5,6 +5,8 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
 //! key/value pairs.
 
+use core::marker::PhantomData;
+
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::{sync::Arc, vec::Vec};
@@ -26,8 +28,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, OwnedValue, PhantomHasher, RootHash, SimpleHasher, ValueHash,
-    ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, OwnedValue, RootHash, SimpleHasher, ValueHash, ROOT_NIBBLE_HEIGHT,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,7 +168,7 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher> {
     /// Whether to use the new internal node format where leaf counts are written.
     leaf_count_migration: bool,
 
-    _phantom_hasher: PhantomHasher<H>,
+    _phantom_hasher: PhantomData<H>,
 }
 
 impl<H: SimpleHasher> JellyfishMerkleRestore<H> {

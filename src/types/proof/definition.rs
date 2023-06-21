@@ -3,20 +3,21 @@
 
 //! This module has definition of various proofs.
 
+use core::marker::PhantomData;
+
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
 use crate::{
-    Bytes32Ext, KeyHash, PhantomHasher, RootHash, SimpleHasher, ValueHash,
-    SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
 #[derive(Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct SparseMerkleProof<H: SimpleHasher> {
+pub struct SparseMerkleProof<H> {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
     ///     - If this is `Some(leaf_node)`
     ///         - If `leaf_node.key` equals requested key, this is an inclusion proof and
@@ -35,7 +36,7 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
 
     /// A marker type showing which hash function is used in this proof.
     #[serde(bound(serialize = "", deserialize = ""))]
-    phantom_hasher: PhantomHasher<H>,
+    phantom_hasher: PhantomData<H>,
 }
 
 // Deriving Debug fails since H is not Debug though phantom_hasher implements it
@@ -256,17 +257,17 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 /// if the proof wants show that `[a, b, c, d, e]` exists in the tree, it would need the siblings
 /// `X` and `h` on the right.
 #[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct SparseMerkleRangeProof<H: SimpleHasher> {
+pub struct SparseMerkleRangeProof<H> {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
     right_siblings: Vec<[u8; 32]>,
     #[serde(bound(serialize = "", deserialize = ""))]
-    _phantom: PhantomHasher<H>,
+    _phantom: PhantomData<H>,
 }
 
 // Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> PartialEq for SparseMerkleRangeProof<H> {
+impl<H> PartialEq for SparseMerkleRangeProof<H> {
     fn eq(&self, other: &Self) -> bool {
         self.right_siblings == other.right_siblings
     }
@@ -274,7 +275,7 @@ impl<H: SimpleHasher> PartialEq for SparseMerkleRangeProof<H> {
 
 // Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> Clone for SparseMerkleRangeProof<H> {
+impl<H> Clone for SparseMerkleRangeProof<H> {
     fn clone(&self) -> Self {
         Self {
             right_siblings: self.right_siblings.clone(),
@@ -285,7 +286,7 @@ impl<H: SimpleHasher> Clone for SparseMerkleRangeProof<H> {
 
 // Manually implement Debug to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleRangeProof<H> {
+impl<H> core::fmt::Debug for SparseMerkleRangeProof<H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SparseMerkleRangeProof")
             .field("right_siblings", &self.right_siblings)

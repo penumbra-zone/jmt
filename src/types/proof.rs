@@ -7,18 +7,20 @@ pub(crate) mod definition;
 #[cfg(any(test, feature = "fuzzing"))]
 pub(crate) mod proptest_proof;
 
+use core::marker::PhantomData;
+
 use serde::{Deserialize, Serialize};
 
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
-use crate::{KeyHash, PhantomHasher, SimpleHasher, ValueHash};
+use crate::{KeyHash, SimpleHasher, ValueHash};
 
 pub const LEAF_DOMAIN_SEPARATOR: &[u8] = b"JMT::LeafNode";
 pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
 
-pub(crate) struct SparseMerkleInternalNode<H: SimpleHasher> {
+pub(crate) struct SparseMerkleInternalNode<H> {
     left_child: [u8; 32],
     right_child: [u8; 32],
-    _phantom: PhantomHasher<H>,
+    _phantom: PhantomData<H>,
 }
 
 impl<H: SimpleHasher> SparseMerkleInternalNode<H> {
@@ -41,17 +43,17 @@ impl<H: SimpleHasher> SparseMerkleInternalNode<H> {
 }
 
 #[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct SparseMerkleLeafNode<H: SimpleHasher> {
+pub struct SparseMerkleLeafNode<H> {
     key_hash: KeyHash,
     value_hash: ValueHash,
     #[serde(bound(serialize = "", deserialize = ""))]
-    _phantom: PhantomHasher<H>,
+    _phantom: PhantomData<H>,
 }
 
 // Manually implement Arbitrary to get the correct bounds (proptest_derive) only allows all-or-nothing,
 // but we need H: SimpleHasher only.
 #[cfg(any(test, feature = "fuzzing"))]
-impl<H: SimpleHasher> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
+impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
 
@@ -68,7 +70,7 @@ impl<H: SimpleHasher> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H>
 }
 // Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> Clone for SparseMerkleLeafNode<H> {
+impl<H> Clone for SparseMerkleLeafNode<H> {
     fn clone(&self) -> Self {
         Self {
             key_hash: self.key_hash.clone(),
@@ -80,7 +82,7 @@ impl<H: SimpleHasher> Clone for SparseMerkleLeafNode<H> {
 
 // Manually implement Debug to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleLeafNode<H> {
+impl<H> core::fmt::Debug for SparseMerkleLeafNode<H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SparseMerkleLeafNode")
             .field("key_hash", &self.key_hash)
@@ -92,7 +94,7 @@ impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleLeafNode<H> {
 
 // Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H: SimpleHasher> PartialEq for SparseMerkleLeafNode<H> {
+impl<H> PartialEq for SparseMerkleLeafNode<H> {
     fn eq(&self, other: &Self) -> bool {
         self.key_hash == other.key_hash && self.value_hash == other.value_hash
     }

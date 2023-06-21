@@ -1,5 +1,6 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloc::{format, vec};
+use core::marker::PhantomData;
 use core::{cmp::Ordering, convert::TryInto};
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
@@ -21,8 +22,7 @@ use crate::{
         proof::{SparseMerkleProof, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, PhantomHasher, RootHash, SimpleHasher,
-    ValueHash,
+    Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SimpleHasher, ValueHash,
 };
 
 /// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
@@ -34,7 +34,7 @@ pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, Sha256>;
 pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
     reader: &'a R,
     leaf_count_migration: bool,
-    _phantom_hasher: PhantomHasher<H>,
+    _phantom_hasher: PhantomData<H>,
 }
 
 #[cfg(feature = "ics23")]
