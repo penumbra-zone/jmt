@@ -15,7 +15,6 @@ use proptest::{
     prelude::*,
     sample,
 };
-use sha2::Sha256;
 
 use crate::SimpleHasher;
 use crate::{
@@ -208,7 +207,7 @@ pub fn arb_existent_kvs_and_deletions_and_nonexistent_keys(
         .prop_map(|(map, v1, v2)| (map.into_iter().collect(), v1, v2))
 }
 
-pub fn arb_interleaved_insertions_and_deletions(
+pub fn arb_interleaved_insertions_and_deletions<H: SimpleHasher>(
     num_keys: usize,
     num_values: usize,
     num_insertions: usize,
@@ -220,7 +219,7 @@ pub fn arb_interleaved_insertions_and_deletions(
         // use them in order
         Just(
             (0..num_keys)
-                .map(|n| KeyHash::with::<Sha256>(n.to_le_bytes()))
+                .map(|n| KeyHash::with::<H>(n.to_le_bytes()))
                 .collect::<Vec<_>>(),
         )
         .prop_shuffle(),
@@ -314,7 +313,7 @@ pub fn test_get_with_proof<H: SimpleHasher>(
     (existent_kvs, nonexistent_keys): (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>),
 ) {
     let (db, version) = init_mock_db::<H>(&existent_kvs);
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     test_existent_keys_impl(&tree, version, &existent_kvs);
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
@@ -329,7 +328,7 @@ pub fn test_get_with_proof_with_deletions<H: SimpleHasher>(
 ) {
     let (db, version) =
         init_mock_db_with_deletions_afterwards::<H>(&existent_kvs, deletions.clone());
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     for key in deletions {
         // We shouldn't test deleted keys as existent; they should be tested as nonexistent:
@@ -429,7 +428,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction<H: SimpleH
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_with_deletions.unwrap(),
-                RootHash(Node::Null.hash::<Sha256>())
+                RootHash(Node::Null.hash::<H>())
             );
         }
         (false, true) => {
@@ -441,7 +440,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction<H: SimpleH
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_without_deletions.unwrap(),
-                RootHash(Node::Null.hash::<Sha256>())
+                RootHash(Node::Null.hash::<H>())
             );
         }
     }
@@ -516,7 +515,7 @@ pub fn test_get_with_proof_with_distinct_last_nibble<H: SimpleHasher>(
     kvs.insert(kv2.0, kv2.1);
 
     let (db, version) = init_mock_db::<H>(&kvs);
-    let tree = JellyfishMerkleTree::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     test_existent_keys_impl(&tree, version, &kvs);
 }
@@ -544,8 +543,8 @@ pub fn test_get_range_proof<H: SimpleHasher>((btree, n): (BTreeMap<KeyHash, Owne
     );
 }
 
-fn test_existent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
+fn test_existent_keys_impl<'a, H: SimpleHasher>(
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     existent_kvs: &HashMap<KeyHash, OwnedValue>,
 ) {
@@ -558,8 +557,8 @@ fn test_existent_keys_impl<'a>(
     }
 }
 
-fn test_nonexistent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
+fn test_nonexistent_keys_impl<'a, H: SimpleHasher>(
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     nonexistent_keys: &[KeyHash],
 ) {
@@ -612,8 +611,8 @@ fn verify_range_proof<H: SimpleHasher>(
     // that would cause `X` to end up in the above position.
     let mut btree1 = BTreeMap::new();
     for (key, value) in &btree {
-        let leaf = LeafNode::new(*key, ValueHash::with::<Sha256>(value.as_slice()));
-        btree1.insert(*key, leaf.hash::<Sha256>());
+        let leaf = LeafNode::new(*key, ValueHash::with::<H>(value.as_slice()));
+        btree1.insert(*key, leaf.hash::<H>());
     }
     // Using the above example, `last_proven_key` is `e`. We look at the path from root to `e`.
     // For each 0-bit, there should be a sibling in the proof. And we use the path from root to
@@ -662,7 +661,7 @@ fn verify_range_proof<H: SimpleHasher>(
         kvs.push((transformed_key, *value));
     }
 
-    assert_eq!(compute_root_hash(kvs), expected_root_hash);
+    assert_eq!(compute_root_hash::<H>(kvs), expected_root_hash);
 }
 
 /// Reduces the problem by removing the first bit of every key.
@@ -693,15 +692,15 @@ where
 
 /// Computes the root hash of a sparse Merkle tree. `kvs` consists of the entire set of key-value
 /// pairs stored in the tree.
-fn compute_root_hash(kvs: Vec<(Vec<bool>, [u8; 32])>) -> RootHash {
+fn compute_root_hash<H: SimpleHasher>(kvs: Vec<(Vec<bool>, [u8; 32])>) -> RootHash {
     let mut kv_ref = vec![];
     for (key, value) in &kvs {
         kv_ref.push((&key[..], *value));
     }
-    RootHash(compute_root_hash_impl(kv_ref))
+    RootHash(compute_root_hash_impl::<H>(kv_ref))
 }
 
-fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
+fn compute_root_hash_impl<H: SimpleHasher>(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
     assert!(!kvs.is_empty());
 
     // If there is only one entry, it is the root.
@@ -718,21 +717,21 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
         Some(0) => {
             // Every key starts with a 1-bit, i.e., they are all in the right subtree.
             left_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
-            right_hash = compute_root_hash_impl(reduce(&kvs));
+            right_hash = compute_root_hash_impl::<H>(reduce(&kvs));
         }
         Some(index) => {
             // Both left subtree and right subtree have some keys.
-            left_hash = compute_root_hash_impl(reduce(&kvs[..index]));
-            right_hash = compute_root_hash_impl(reduce(&kvs[index..]));
+            left_hash = compute_root_hash_impl::<H>(reduce(&kvs[..index]));
+            right_hash = compute_root_hash_impl::<H>(reduce(&kvs[index..]));
         }
         None => {
             // Every key starts with a 0-bit, i.e., they are all in the left subtree.
-            left_hash = compute_root_hash_impl(reduce(&kvs));
+            left_hash = compute_root_hash_impl::<H>(reduce(&kvs));
             right_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
         }
     }
 
-    SparseMerkleInternalNode::<Sha256>::new(left_hash, right_hash).hash()
+    SparseMerkleInternalNode::<H>::new(left_hash, right_hash).hash()
 }
 
 pub fn test_get_leaf_count<H: SimpleHasher>(keys: HashSet<KeyHash>) {

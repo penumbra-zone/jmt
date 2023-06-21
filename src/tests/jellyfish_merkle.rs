@@ -4,11 +4,10 @@
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use alloc::{format, vec};
-use proptest::collection::btree_set;
-use proptest::prelude::*;
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use sha2::Sha256;
 
+use rand::{rngs::StdRng, Rng, SeedableRng};
+
+use crate::SimpleHasher;
 use crate::{
     mock::MockTreeStore,
     node_type::{Child, Children, Node, NodeKey, NodeType},
@@ -25,7 +24,7 @@ use crate::{
         nibble::{nibble_path::NibblePath, Nibble},
         Version,
     },
-    JellyfishMerkleTree, KeyHash, MissingRootError, Sha256Jmt, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    JellyfishMerkleTree, KeyHash, MissingRootError, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
@@ -39,10 +38,101 @@ fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
     KeyHash(key)
 }
 
-#[test]
-fn test_insert_to_empty_tree() {
+macro_rules! impl_jellyfish_tests_for_hasher {
+    ($name:ident, $hasher:ty) => {
+        mod $name {
+            use proptest::collection::btree_set;
+            use proptest::prelude::*;
+            use super::KeyHash;
+
+            instantiate_test_for_hasher!(test_insert_to_empty_tree, $hasher);
+            instantiate_test_for_hasher!(test_insert_at_leaf_with_internal_created, $hasher);
+            instantiate_test_for_hasher!(test_insert_at_leaf_with_multiple_internals_created, $hasher);
+            instantiate_test_for_hasher!(test_batch_insertion, $hasher);
+            instantiate_test_for_hasher!(test_non_existence, $hasher);
+            instantiate_test_for_hasher!(test_missing_root, $hasher);
+            instantiate_test_for_hasher!(test_non_batch_empty_write_set, $hasher);
+            instantiate_test_for_hasher!(test_put_value_sets, $hasher);
+            instantiate_test_for_hasher!(test_1000_keys, $hasher);
+            instantiate_test_for_hasher!(test_1000_versions, $hasher);
+            instantiate_test_for_hasher!(test_delete_then_get_in_one, $hasher);
+            instantiate_test_for_hasher!(test_two_gets_then_delete, $hasher);
+
+
+            proptest! {
+                #[test]
+                fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in super::arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
+                    super::test_get_with_proof::<$hasher>((existent_kvs, nonexistent_keys))
+                }
+
+                #[test]
+                fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in super::arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
+                    super::test_get_with_proof_with_deletions::<$hasher>((existent_kvs, deletions, nonexistent_keys))
+                }
+
+                // This is a replica of the test below, with the values tuned to the smallest values that were
+                // useful when isolating bugs. Set `PROPTEST_MAX_SHRINK_ITERS=5000000` to shrink enough to
+                // isolate bugs down to minimal examples when hunting using this test. Good hunting.
+                #[test]
+                fn proptest_clairvoyant_construction_matches_interleaved_construction_small(
+                    operations_by_version in
+                        (1usize..4) // possible numbers of versions
+                            .prop_flat_map(|versions| {
+                                super::arb_interleaved_insertions_and_deletions::<$hasher>(2, 1, 5, 15) // (distinct keys, distinct values, insertions, deletions)
+                                    .prop_flat_map(move |ops| super::arb_partitions(versions, ops))
+                        })
+                ) {
+                    super::test_clairvoyant_construction_matches_interleaved_construction::<$hasher>(operations_by_version)
+                }
+
+                // This is a replica of the test above, but with much larger parameters for more exhaustive
+                // testing. It won't feasibly shrink to a useful counterexample because the generators for these
+                // tests are not very efficient for shrinking. For some exhaustive fuzzing, try setting
+                // `PROPTEST_CASES=10000`, which takes about 30 seconds on a fast machine.
+                #[test]
+                fn proptest_clairvoyant_construction_matches_interleaved_construction(
+                    operations_by_version in
+                        (1usize..500) // possible numbers of versions
+                            .prop_flat_map(|versions| {
+                                super::arb_interleaved_insertions_and_deletions::<$hasher>(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
+                                    .prop_flat_map(move |ops| super::arb_partitions(versions, ops))
+                        })
+                ) {
+                    super::test_clairvoyant_construction_matches_interleaved_construction::<$hasher>(operations_by_version)
+                }
+
+                #[test]
+                fn proptest_get_with_proof_with_distinct_last_nibble((kv1, kv2) in super::arb_kv_pair_with_distinct_last_nibble()) {
+                    super::test_get_with_proof_with_distinct_last_nibble::<$hasher>((kv1, kv2))
+                }
+
+                #[test]
+                fn proptest_get_range_proof((btree, n) in super::arb_tree_with_index(1000)) {
+                    super::test_get_range_proof::<$hasher>((btree, n))
+                }
+
+                #[test]
+                fn proptest_get_leaf_count(keys in btree_set(any::<KeyHash>(), 1..1000).prop_map(|m| m.into_iter().collect())) {
+                    super::test_get_leaf_count::<$hasher>(keys)
+                }
+            }
+
+        }
+    };
+}
+
+macro_rules! instantiate_test_for_hasher {
+    ($test_name:ident, $hasher:ty) => {
+        #[test]
+        fn $test_name() {
+            super::$test_name::<$hasher>();
+        }
+    };
+}
+
+fn test_insert_to_empty_tree<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     // Tree is initially empty. Root is a null node. We'll insert a key-value pair which creates a
     // leaf node.
@@ -52,7 +142,7 @@ fn test_insert_to_empty_tree() {
     // batch version
     let (_new_root_hash, batch) = tree
         .batch_put_value_sets(
-            vec![vec![(KeyHash::with::<Sha256>(key), value.clone())]],
+            vec![vec![(KeyHash::with::<H>(key), value.clone())]],
             None,
             0, /* version */
         )
@@ -62,15 +152,14 @@ fn test_insert_to_empty_tree() {
     db.write_tree_update_batch(batch).unwrap();
 
     assert_eq!(
-        tree.get(KeyHash::with::<Sha256>(key), 0).unwrap().unwrap(),
+        tree.get(KeyHash::with::<H>(key), 0).unwrap().unwrap(),
         value
     );
 }
 
-#[test]
-fn test_insert_at_leaf_with_internal_created() {
-    let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+fn test_insert_at_leaf_with_internal_created<H: SimpleHasher>() {
+    let db: MockTreeStore = MockTreeStore::default();
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let key1 = KeyHash([0u8; 32]);
     let value1 = vec![1u8, 2u8];
@@ -111,16 +200,16 @@ fn test_insert_at_leaf_with_internal_created() {
 
     let internal_node_key = NodeKey::new_empty_path(1);
 
-    let leaf1 = Node::leaf_from_value::<Sha256>(key1, &value1);
-    let leaf2 = Node::leaf_from_value::<Sha256>(key2, &value2);
+    let leaf1 = Node::leaf_from_value::<H>(key1, &value1);
+    let leaf2 = Node::leaf_from_value::<H>(key2, &value2);
     let mut children = Children::new();
     children.insert(
         Nibble::from(0),
-        Child::new(leaf1.hash::<Sha256>(), 1 /* version */, NodeType::Leaf),
+        Child::new(leaf1.hash::<H>(), 1 /* version */, NodeType::Leaf),
     );
     children.insert(
         Nibble::from(15),
-        Child::new(leaf2.hash::<Sha256>(), 1 /* version */, NodeType::Leaf),
+        Child::new(leaf2.hash::<H>(), 1 /* version */, NodeType::Leaf),
     );
     let internal = Node::new_internal(children);
     assert_eq!(db.get_node(&NodeKey::new_empty_path(0)).unwrap(), leaf1);
@@ -137,10 +226,9 @@ fn test_insert_at_leaf_with_internal_created() {
     assert_eq!(db.get_node(&internal_node_key).unwrap(), internal);
 }
 
-#[test]
-fn test_insert_at_leaf_with_multiple_internals_created() {
+fn test_insert_at_leaf_with_multiple_internals_created<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     // 1. Insert the first leaf into empty tree
     let key1 = KeyHash([0u8; 32]);
@@ -177,17 +265,17 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
 
     let internal_node_key = NodeKey::new(1, NibblePath::new_odd(vec![0x00]));
 
-    let leaf1 = Node::leaf_from_value::<Sha256>(key1, value1.as_slice());
-    let leaf2 = Node::leaf_from_value::<Sha256>(key2, value2.as_slice());
+    let leaf1 = Node::leaf_from_value::<H>(key1, value1.as_slice());
+    let leaf2 = Node::leaf_from_value::<H>(key2, value2.as_slice());
     let internal = {
         let mut children = Children::new();
         children.insert(
             Nibble::from(0),
-            Child::new(leaf1.hash::<Sha256>(), 1 /* version */, NodeType::Leaf),
+            Child::new(leaf1.hash::<H>(), 1 /* version */, NodeType::Leaf),
         );
         children.insert(
             Nibble::from(1),
-            Child::new(leaf2.hash::<Sha256>(), 1 /* version */, NodeType::Leaf),
+            Child::new(leaf2.hash::<H>(), 1 /* version */, NodeType::Leaf),
         );
         Node::new_internal(children)
     };
@@ -197,7 +285,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
         children.insert(
             Nibble::from(0),
             Child::new(
-                internal.hash::<Sha256>(),
+                internal.hash::<H>(),
                 1, /* version */
                 NodeType::Internal { leaf_count: 2 },
             ),
@@ -248,8 +336,7 @@ fn test_insert_at_leaf_with_multiple_internals_created() {
     assert_eq!(tree.get(key2, 2).unwrap().unwrap(), value2_update);
 }
 
-#[test]
-fn test_batch_insertion() {
+fn test_batch_insertion<H: SimpleHasher>() {
     // ```text
     //                             internal(root)
     //                            /        \
@@ -300,7 +387,7 @@ fn test_batch_insertion() {
     let mut to_verify = one_batch.clone();
     // key2 was updated so we remove it.
     to_verify.remove(1);
-    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore, Sha256>, version: Version| {
+    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore, H>, version: Version| {
         to_verify
             .iter()
             .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
@@ -422,10 +509,9 @@ fn test_batch_insertion() {
     }
 }
 
-#[test]
-fn test_non_existence() {
+fn test_non_existence<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
     // ```text
     //                     internal(root)
     //                    /        \
@@ -493,12 +579,11 @@ fn test_non_existence() {
     }
 }
 
-#[test]
-fn test_missing_root() {
+fn test_missing_root<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
     let err = tree
-        .get_with_proof(KeyHash::with::<Sha256>(b"testkey"), 0)
+        .get_with_proof(KeyHash::with::<H>(b"testkey"), 0)
         .err()
         .unwrap()
         .downcast::<MissingRootError>()
@@ -506,23 +591,21 @@ fn test_missing_root() {
     assert_eq!(err.version, 0);
 }
 
-#[test]
-fn test_non_batch_empty_write_set() {
+fn test_non_batch_empty_write_set<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
     let (_, batch) = tree.put_value_set(vec![], 0 /* version */).unwrap();
     db.write_tree_update_batch(batch).unwrap();
     let root = tree.get_root_hash(0).unwrap();
     assert_eq!(root.0, SPARSE_MERKLE_PLACEHOLDER_HASH);
 }
 
-#[test]
-fn test_put_value_sets() {
+fn test_put_value_sets<H: SimpleHasher>() {
     let mut keys = vec![];
     let mut values = vec![];
     let total_updates = 20;
     for i in 0..total_updates {
-        keys.push(KeyHash::with::<Sha256>(format!("key{}", i)));
+        keys.push(KeyHash::with::<H>(format!("key{}", i)));
         values.push(format!("value{}", i).into_bytes());
     }
 
@@ -534,7 +617,7 @@ fn test_put_value_sets() {
             .into_iter()
             .zip(values.clone().into_iter().map(Some));
         let db = MockTreeStore::default();
-        let tree = Sha256Jmt::new(&db);
+        let tree = JellyfishMerkleTree::<_, H>::new(&db);
         for version in 0..10 {
             let mut keyed_value_set = vec![];
             for _ in 0..total_updates / 10 {
@@ -555,7 +638,7 @@ fn test_put_value_sets() {
     {
         let mut iter = keys.into_iter().zip(values.into_iter());
         let db = MockTreeStore::default();
-        let tree = Sha256Jmt::new(&db);
+        let tree = JellyfishMerkleTree::<_, H>::new(&db);
         let mut value_sets = vec![];
         for _ in 0..10 {
             let mut keyed_value_set = vec![];
@@ -572,18 +655,18 @@ fn test_put_value_sets() {
     }
 }
 
-fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
+fn many_keys_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], num_keys: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
     actual_seed[..seed.len()].copy_from_slice(seed);
     let _rng: StdRng = StdRng::from_seed(actual_seed);
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let mut kvs = vec![];
     for i in 0..num_keys {
-        let key = KeyHash::with::<Sha256>(format!("key{}", i));
+        let key = KeyHash::with::<H>(format!("key{}", i));
         let value = format!("value{}", i).into_bytes();
         kvs.push((key, value));
     }
@@ -600,26 +683,25 @@ fn many_keys_get_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     }
 }
 
-#[test]
-fn test_1000_keys() {
+fn test_1000_keys<H: SimpleHasher>() {
     let seed: &[_] = &[1, 2, 3, 4];
-    many_keys_get_proof_and_verify_tree_root(seed, 1000);
+    many_keys_get_proof_and_verify_tree_root::<H>(seed, 1000);
 }
 
-fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize) {
+fn many_versions_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], num_versions: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
     actual_seed[..seed.len()].copy_from_slice(seed);
     let mut rng: StdRng = StdRng::from_seed(actual_seed);
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let mut kvs = vec![];
     let mut roots = vec![];
 
     for i in 0..num_versions {
-        let key = KeyHash::with::<Sha256>(format!("key{}", i));
+        let key = KeyHash::with::<H>(format!("key{}", i));
         let value = format!("value{}", i).into_bytes();
         let new_value = format!("new_value{}", i).into_bytes();
         kvs.push((key, value.clone(), new_value.clone()));
@@ -658,16 +740,14 @@ fn many_versions_get_proof_and_verify_tree_root(seed: &[u8], num_versions: usize
     }
 }
 
-#[test]
-fn test_1000_versions() {
+fn test_1000_versions<H: SimpleHasher>() {
     let seed: &[_] = &[1, 2, 3, 4];
-    many_versions_get_proof_and_verify_tree_root(seed, 1000);
+    many_versions_get_proof_and_verify_tree_root::<H>(seed, 1000);
 }
 
-#[test]
-fn test_delete_then_get_in_one() {
+fn test_delete_then_get_in_one<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let key1: KeyHash = KeyHash([1; 32]);
     let key2: KeyHash = KeyHash([2; 32]);
@@ -683,10 +763,9 @@ fn test_delete_then_get_in_one() {
     db.write_tree_update_batch(batch).unwrap();
 }
 
-#[test]
-fn test_two_gets_then_delete() {
+fn test_two_gets_then_delete<H: SimpleHasher>() {
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let key1: KeyHash = KeyHash([1; 32]);
 
@@ -706,60 +785,9 @@ fn test_two_gets_then_delete() {
     db.write_tree_update_batch(batch).unwrap();
 }
 
-proptest! {
-    #[test]
-    fn proptest_get_with_proof((existent_kvs, nonexistent_keys) in arb_existent_kvs_and_nonexistent_keys(1000, 100)) {
-        test_get_with_proof::<Sha256>((existent_kvs, nonexistent_keys))
-    }
+// Implement the test suite for sha256
+impl_jellyfish_tests_for_hasher!(sha256_tests, sha2::Sha256);
 
-    #[test]
-    fn proptest_get_with_proof_with_deletions((existent_kvs, deletions, nonexistent_keys) in arb_existent_kvs_and_deletions_and_nonexistent_keys(1000, 100)) {
-        test_get_with_proof_with_deletions::<Sha256>((existent_kvs, deletions, nonexistent_keys))
-    }
-
-    // This is a replica of the test below, with the values tuned to the smallest values that were
-    // useful when isolating bugs. Set `PROPTEST_MAX_SHRINK_ITERS=5000000` to shrink enough to
-    // isolate bugs down to minimal examples when hunting using this test. Good hunting.
-    #[test]
-    fn proptest_clairvoyant_construction_matches_interleaved_construction_small(
-        operations_by_version in
-            (1usize..4) // possible numbers of versions
-                .prop_flat_map(|versions| {
-                    arb_interleaved_insertions_and_deletions(2, 1, 5, 15) // (distinct keys, distinct values, insertions, deletions)
-                        .prop_flat_map(move |ops| arb_partitions(versions, ops))
-            })
-    ) {
-        test_clairvoyant_construction_matches_interleaved_construction::<Sha256>(operations_by_version)
-    }
-
-    // This is a replica of the test above, but with much larger parameters for more exhaustive
-    // testing. It won't feasibly shrink to a useful counterexample because the generators for these
-    // tests are not very efficient for shrinking. For some exhaustive fuzzing, try setting
-    // `PROPTEST_CASES=10000`, which takes about 30 seconds on a fast machine.
-    #[test]
-    fn proptest_clairvoyant_construction_matches_interleaved_construction(
-        operations_by_version in
-            (1usize..500) // possible numbers of versions
-                .prop_flat_map(|versions| {
-                    arb_interleaved_insertions_and_deletions(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
-                        .prop_flat_map(move |ops| arb_partitions(versions, ops))
-            })
-    ) {
-        test_clairvoyant_construction_matches_interleaved_construction::<Sha256>(operations_by_version)
-    }
-
-    #[test]
-    fn proptest_get_with_proof_with_distinct_last_nibble((kv1, kv2) in arb_kv_pair_with_distinct_last_nibble()) {
-        test_get_with_proof_with_distinct_last_nibble::<Sha256>((kv1, kv2))
-    }
-
-    #[test]
-    fn proptest_get_range_proof((btree, n) in arb_tree_with_index(1000)) {
-        test_get_range_proof::<Sha256>((btree, n))
-    }
-
-    #[test]
-    fn proptest_get_leaf_count(keys in btree_set(any::<KeyHash>(), 1..1000).prop_map(|m| m.into_iter().collect())) {
-        test_get_leaf_count::<Sha256>(keys)
-    }
-}
+// Optionally implement the test suite for blake3
+#[cfg(feature = "blake3_tests")]
+impl_jellyfish_tests_for_hasher!(blake3_tests, blake3::Hasher);
