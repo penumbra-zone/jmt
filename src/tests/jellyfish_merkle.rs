@@ -1,6 +1,7 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::collections::{vec_deque, VecDeque};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use alloc::{format, vec};
@@ -9,6 +10,8 @@ use proptest::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sha2::Sha256;
 
+use crate::proof::SparseMerkleProof;
+use crate::RootHash;
 use crate::{
     mock::MockTreeStore,
     node_type::{Child, Children, Node, NodeKey, NodeType},
@@ -420,6 +423,72 @@ fn test_batch_insertion() {
         assert_eq!(db.num_nodes(), 12);
         verify_fn(&tree, 6);
     }
+}
+
+// Simple update proof test to check we can produce and verify zk-proofs for insertion
+#[test]
+fn test_update_proof() {
+    let db = MockTreeStore::default();
+    let tree = Sha256Jmt::new(&db);
+    // ```text
+    //                     internal(root)
+    //                    /        \
+    //                internal      2
+    //                   |
+    //                internal
+    //                /      \
+    //               1        3
+    // Total: 7 nodes
+    // ```
+    let key1 = KeyHash([0u8; 32]);
+    let value1 = vec![1u8];
+
+    let key2 = update_nibble(&key1, 0, 15);
+    let value2 = vec![2u8];
+
+    let key3 = update_nibble(&key1, 2, 3);
+    let value3 = vec![3u8];
+
+    let (roots_proofs, batch) = tree
+        .put_value_sets_with_proof(
+            vec![vec![
+                (key1, Some(value1.clone())),
+                (key2, Some(value2.clone())),
+                (key3, Some(value3.clone())),
+            ]],
+            0, /* version */
+        )
+        .unwrap();
+
+    // Verify we get the correct values of the tree
+    db.write_tree_update_batch(batch).unwrap();
+    assert_eq!(tree.get(key1, 0).unwrap().unwrap(), value1);
+    assert_eq!(tree.get(key2, 0).unwrap().unwrap(), value2);
+    assert_eq!(tree.get(key3, 0).unwrap().unwrap(), value3);
+    // get # of nodes
+    assert_eq!(db.num_nodes(), 6);
+
+    // Verify each Merkle proof
+    let mut roots_proofs = VecDeque::from(roots_proofs);
+
+    let prev_root_hash = RootHash(Node::new_null().hash());
+    let (root_hash1, proof1) = roots_proofs.pop_front().unwrap();
+
+    proof1
+        .verify_update(prev_root_hash, root_hash1, key1, Some(value1))
+        .unwrap();
+
+    let (root_hash2, proof2) = roots_proofs.pop_front().unwrap();
+
+    proof2
+        .verify_update(root_hash1, root_hash2, key2, Some(value2))
+        .unwrap();
+
+    let (root_hash3, proof3) = roots_proofs.pop_front().unwrap();
+
+    proof3
+        .verify_update(root_hash2, root_hash3, key3, Some(value3))
+        .unwrap();
 }
 
 #[test]

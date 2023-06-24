@@ -191,7 +191,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             actual_root_hash == expected_root_hash.0,
             "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
             actual_root_hash,
-            expected_root_hash,
+            expected_root_hash.0,
         );
 
         Ok(())
@@ -252,16 +252,47 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                         // Add the correct siblings of the new element key by finding the splitting nibble and
                         // adding the default leaves to the path
+
+                        // To compute the number of default leaves we need to add, we need to:
+                        // - Compute the number of default leaves to separate the old leaf from the new leaf in the last nibble
+                        // - Compute the number of default leaves to traverse the common prefix
+                        // - Compute the number of default leaves remaining to select the former old leaf in the former last nibble
+                        // (this leaf becomes an internal node, hence the path needs to be fully specified)
+
                         let new_key_path = NibblePath::new(new_element_key.0.to_vec());
                         let old_key_path = NibblePath::new(leaf_node.key_hash.0.to_vec());
 
-                        let mut new_key_iter = new_key_path.nibbles();
-                        let mut old_key_iter = old_key_path.nibbles();
+                        // The verify_nonexistence check from before ensure that the common prefix nibbles_len is greater than the
+                        // siblings len
+                        let mut new_key_nibbles = new_key_path.nibbles();
+                        let mut old_key_nibbles = old_key_path.nibbles();
 
-                        // Skip the common prefix of the new and old key, then compute the remaining length to
-                        // find the number of default nodes to add to the sibling list
+                        let common_prefix_len =
+                            skip_common_prefix(&mut new_key_nibbles, &mut old_key_nibbles);
+
+                        let num_siblings = self.siblings().len();
+
+                        // We can safely unwrap these values as the check have been already performed in verify_nonexistence
+                        let mut new_key_leaf_nibble = new_key_nibbles.next().unwrap().as_usize();
+                        let mut old_key_leaf_nibble = old_key_nibbles.next().unwrap().as_usize();
+
+                        let mut default_siblings_leaf_nibble = 0;
+
+                        for h in (0..4).rev(){
+                           if !(((new_key_leaf_nibble >> h) != 0) ^ ((old_key_leaf_nibble >> h) != 0)){
+                                    default_siblings_leaf_nibble += 1;
+                                    new_key_leaf_nibble -= (new_key_leaf_nibble >> h) << h;
+                                    old_key_leaf_nibble -= (old_key_leaf_nibble >> h) << h;
+                                } else{
+                                    break;
+                                }
+                        }
+
                         let num_default_siblings =
-                            skip_common_prefix(&mut new_key_iter, &mut old_key_iter);
+                            (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */ 
+                            + 4* (common_prefix_len - num_siblings) /* the number of default leaves we need to add to the path */
+                            + (default_siblings_leaf_nibble) ;
+
 
                         let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
                             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */

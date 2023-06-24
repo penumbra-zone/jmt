@@ -481,13 +481,14 @@ where
                     .unwrap();
 
                 proofs.push(merkle_proof);
-            }
 
-            // Freezes the current cache to make all contents in the current cache immutable.
-            tree_cache.freeze()?;
+                // Freezes the current cache to make all contents in the current cache immutable.
+                tree_cache.freeze()?;
+            }
         }
 
         let (root_hashes, update_batch): (Vec<RootHash>, TreeUpdateBatch) = tree_cache.into();
+
         let zipped_hashes_proofs = root_hashes.into_iter().zip(proofs.into_iter()).collect();
 
         Ok((zipped_hashes_proofs, update_batch))
@@ -633,9 +634,8 @@ where
 
         // Traverse downwards from this internal node recursively to get the `node_key` of the child
         // node at `child_index`.
-        let result = match internal_node.child(child_index) {
-            Some(child) => {
-                let child_node_key = node_key.gen_child_node_key(child.version, child_index);
+        let result = match internal_node.get_child_with_siblings(&node_key, child_index) {
+            (Some(child_node_key), mut siblings) => {
                 let (update_result, proof_opt) = self.insert_at(
                     child_node_key,
                     version,
@@ -649,20 +649,20 @@ where
                     // The move siblings function allows zero copy moves for proof
                     let proof_leaf = proof.leaf();
                     let mut new_siblings = proof.move_siblings();
-                    new_siblings.push(internal_node.hash());
+                    new_siblings.append(&mut siblings);
                     SparseMerkleProof::new(proof_leaf, new_siblings)
                 });
 
                 (update_result, new_proof_opt)
             }
-            None => {
+            (None, siblings) => {
                 if let Some(value) = value {
                     // insert
                     let new_child_node_key = node_key.gen_child_node_key(version, child_index);
 
                     if with_proof {
                         // The Merkle proof doesn't have a leaf
-                        let merkle_proof = SparseMerkleProof::new(None, vec![internal_node.hash()]);
+                        let merkle_proof = SparseMerkleProof::new(None, siblings);
                         (
                             PutResult::Updated(Self::create_leaf_node(
                                 new_child_node_key,
@@ -685,7 +685,7 @@ where
                     }
                 } else {
                     if with_proof {
-                        let merkle_proof = SparseMerkleProof::new(None, vec![internal_node.hash()]);
+                        let merkle_proof = SparseMerkleProof::new(None, siblings);
                         // delete not found
                         (PutResult::NotChanged, Some(merkle_proof))
                     } else {
