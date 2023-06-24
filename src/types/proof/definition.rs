@@ -278,21 +278,21 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                         let mut default_siblings_leaf_nibble = 0;
 
-                        for h in (0..4).rev(){
-                           if !(((new_key_leaf_nibble >> h) != 0) ^ ((old_key_leaf_nibble >> h) != 0)){
-                                    default_siblings_leaf_nibble += 1;
-                                    new_key_leaf_nibble -= (new_key_leaf_nibble >> h) << h;
-                                    old_key_leaf_nibble -= (old_key_leaf_nibble >> h) << h;
-                                } else{
-                                    break;
-                                }
+                        for h in (0..4).rev() {
+                            if !(((new_key_leaf_nibble >> h) != 0)
+                                ^ ((old_key_leaf_nibble >> h) != 0))
+                            {
+                                default_siblings_leaf_nibble += 1;
+                                new_key_leaf_nibble -= (new_key_leaf_nibble >> h) << h;
+                                old_key_leaf_nibble -= (old_key_leaf_nibble >> h) << h;
+                            } else {
+                                break;
+                            }
                         }
 
-                        let num_default_siblings =
-                            (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */ 
+                        let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
                             + 4* (common_prefix_len - num_siblings) /* the number of default leaves we need to add to the path */
-                            + (default_siblings_leaf_nibble) ;
-
+                            + (default_siblings_leaf_nibble);
 
                         let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
                             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
