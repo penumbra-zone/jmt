@@ -180,6 +180,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 }
             });
 
+        println!("Expected root hash {:?}", expected_root_hash);
         ensure!(
             actual_root_hash == expected_root_hash.0,
             "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
@@ -230,7 +231,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         }
 
         let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
-                            + 4* (common_prefix_len - num_siblings) /* the number of default leaves we need to add to the path */
+                            + ((4*common_prefix_len - num_siblings) / 4) * 4 /* the number of default leaves we need to add to the path */
                             + (default_siblings_leaf_nibble);
 
         let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
@@ -272,15 +273,9 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 // In the case there is a leaf in the Merkle path, we check that this leaf exists in the tree
                 // The inserted key is going to update an existing leaf
                 Some(leaf_node) => {
+                    // First verify that the old merkle path is valid
+                    ensure!(self.root_hash() == old_root_hash);
                     if new_element_key == leaf_node.key_hash {
-                        // Case 1: The new element key is the same as the leaf key (value update)
-                        // Step 1: we verify the key (with the old value) is present in the Merkle tree
-                        self.verify_existence(
-                            old_root_hash,
-                            new_element_key,
-                            leaf_node.value_hash.0,
-                        )?;
-
                         // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
                         // In this case the siblings are left unchanged, only the leaf value is updated
                         let new_merkle_path: SparseMerkleProof<H> = SparseMerkleProof::new(
@@ -294,11 +289,6 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                         // Step 3: we compute the new Merkle root
                         Ok(new_merkle_path.root_hash())
                     } else {
-                        // Case 2: The new element key is different from the leaf key (leaf creation)
-                        // Step 1: we verify the old key is going to be split following the insertion of the
-                        // new key (nonexistence proof)
-                        self.verify_nonexistence(old_root_hash, new_element_key)?;
-
                         let new_merkle_path = self.compute_new_merkle_path_on_split(
                             leaf_node,
                             new_element_key,
@@ -312,8 +302,29 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                 // There is no leaf in the Merkle path, which means the key we are going to insert does not update an existing leaf
                 None => {
-                    // Step 1: we check that the `new_element_key` is going to populate an empty spot (nonexistence proof)
-                    self.verify_nonexistence(old_root_hash, new_element_key)?;
+                    let actual_root_hash = RootHash(
+                        self.siblings
+                            .iter()
+                            .zip(
+                                new_element_key
+                                    .0
+                                    .iter_bits()
+                                    .rev()
+                                    .skip(256 - self.siblings.len()),
+                            )
+                            .fold(
+                                SPARSE_MERKLE_PLACEHOLDER_HASH,
+                                |hash, (sibling_hash, bit)| {
+                                    if bit {
+                                        SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                                    } else {
+                                        SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                                    }
+                                },
+                            ),
+                    );
+
+                    ensure!(actual_root_hash == old_root_hash);
 
                     // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
                     // In this case the siblings are left unchanged, only the leaf value is updated
@@ -332,15 +343,13 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         } else {
             // No value supplied, we need to prove that the previous value was deleted
             if let Some(leaf_node) = self.leaf {
+                ensure!(self.root_hash() == old_root_hash);
                 ensure!(
                     new_element_key == leaf_node.key_hash,
                     "Key {:?} to remove doesn't match the leaf key {:?} supplied with the proof",
                     new_element_key,
                     leaf_node.key_hash
                 );
-
-                // Step 1: we verify the existence of the old key in the tree
-                self.verify_existence(old_root_hash, new_element_key, leaf_node.value_hash.0)?;
 
                 // Step 2: we compute the new Merkle tree path (same siblings but without the original leaf)
                 let new_merkle_path: SparseMerkleProof<H> =
@@ -382,6 +391,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     }
 }
 
+#[derive(Debug)]
 pub struct UpdateMerkleProof<H: SimpleHasher, V: AsRef<[u8]>>(
     Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
 );

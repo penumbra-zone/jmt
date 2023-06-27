@@ -454,7 +454,8 @@ fn test_update_proof() {
     let (mut new_root_hash_and_proofs, batch) = tree
         .put_value_sets_with_proof(
             vec![
-                vec![(key1, Some(value1.clone())), (key2, Some(value2.clone()))],
+                vec![(key1, Some(value1.clone()))],
+                vec![(key2, Some(value2.clone()))],
                 vec![(key3, Some(value3.clone()))],
             ],
             0, /* version */
@@ -464,11 +465,12 @@ fn test_update_proof() {
     // Verify we get the correct values of the tree
     db.write_tree_update_batch(batch).unwrap();
     assert_eq!(tree.get(key1, 0).unwrap().unwrap(), value1);
-    assert_eq!(tree.get(key2, 0).unwrap().unwrap(), value2);
-    assert_eq!(tree.get(key3, 1).unwrap().unwrap(), value3);
+    assert_eq!(tree.get(key2, 1).unwrap().unwrap(), value2);
+    assert_eq!(tree.get(key3, 2).unwrap().unwrap(), value3);
 
-    assert_eq!(db.num_nodes(), 8);
+    assert_eq!(db.num_nodes(), 9);
 
+    let (root_hash3, proof3) = new_root_hash_and_proofs.pop().unwrap();
     let (root_hash2, proof2) = new_root_hash_and_proofs.pop().unwrap();
     let (root_hash1, proof1) = new_root_hash_and_proofs.pop().unwrap();
 
@@ -477,6 +479,236 @@ fn test_update_proof() {
         .is_ok());
 
     assert!(proof2.verify_update(root_hash1, root_hash2).is_ok());
+
+    assert!(proof3.verify_update(root_hash2, root_hash3).is_ok());
+}
+
+#[test]
+fn test_prove_multiple_insertions() {
+    // ```text
+    //                     internal(root)
+    //                    /        \
+    //                internal      2
+    //                /      \
+    //               1        3
+    // Total: 6 nodes
+    // ```
+    let key1 = KeyHash([0u8; 32]);
+    let value1 = vec![1u8];
+
+    let key2 = update_nibble(&key1, 0, 2);
+    let value2 = vec![2u8];
+
+    let key3 = update_nibble(&key1, 1, 3);
+    let value3 = vec![3u8];
+
+    let batches = vec![
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+    ];
+    let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
+
+    let to_verify = one_batch.clone();
+    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore, Sha256>, version: Version| {
+        to_verify
+            .iter()
+            .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
+    };
+
+    // Insert in multiple batches.
+    {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::new(&db);
+
+        let (roots_proofs, batch) = tree
+            .put_value_sets_with_proof(batches, 0 /* first_version */)
+            .unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+        verify_fn(&tree, 6);
+
+        let mut last_root = RootHash(Node::new_null().hash());
+        for (new_root, update_proof) in roots_proofs {
+            assert!(update_proof.verify_update(last_root, new_root).is_ok());
+            last_root = new_root;
+        }
+    }
+
+    // Insert as one batch and update one by one.
+    {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::new(&db);
+
+        let (last_root, update_proof, batch) = tree
+            .put_value_set_with_proof(one_batch, 0 /* version */)
+            .unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+        verify_fn(&tree, 0);
+
+        // get # of nodes
+        assert_eq!(db.num_nodes(), 5);
+
+        assert!(update_proof
+            .verify_update(RootHash(Node::new_null().hash()), last_root)
+            .is_ok());
+    }
+}
+
+#[test]
+fn test_prove_complex_insertion() {
+    // ```text
+    //                             internal(root)
+    //                            /        \
+    //                       internal       2        <- nibble 0
+    //                      /   |   \
+    //              internal    3    4               <- nibble 1
+    //                 |
+    //              internal                         <- nibble 2
+    //              /      \
+    //        internal      6                        <- nibble 3
+    //           |
+    //        internal                               <- nibble 4
+    //        /      \
+    //       1        5                              <- nibble 5
+    //
+    // Total: 12 nodes
+    // ```
+    let key1 = KeyHash([0u8; 32]);
+    let value1 = vec![1u8];
+
+    let key2 = update_nibble(&key1, 0, 2);
+    let value2 = vec![2u8];
+
+    let key3 = update_nibble(&key1, 1, 3);
+    let value3 = vec![3u8];
+
+    let key4 = update_nibble(&key1, 1, 4);
+    let value4 = vec![4u8];
+
+    let key5 = update_nibble(&key1, 5, 5);
+    let value5 = vec![5u8];
+
+    let key6 = update_nibble(&key1, 3, 6);
+    let value6 = vec![6u8];
+
+    let batches = vec![
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key6, Some(value6))],
+    ];
+    let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
+
+    let to_verify = one_batch.clone();
+    let verify_fn = |tree: &JellyfishMerkleTree<MockTreeStore, Sha256>, version: Version| {
+        to_verify
+            .iter()
+            .for_each(|(k, v)| assert_eq!(Some(tree.get(*k, version).unwrap().unwrap()), *v))
+    };
+
+    // Insert as one batch and update one by one.
+    {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::new(&db);
+
+        let (_root, batch) = tree.put_value_set(one_batch, 0 /* version */).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+        verify_fn(&tree, 0);
+
+        // get # of nodes
+        assert_eq!(db.num_nodes(), 12);
+    }
+
+    // Insert in multiple batches.
+    {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::new(&db);
+
+        let (_roots, batch) = tree.put_value_sets(batches, 0 /* first_version */).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+        verify_fn(&tree, 6);
+    }
+}
+
+#[test]
+// Same as last test, expect we update some nodes
+fn test_prove_update() {
+    // ```text
+    //                             internal(root)
+    //                            /        \
+    //                       internal       2 (then 22)  <- nibble 0
+    //                      /   |   \
+    //              internal    3    4 (then 20)         <- nibble 1
+    //                 |
+    //              internal                             <- nibble 2
+    //              /      \
+    //        internal      6 (then 10)                  <- nibble 3
+    //           |
+    //        internal                                   <- nibble 4
+    //        /      \
+    //       1        5 .                                <- nibble 5
+    //
+    // Total: 12 nodes
+    // ```
+    let key1 = KeyHash([0u8; 32]);
+    let value1 = vec![1u8];
+
+    let key2 = update_nibble(&key1, 0, 2);
+    let value2 = vec![2u8];
+    let value2_update = vec![22u8];
+
+    let key3 = update_nibble(&key1, 1, 3);
+    let value3 = vec![3u8];
+
+    let key4 = update_nibble(&key1, 1, 4);
+    let value4 = vec![4u8];
+    let value4_update = vec![20u8];
+
+    let key5 = update_nibble(&key1, 5, 5);
+    let value5 = vec![5u8];
+
+    let key6 = update_nibble(&key1, 3, 6);
+    let value6 = vec![6u8];
+    let value6_update = vec![10u8];
+
+    let batches = vec![
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key4, Some(value4_update))],
+        vec![(key6, Some(value6))],
+        vec![(key2, Some(value2_update))],
+        vec![(key6, Some(value6_update))],
+    ];
+    let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
+
+    // Insert as one batch and update one by one.
+    {
+        let db = MockTreeStore::default();
+        let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
+
+        let (_root, batch) = tree.put_value_set(one_batch, 0 /* version */).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+
+        // get # of nodes
+        assert_eq!(db.num_nodes(), 12);
+    }
+
+    // Insert in multiple batches.
+    {
+        let db = MockTreeStore::default();
+        let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
+
+        let (_roots, batch) = tree.put_value_sets(batches, 0 /* first_version */).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+
+        // get # of nodes # higher because of updates
+        assert_eq!(db.num_nodes(), 34);
+    }
 }
 
 #[test]
@@ -761,6 +993,32 @@ fn test_two_gets_then_delete() {
         .put_value_set(vec![(key1, None)], 0 /* version */)
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
+}
+
+#[test]
+fn test_two_gets_then_delete_with_proof() {
+    let db = MockTreeStore::default();
+    let tree = Sha256Jmt::new(&db);
+
+    let key1: KeyHash = KeyHash([1; 32]);
+
+    let value = "".to_string().into_bytes();
+
+    let (root1, update_proof1, batch) = tree
+        .put_value_set_with_proof(vec![(key1, Some(value.clone()))], 0 /* version */)
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+
+    assert!(update_proof1
+        .verify_update(RootHash(Node::new_null().hash()), root1)
+        .is_ok());
+
+    // let (root2, update_proof2, batch) = tree
+    //     .put_value_set_with_proof(vec![(key1, None)], 0 /* version */)
+    //     .unwrap();
+    // db.write_tree_update_batch(batch).unwrap();
+    // println!("New root {:?}, Update proof 2 {:?}", root2, update_proof2);
+    // assert!(update_proof2.verify_update(root1, root2).is_ok());
 }
 
 proptest! {

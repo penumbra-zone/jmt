@@ -662,6 +662,8 @@ where
                         // The move siblings function allows zero copy moves for proof
                         let proof_leaf = proof.leaf();
                         let mut new_siblings = proof.take_siblings();
+                        // We need to reverse the siblings
+                        siblings.reverse();
                         new_siblings.append(&mut siblings);
                         SparseMerkleProof::new(proof_leaf, new_siblings)
                     });
