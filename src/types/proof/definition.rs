@@ -72,7 +72,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         &self.siblings
     }
 
-    pub fn move_siblings(self) -> Vec<[u8; 32]> {
+    pub fn take_siblings(self) -> Vec<[u8; 32]> {
         self.siblings
     }
 

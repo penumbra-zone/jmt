@@ -646,35 +646,40 @@ where
 
         // Traverse downwards from this internal node recursively to get the `node_key` of the child
         // node at `child_index`.
-        let result = match internal_node.get_child_with_siblings(&node_key, child_index) {
-            (Some(child_node_key), mut siblings) => {
-                let (update_result, proof_opt) = self.insert_at(
-                    child_node_key,
-                    version,
-                    nibble_iter,
-                    value,
-                    tree_cache,
-                    with_proof,
-                )?;
+        let (put_result, merkle_proof) =
+            match internal_node.get_child_with_siblings(&node_key, child_index) {
+                (Some(child_node_key), mut siblings) => {
+                    let (update_result, proof_opt) = self.insert_at(
+                        child_node_key,
+                        version,
+                        nibble_iter,
+                        value,
+                        tree_cache,
+                        with_proof,
+                    )?;
 
-                let new_proof_opt = proof_opt.map(|proof| {
-                    // The move siblings function allows zero copy moves for proof
-                    let proof_leaf = proof.leaf();
-                    let mut new_siblings = proof.move_siblings();
-                    new_siblings.append(&mut siblings);
-                    SparseMerkleProof::new(proof_leaf, new_siblings)
-                });
+                    let new_proof_opt = proof_opt.map(|proof| {
+                        // The move siblings function allows zero copy moves for proof
+                        let proof_leaf = proof.leaf();
+                        let mut new_siblings = proof.take_siblings();
+                        new_siblings.append(&mut siblings);
+                        SparseMerkleProof::new(proof_leaf, new_siblings)
+                    });
 
-                (update_result, new_proof_opt)
-            }
-            (None, siblings) => {
-                if let Some(value) = value {
-                    // insert
-                    let new_child_node_key = node_key.gen_child_node_key(version, child_index);
+                    (update_result, new_proof_opt)
+                }
+                (None, siblings) => {
+                    let merkle_proof = if with_proof {
+                        Some(SparseMerkleProof::new(None, siblings))
+                    } else {
+                        None
+                    };
 
-                    if with_proof {
+                    if let Some(value) = value {
+                        // insert
+                        let new_child_node_key = node_key.gen_child_node_key(version, child_index);
+
                         // The Merkle proof doesn't have a leaf
-                        let merkle_proof = SparseMerkleProof::new(None, siblings);
                         (
                             PutResult::Updated(Self::create_leaf_node(
                                 new_child_node_key,
@@ -682,36 +687,19 @@ where
                                 value,
                                 tree_cache,
                             )?),
-                            Some(merkle_proof),
+                            merkle_proof,
                         )
                     } else {
-                        (
-                            PutResult::Updated(Self::create_leaf_node(
-                                new_child_node_key,
-                                nibble_iter,
-                                value,
-                                tree_cache,
-                            )?),
-                            None,
-                        )
-                    }
-                } else {
-                    if with_proof {
-                        let merkle_proof = SparseMerkleProof::new(None, siblings);
-                        // delete not found
-                        (PutResult::NotChanged, Some(merkle_proof))
-                    } else {
-                        (PutResult::NotChanged, None)
+                        (PutResult::NotChanged, merkle_proof)
                     }
                 }
-            }
-        };
+            };
 
         // Reuse the current `InternalNode` in memory to create a new internal node.
         let mut children: Children = internal_node.into();
-        match result.0 {
+        match put_result {
             PutResult::NotChanged => {
-                return Ok((PutResult::NotChanged, result.1));
+                return Ok((PutResult::NotChanged, merkle_proof));
             }
             PutResult::Updated((_, new_node)) => {
                 // update child
@@ -740,7 +728,7 @@ where
 
                 node_key.set_version(version);
                 tree_cache.put_node(node_key.clone(), child_node.clone())?;
-                Ok((PutResult::Updated((node_key, child_node)), result.1))
+                Ok((PutResult::Updated((node_key, child_node)), merkle_proof))
             } else {
                 drop(it);
                 let new_internal_node: InternalNode = InternalNode::new(children);
@@ -751,12 +739,12 @@ where
                 tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
                 Ok((
                     PutResult::Updated((node_key, new_internal_node.into())),
-                    result.1,
+                    merkle_proof,
                 ))
             }
         } else {
             // internal node becomes empty, remove it
-            Ok((PutResult::Removed, result.1))
+            Ok((PutResult::Removed, merkle_proof))
         }
     }
 

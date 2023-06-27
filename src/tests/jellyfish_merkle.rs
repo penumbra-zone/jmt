@@ -467,7 +467,6 @@ fn test_update_proof() {
     assert_eq!(tree.get(key2, 0).unwrap().unwrap(), value2);
     assert_eq!(tree.get(key3, 1).unwrap().unwrap(), value3);
 
-    // get # of nodes (6 new nodes + 2 old version nodes)
     assert_eq!(db.num_nodes(), 8);
 
     let (root_hash2, proof2) = new_root_hash_and_proofs.pop().unwrap();
