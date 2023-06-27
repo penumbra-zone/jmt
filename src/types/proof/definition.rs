@@ -158,14 +158,6 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             }
         }
 
-        self.unsafe_verify(expected_root_hash, element_key)?;
-
-        Ok(())
-    }
-
-    /// A helper function that is used to verify the values of the Merkle tree against the root hash without
-    /// any preliminary checks
-    fn unsafe_verify(&self, expected_root_hash: RootHash, element_key: KeyHash) -> Result<()> {
         let current_hash = self
             .leaf
             .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
@@ -209,13 +201,12 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     /// If these steps are verified then the [`JellyfishMerkleTree`] has been soundly updated
     ///
     /// This function consumes the Merkle proof to avoid uneccessary copying.
-    pub fn verify_update<V: AsRef<[u8]>>(
+    pub fn compute_new_root_hash<V: AsRef<[u8]>>(
         mut self,
         old_root_hash: RootHash,
-        new_root_hash: RootHash,
         new_element_key: KeyHash,
         new_element_value: Option<V>,
-    ) -> Result<()> {
+    ) -> Result<RootHash> {
         if let Some(new_element_value) = new_element_value {
             // A value have been supplied, we need to prove that we inserted a given value at the new key
 
@@ -242,8 +233,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             self.siblings,
                         );
 
-                        // Step 3: we compare the new Merkle path against the new_root_hash
-                        new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
+                        // Step 3: we compute the new Merkle root
+                        Ok(new_merkle_path.root_hash())
                     } else {
                         // Case 2: The new element key is different from the leaf key (leaf creation)
                         // Step 1: we verify the old key is going to be split following the insertion of the
@@ -317,8 +308,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             new_siblings,
                         );
 
-                        // Step 3: we compare the new Merkle path against the new_root_hash
-                        new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
+                        // Step 3: we compute the new Merkle root
+                        Ok(new_merkle_path.root_hash())
                     }
                 }
 
@@ -337,8 +328,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                         self.siblings,
                     );
 
-                    // Step 3: we compare the new Merkle path against the new_root_hash
-                    new_merkle_path.unsafe_verify(new_root_hash, new_element_key)?;
+                    // Step 3: we compute the new Merkle root
+                    Ok(new_merkle_path.root_hash())
                 }
             }
         } else {
@@ -358,14 +349,12 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 let new_merkle_path: SparseMerkleProof<H> =
                     SparseMerkleProof::new(None, self.siblings);
 
-                // Step 3: we verify that the key is not present in the tree anymore
-                new_merkle_path.verify_nonexistence(new_root_hash, new_element_key)?;
+                // Step 3: we compute the new Merkle root
+                Ok(new_merkle_path.root_hash())
             } else {
                 bail!("Trying to remove an empty leaf")
             }
         }
-
-        Ok(())
     }
 
     pub fn root_hash(&self) -> RootHash {
@@ -393,6 +382,40 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             });
 
         RootHash(actual_root_hash)
+    }
+}
+
+pub struct UpdateMerkleProof<H: SimpleHasher, V: AsRef<[u8]>>(
+    Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
+);
+
+impl<H: SimpleHasher, V: AsRef<[u8]>> UpdateMerkleProof<H, V> {
+    pub fn new(
+        merkle_proof_and_new_key_values: Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
+    ) -> Self {
+        UpdateMerkleProof(merkle_proof_and_new_key_values)
+    }
+
+    pub fn verify_update(self, old_root_hash: RootHash, new_root_hash: RootHash) -> Result<()> {
+        let merkle_proof_and_new_key_values = self.0;
+        let mut curr_root_hash = old_root_hash;
+
+        for (merkle_proof, new_element_key, new_element_value) in merkle_proof_and_new_key_values {
+            curr_root_hash = merkle_proof.compute_new_root_hash(
+                curr_root_hash,
+                new_element_key,
+                new_element_value,
+            )?;
+        }
+
+        ensure!(
+            curr_root_hash == new_root_hash,
+            "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
+            curr_root_hash,
+            new_root_hash,
+        );
+
+        Ok(())
     }
 }
 

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use anyhow::{bail, ensure, format_err, Context, Result};
 use sha2::Sha256;
 
+use crate::proof::definition::UpdateMerkleProof;
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
@@ -373,17 +374,8 @@ where
         &self,
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
-    ) -> Result<(RootHash, SparseMerkleProof<H>, TreeUpdateBatch)> {
-        let (mut root_hashes_and_proofs, tree_update_batch) =
-            self.put_value_sets_with_proof(vec![value_set], version)?;
-        assert_eq!(
-            root_hashes_and_proofs.len(),
-            1,
-            "root_hashes must consist of a single value.",
-        );
-        let (root_hash, proof) = root_hashes_and_proofs.pop().unwrap();
-
-        Ok((root_hash, proof, tree_update_batch))
+    ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
+        Ok(self.put_value_sets_with_proof(vec![value_set], version)?)
     }
 
     /// Returns the new nodes and values in a batch after applying `value_set`. For
@@ -457,11 +449,12 @@ where
 
     /// Same as [`put_value_sets`], this method returns a Merkle proof for every update of the Merkle tree.
     /// The proofs can be verified using the [`verify_update`] method, which requires the old `root_hash`, the `merkle_proof` and the new `root_hash`
+    /// The first argument contains all the root hashes that were stored in the tree cache so far. The last one is the new root hash of the tree.
     pub fn put_value_sets_with_proof(
         &self,
         value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
-    ) -> Result<(Vec<(RootHash, SparseMerkleProof<H>)>, TreeUpdateBatch)> {
+    ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         let mut proofs = Vec::new();
         for (idx, value_set) in value_sets.into_iter().enumerate() {
@@ -469,7 +462,7 @@ where
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
-                tree_cache.put_value(version, key, value);
+                tree_cache.put_value(version, key, value.clone());
                 let merkle_proof = self
                     .put(key, value_hash, version, &mut tree_cache, true)
                     .with_context(|| {
@@ -480,18 +473,26 @@ where
                     })?
                     .unwrap();
 
-                proofs.push(merkle_proof);
-
-                // Freezes the current cache to make all contents in the current cache immutable.
-                tree_cache.freeze()?;
+                proofs.push((merkle_proof, key, value));
             }
         }
 
+        // Freezes the current cache to make all contents in the current cache immutable.
+        tree_cache.freeze()?;
+
         let (root_hashes, update_batch): (Vec<RootHash>, TreeUpdateBatch) = tree_cache.into();
 
-        let zipped_hashes_proofs = root_hashes.into_iter().zip(proofs.into_iter()).collect();
+        // In that case there is only one root hash, because the cache has only been frozen once after creation
+        ensure!(
+            root_hashes.len() == 1,
+            "There should be only one root hash contained in the cache after the update"
+        );
 
-        Ok((zipped_hashes_proofs, update_batch))
+        Ok((
+            *root_hashes.last().unwrap(),
+            UpdateMerkleProof::new(proofs),
+            update_batch,
+        ))
     }
 
     fn put(

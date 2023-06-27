@@ -5,8 +5,10 @@ use alloc::collections::{vec_deque, VecDeque};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use alloc::{format, vec};
+use anyhow::ensure;
 use proptest::collection::btree_set;
 use proptest::prelude::*;
+use proptest::strategy::NewTree;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sha2::Sha256;
 
@@ -449,7 +451,7 @@ fn test_update_proof() {
     let key3 = update_nibble(&key1, 2, 3);
     let value3 = vec![3u8];
 
-    let (roots_proofs, batch) = tree
+    let (new_root_hash, roots_proofs, batch) = tree
         .put_value_sets_with_proof(
             vec![vec![
                 (key1, Some(value1.clone())),
@@ -468,27 +470,9 @@ fn test_update_proof() {
     // get # of nodes
     assert_eq!(db.num_nodes(), 6);
 
-    // Verify each Merkle proof
-    let mut roots_proofs = VecDeque::from(roots_proofs);
-
-    let prev_root_hash = RootHash(Node::new_null().hash());
-    let (root_hash1, proof1) = roots_proofs.pop_front().unwrap();
-
-    proof1
-        .verify_update(prev_root_hash, root_hash1, key1, Some(value1))
-        .unwrap();
-
-    let (root_hash2, proof2) = roots_proofs.pop_front().unwrap();
-
-    proof2
-        .verify_update(root_hash1, root_hash2, key2, Some(value2))
-        .unwrap();
-
-    let (root_hash3, proof3) = roots_proofs.pop_front().unwrap();
-
-    proof3
-        .verify_update(root_hash2, root_hash3, key3, Some(value3))
-        .unwrap();
+    assert!(roots_proofs
+        .verify_update(RootHash(Node::new_null().hash()), new_root_hash)
+        .is_ok());
 }
 
 #[test]
