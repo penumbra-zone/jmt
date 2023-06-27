@@ -427,7 +427,7 @@ fn test_batch_insertion() {
     }
 }
 
-// Simple update proof test to check we can produce and verify zk-proofs for insertion
+// Simple update proof test to check we can produce and verify merkle proofs for insertion
 #[test]
 fn test_update_proof() {
     let db = MockTreeStore::default();
@@ -440,7 +440,7 @@ fn test_update_proof() {
     //                internal
     //                /      \
     //               1        3
-    // Total: 7 nodes
+    // Total: 6 nodes
     // ```
     let key1 = KeyHash([0u8; 32]);
     let value1 = vec![1u8];
@@ -451,13 +451,12 @@ fn test_update_proof() {
     let key3 = update_nibble(&key1, 2, 3);
     let value3 = vec![3u8];
 
-    let (new_root_hash, roots_proofs, batch) = tree
+    let (mut new_root_hash_and_proofs, batch) = tree
         .put_value_sets_with_proof(
-            vec![vec![
-                (key1, Some(value1.clone())),
-                (key2, Some(value2.clone())),
-                (key3, Some(value3.clone())),
-            ]],
+            vec![
+                vec![(key1, Some(value1.clone())), (key2, Some(value2.clone()))],
+                vec![(key3, Some(value3.clone()))],
+            ],
             0, /* version */
         )
         .unwrap();
@@ -466,13 +465,19 @@ fn test_update_proof() {
     db.write_tree_update_batch(batch).unwrap();
     assert_eq!(tree.get(key1, 0).unwrap().unwrap(), value1);
     assert_eq!(tree.get(key2, 0).unwrap().unwrap(), value2);
-    assert_eq!(tree.get(key3, 0).unwrap().unwrap(), value3);
-    // get # of nodes
-    assert_eq!(db.num_nodes(), 6);
+    assert_eq!(tree.get(key3, 1).unwrap().unwrap(), value3);
 
-    assert!(roots_proofs
-        .verify_update(RootHash(Node::new_null().hash()), new_root_hash)
+    // get # of nodes (6 new nodes + 2 old version nodes)
+    assert_eq!(db.num_nodes(), 8);
+
+    let (root_hash2, proof2) = new_root_hash_and_proofs.pop().unwrap();
+    let (root_hash1, proof1) = new_root_hash_and_proofs.pop().unwrap();
+
+    assert!(proof1
+        .verify_update(RootHash(Node::new_null().hash()), root_hash1)
         .is_ok());
+
+    assert!(proof2.verify_update(root_hash1, root_hash2).is_ok());
 }
 
 #[test]

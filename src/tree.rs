@@ -375,7 +375,17 @@ where
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
     ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
-        Ok(self.put_value_sets_with_proof(vec![value_set], version)?)
+        let (mut hash_and_proof, batch_update) =
+            self.put_value_sets_with_proof(vec![value_set], version)?;
+        assert_eq!(
+            hash_and_proof.len(),
+            1,
+            "root_hashes must consist of a single value.",
+        );
+
+        let (hash, proof) = hash_and_proof.pop().unwrap();
+
+        Ok((hash, proof, batch_update))
     }
 
     /// Returns the new nodes and values in a batch after applying `value_set`. For
@@ -454,11 +464,15 @@ where
         &self,
         value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
-    ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
+    ) -> Result<(
+        Vec<(RootHash, UpdateMerkleProof<H, OwnedValue>)>,
+        TreeUpdateBatch,
+    )> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
-        let mut proofs = Vec::new();
+        let mut batch_proofs = Vec::new();
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
+            let mut proofs = Vec::new();
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
@@ -475,24 +489,21 @@ where
 
                 proofs.push((merkle_proof, key, value));
             }
-        }
 
-        // Freezes the current cache to make all contents in the current cache immutable.
-        tree_cache.freeze()?;
+            batch_proofs.push(UpdateMerkleProof::new(proofs));
+
+            // Freezes the current cache to make all contents in the current cache immutable.
+            tree_cache.freeze()?;
+        }
 
         let (root_hashes, update_batch): (Vec<RootHash>, TreeUpdateBatch) = tree_cache.into();
 
-        // In that case there is only one root hash, because the cache has only been frozen once after creation
-        ensure!(
-            root_hashes.len() == 1,
-            "There should be only one root hash contained in the cache after the update"
-        );
+        let zipped_hashes_proofs = root_hashes
+            .into_iter()
+            .zip(batch_proofs.into_iter())
+            .collect();
 
-        Ok((
-            *root_hashes.last().unwrap(),
-            UpdateMerkleProof::new(proofs),
-            update_batch,
-        ))
+        Ok((zipped_hashes_proofs, update_batch))
     }
 
     fn put(
