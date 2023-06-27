@@ -5,6 +5,7 @@
 
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
@@ -189,20 +190,77 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         Ok(())
     }
 
-    /// Verifies an update of the [`JellyfishMerkleTree`], proving the transition from an `old_root_hash` to a `new_root_hash` ([`RootHash`])
-    /// Multiple cases to handle:
-    ///    - Insert a tuple `new_element_key`, `new_element_value`
-    ///    - Update a tuple `new_element_key`, `new_element_value`
-    ///    - Delete the `new_element_key`
-    /// This function does the following high level operations:
-    ///    1. Verify the Merkle path provided against the `old_root_hash`
-    ///    2. Use the provided Merkle path and the tuple (`new_element_key`, `new_element_value`) to compute the new Merkle path.
-    ///    3. Compare the new Merkle path against the new_root_hash
-    /// If these steps are verified then the [`JellyfishMerkleTree`] has been soundly updated
+    /// This function computes a new merkle path on split insertion (ie when inserting a new value creates
+    /// a key split).
     ///
-    /// This function consumes the Merkle proof to avoid uneccessary copying.
-    pub fn compute_new_root_hash<V: AsRef<[u8]>>(
+    /// Add the correct siblings of the new merkle path by finding the splitting nibble and
+    /// adding the default leaves to the path
+    ///
+    /// To compute the number of default leaves we need to add, we need to:
+    /// - Compute the number of default leaves to separate the old leaf from the new leaf in the last nibble
+    /// - Compute the number of default leaves to traverse the common prefix
+    /// - Compute the number of default leaves remaining to select the former old leaf in the former last nibble
+    /// (this leaf becomes an internal node, hence the path needs to be fully specified)
+    fn compute_new_merkle_path_on_split<V: AsRef<[u8]>>(
         mut self,
+        leaf_node: SparseMerkleLeafNode,
+        new_element_key: KeyHash,
+        new_element_value: V,
+    ) -> SparseMerkleProof<H> {
+        let new_key_path = NibblePath::new(new_element_key.0.to_vec());
+        let old_key_path = NibblePath::new(leaf_node.key_hash.0.to_vec());
+
+        // The verify_nonexistence check from before ensure that the common prefix nibbles_len is greater than the
+        // siblings len
+        let mut new_key_nibbles = new_key_path.nibbles();
+        let mut old_key_nibbles = old_key_path.nibbles();
+
+        let common_prefix_len = skip_common_prefix(&mut new_key_nibbles, &mut old_key_nibbles);
+
+        let num_siblings = self.siblings().len();
+
+        // We can safely unwrap these values as the check have been already performed in verify_nonexistence
+        let mut new_key_bits = new_key_nibbles.bits();
+        let mut old_key_bits = old_key_nibbles.bits();
+
+        let mut default_siblings_leaf_nibble = 0;
+
+        while new_key_bits.next() == old_key_bits.next() {
+            default_siblings_leaf_nibble += 1;
+        }
+
+        let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
+                            + 4* (common_prefix_len - num_siblings) /* the number of default leaves we need to add to the path */
+                            + (default_siblings_leaf_nibble);
+
+        let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
+            num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
+        );
+
+        // Add the previous leaf node
+        new_siblings.push(leaf_node.hash());
+
+        // Fill the siblings with the former default siblings
+        new_siblings.resize(num_default_siblings + 1, Node::new_null().hash());
+
+        // Finally add the other siblings
+        new_siblings.append(&mut self.siblings);
+
+        // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
+        // In this case the siblings are left unchanged, only the leaf value is updated
+        SparseMerkleProof::new(
+            Some(SparseMerkleLeafNode::new(
+                new_element_key,
+                ValueHash::with::<H>(new_element_value),
+            )),
+            new_siblings,
+        )
+    }
+
+    /// Checks the old value against the root hash and computes the new root hash based on
+    /// the new key value pair
+    fn check_compute_new_root<V: AsRef<[u8]>>(
+        self,
         old_root_hash: RootHash,
         new_element_key: KeyHash,
         new_element_value: Option<V>,
@@ -241,71 +299,10 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                         // new key (nonexistence proof)
                         self.verify_nonexistence(old_root_hash, new_element_key)?;
 
-                        // Add the correct siblings of the new element key by finding the splitting nibble and
-                        // adding the default leaves to the path
-
-                        // To compute the number of default leaves we need to add, we need to:
-                        // - Compute the number of default leaves to separate the old leaf from the new leaf in the last nibble
-                        // - Compute the number of default leaves to traverse the common prefix
-                        // - Compute the number of default leaves remaining to select the former old leaf in the former last nibble
-                        // (this leaf becomes an internal node, hence the path needs to be fully specified)
-
-                        let new_key_path = NibblePath::new(new_element_key.0.to_vec());
-                        let old_key_path = NibblePath::new(leaf_node.key_hash.0.to_vec());
-
-                        // The verify_nonexistence check from before ensure that the common prefix nibbles_len is greater than the
-                        // siblings len
-                        let mut new_key_nibbles = new_key_path.nibbles();
-                        let mut old_key_nibbles = old_key_path.nibbles();
-
-                        let common_prefix_len =
-                            skip_common_prefix(&mut new_key_nibbles, &mut old_key_nibbles);
-
-                        let num_siblings = self.siblings().len();
-
-                        // We can safely unwrap these values as the check have been already performed in verify_nonexistence
-                        let mut new_key_leaf_nibble = new_key_nibbles.next().unwrap().as_usize();
-                        let mut old_key_leaf_nibble = old_key_nibbles.next().unwrap().as_usize();
-
-                        let mut default_siblings_leaf_nibble = 0;
-
-                        for h in (0..4).rev() {
-                            if !(((new_key_leaf_nibble >> h) != 0)
-                                ^ ((old_key_leaf_nibble >> h) != 0))
-                            {
-                                default_siblings_leaf_nibble += 1;
-                                new_key_leaf_nibble -= (new_key_leaf_nibble >> h) << h;
-                                old_key_leaf_nibble -= (old_key_leaf_nibble >> h) << h;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
-                            + 4* (common_prefix_len - num_siblings) /* the number of default leaves we need to add to the path */
-                            + (default_siblings_leaf_nibble);
-
-                        let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
-                            num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
-                        );
-
-                        // Add the previous leaf node
-                        new_siblings.push(leaf_node.hash());
-
-                        // Fill the siblings with the former default siblings
-                        new_siblings.resize(num_default_siblings + 1, Node::new_null().hash());
-
-                        // Finally add the other siblings
-                        new_siblings.append(&mut self.siblings);
-
-                        // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
-                        // In this case the siblings are left unchanged, only the leaf value is updated
-                        let new_merkle_path: SparseMerkleProof<H> = SparseMerkleProof::new(
-                            Some(SparseMerkleLeafNode::new(
-                                new_element_key,
-                                ValueHash::with::<H>(new_element_value),
-                            )),
-                            new_siblings,
+                        let new_merkle_path = self.compute_new_merkle_path_on_split(
+                            leaf_node,
+                            new_element_key,
+                            new_element_value,
                         );
 
                         // Step 3: we compute the new Merkle root
@@ -396,12 +393,25 @@ impl<H: SimpleHasher, V: AsRef<[u8]>> UpdateMerkleProof<H, V> {
         UpdateMerkleProof(merkle_proof_and_new_key_values)
     }
 
+    /// Verifies an update of the [`JellyfishMerkleTree`], proving the transition from an `old_root_hash` to a `new_root_hash` ([`RootHash`])
+    /// Multiple cases to handle:
+    ///    - Insert a tuple `new_element_key`, `new_element_value`
+    ///    - Update a tuple `new_element_key`, `new_element_value`
+    ///    - Delete the `new_element_key`
+    /// This function does the following high level operations:
+    ///    1. Verify the Merkle path provided against the `old_root_hash`
+    ///    2. Use the provided Merkle path and the tuple (`new_element_key`, `new_element_value`) to compute the new Merkle path.
+    ///    3. Compare the new Merkle path against the new_root_hash
+    /// If these steps are verified then the [`JellyfishMerkleTree`] has been soundly updated
+    ///
+    /// This function consumes the Merkle proof to avoid uneccessary copying.
     pub fn verify_update(self, old_root_hash: RootHash, new_root_hash: RootHash) -> Result<()> {
         let merkle_proof_and_new_key_values = self.0;
         let mut curr_root_hash = old_root_hash;
 
         for (merkle_proof, new_element_key, new_element_value) in merkle_proof_and_new_key_values {
-            curr_root_hash = merkle_proof.compute_new_root_hash(
+            // Checks the old root hash and computes the new root
+            curr_root_hash = merkle_proof.check_compute_new_root(
                 curr_root_hash,
                 new_element_key,
                 new_element_value,
