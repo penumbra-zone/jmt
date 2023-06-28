@@ -8,12 +8,13 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree). [`InternalNode`] represents a 4-level
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
-
 use alloc::format;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 use anyhow::{ensure, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::FoldWhile::{Continue, Done};
+use itertools::Itertools;
 use num_derive::{FromPrimitive, ToPrimitive};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::prelude::*;
@@ -584,9 +585,9 @@ impl InternalNode {
 
     /// Gets the child and its corresponding siblings that are necessary to generate the proof for
     /// the `n`-th child. If it is an existence proof, the returned child must be the `n`-th
-    /// child; otherwise, the returned child may be another child. See inline explanation for
-    /// details. When calling this function with n = 11 (node `b` in the following graph), the
-    /// range at each level is illustrated as a pair of square brackets:
+    /// child; otherwise, the returned child may be another child in the same nibble pointed by n.
+    /// See inline explanation for details. When calling this function with n = 11
+    ///  (node `b` in the following graph), the range at each level is illustrated as a pair of square brackets:
     ///
     /// ```text
     ///     4      [f   e   d   c   b   a   9   8   7   6   5   4   3   2   1   0] -> root level
@@ -602,13 +603,27 @@ impl InternalNode {
     ///     |   MSB|<---------------------- uint 16 ---------------------------->|LSB
     ///  height    chs: `child_half_start`         shs: `sibling_half_start`
     /// ```
-    pub fn get_child_with_siblings(
+    fn get_child_with_siblings_helper(
         &self,
         node_key: &NodeKey,
         n: Nibble,
+        get_only_child: bool,
     ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
         let mut siblings = vec![];
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
+
+        let mut n_bitmap = [0_u8; 16];
+        n_bitmap[n.as_usize()] = 1;
+        let n_bitmap = n_bitmap
+            .into_iter()
+            .fold_while(1_u16, |acc, bit| {
+                if bit == 0 {
+                    Continue(acc << 1)
+                } else {
+                    Done(acc)
+                }
+            })
+            .into_inner();
 
         // Nibble height from 3 to 0.
         for h in (0..4).rev() {
@@ -629,8 +644,9 @@ impl InternalNode {
             if range_existence_bitmap == 0 {
                 // No child in this range.
                 return (None, siblings);
-            } else if width == 1
-                || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+            } else if get_only_child
+                && (width == 1
+                    || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0))
             {
                 // Return the only 1 leaf child under this subtree or reach the lowest level
                 // Even this leaf child is not the n-th child, it should be returned instead of
@@ -645,7 +661,7 @@ impl InternalNode {
                             .with_context(|| {
                                 format!(
                                     "Corrupted internal node: child_bitmap indicates \
-                                     the existence of a non-exist child at index {:x}",
+                                         the existence of a non-exist child at index {:x}",
                                     only_child_index
                                 )
                             })
@@ -655,9 +671,56 @@ impl InternalNode {
                     },
                     siblings,
                 );
+            } else if !get_only_child
+                && (width == 1 || (range_existence_bitmap == n_bitmap && range_leaf_bitmap != 0))
+            {
+                // Early return the child in that subtree iff it is the only child and the nibble points
+                // to it
+                return (
+                    {
+                        let only_child_version = self
+                            .child(n)
+                            // Should be guaranteed by the self invariants, but these are not easy to express at the moment
+                            .with_context(|| {
+                                format!(
+                                    "Corrupted internal node: child_bitmap indicates \
+                                         the existence of a non-exist child at index {:x}",
+                                    n
+                                )
+                            })
+                            .unwrap()
+                            .version;
+                        Some(node_key.gen_child_node_key(only_child_version, n))
+                    },
+                    siblings,
+                );
             }
         }
         unreachable!("Impossible to get here without returning even at the lowest level.")
+    }
+
+    /// [`get_child_with_siblings`] will return the child from this subtree that matches the nibble n in addition
+    /// to building the list of its sibblings. This function has the same behavior as [`child`].
+    pub fn get_child_with_siblings(
+        &self,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
+        self.get_child_with_siblings_helper(node_key, n, false)
+    }
+
+    /// [`get_only_child_with_siblings`] will **either** return the child that matches the nibble n or the only
+    /// child in the largest width range pointed by n (see the helper function [`get_child_with_siblings_helper`] for more information).
+    /// 
+    /// Even this leaf child is not the n-th child, it should be returned instead of
+    /// `None` because it's existence indirectly proves the n-th child doesn't exist.
+    /// Please read proof format for details.
+    pub fn get_only_child_with_siblings(
+        &self,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
+        self.get_child_with_siblings_helper(node_key, n, true)
     }
 
     #[cfg(test)]
