@@ -476,7 +476,6 @@ where
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
-                tree_cache.put_value(version, key, value.clone());
                 let merkle_proof = self
                     .put(key, value_hash, version, &mut tree_cache, true)
                     .with_context(|| {
@@ -486,6 +485,7 @@ where
                         )
                     })?
                     .unwrap();
+                tree_cache.put_value(version, key, value.clone());
 
                 proofs.push((merkle_proof, key, value));
             }
@@ -670,8 +670,9 @@ where
 
                     (update_result, new_proof_opt)
                 }
-                (None, siblings) => {
+                (None, mut siblings) => {
                     let merkle_proof = if with_proof {
+                        siblings.reverse();
                         Some(SparseMerkleProof::new(None, siblings))
                     } else {
                         None
