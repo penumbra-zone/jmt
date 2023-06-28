@@ -1052,31 +1052,31 @@ fn test_two_gets_then_delete() {
     db.write_tree_update_batch(batch).unwrap();
 }
 
-// #[test]
-// fn test_two_gets_then_delete_with_proof() {
-//     let db = MockTreeStore::default();
-//     let tree = Sha256Jmt::new(&db);
+#[test]
+fn test_two_gets_then_delete_with_proof() {
+    let db = MockTreeStore::default();
+    let tree = Sha256Jmt::new(&db);
 
-//     let key1: KeyHash = KeyHash([1; 32]);
+    let key1: KeyHash = KeyHash([1; 32]);
 
-//     let value = "".to_string().into_bytes();
+    let value = "".to_string().into_bytes();
 
-//     let (root1, update_proof1, batch) = tree
-//         .put_value_set_with_proof(vec![(key1, Some(value.clone()))], 0 /* version */)
-//         .unwrap();
-//     db.write_tree_update_batch(batch).unwrap();
+    let (mut update_root, batch) = tree
+        .put_value_sets_with_proof(
+            vec![vec![(key1, Some(value.clone()))], vec![(key1, None)]],
+            0, /* version */
+        )
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
 
-//     assert!(update_proof1
-//         .verify_update(RootHash(Node::new_null().hash()), root1)
-//         .is_ok());
+    let (root2, proof2) = update_root.pop().unwrap();
+    let (root1, proof1) = update_root.pop().unwrap();
 
-//     let (root2, update_proof2, batch) = tree
-//         .put_value_set_with_proof(vec![(key1, None)], 0 /* version */)
-//         .unwrap();
-//     db.write_tree_update_batch(batch).unwrap();
-//     println!("New root {:?}, Update proof 2 {:?}", root2, update_proof2);
-//     assert!(update_proof2.verify_update(root1, root2).is_ok());
-// }
+    assert!(proof1
+        .verify_update(RootHash(Node::new_null().hash()), root1)
+        .is_ok());
+    assert!(proof2.verify_update(root1, root2).is_ok());
+}
 
 proptest! {
     #[test]

@@ -440,7 +440,6 @@ where
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
-                tree_cache.put_value(version, key, value);
                 self.put(key, value_hash, version, &mut tree_cache, false)
                     .with_context(|| {
                         format!(
@@ -448,6 +447,7 @@ where
                             action, i, version, key
                         )
                     })?;
+                tree_cache.put_value(version, key, value);
             }
 
             // Freezes the current cache to make all contents in the current cache immutable.

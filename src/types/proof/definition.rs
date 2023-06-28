@@ -352,11 +352,30 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 );
 
                 // Step 2: we compute the new Merkle tree path (same siblings but without the original leaf)
-                let new_merkle_path: SparseMerkleProof<H> =
-                    SparseMerkleProof::new(None, self.siblings);
+                let new_merkle_hash = RootHash(
+                    self.siblings
+                        .iter()
+                        .zip(
+                            new_element_key
+                                .0
+                                .iter_bits()
+                                .rev()
+                                .skip(256 - self.siblings.len()),
+                        )
+                        .fold(
+                            SPARSE_MERKLE_PLACEHOLDER_HASH,
+                            |hash, (sibling_hash, bit)| {
+                                if bit {
+                                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                                } else {
+                                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                                }
+                            },
+                        ),
+                );
 
                 // Step 3: we compute the new Merkle root
-                Ok(new_merkle_path.root_hash())
+                Ok(new_merkle_hash)
             } else {
                 bail!("Trying to remove an empty leaf")
             }
