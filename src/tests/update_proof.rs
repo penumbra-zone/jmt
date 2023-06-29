@@ -1,8 +1,15 @@
+use proptest::{proptest, strategy::Strategy};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sha2::Sha256;
 
 use crate::{
-    mock::MockTreeStore, storage::Node, JellyfishMerkleTree, KeyHash, RootHash, Sha256Jmt, Version,
+    mock::MockTreeStore,
+    storage::Node,
+    tests::{
+        helper::{arb_interleaved_insertions_and_deletions, arb_partitions},
+        helper_update_with_proof::test_clairvoyant_construction_matches_interleaved_construction_proved,
+    },
+    JellyfishMerkleTree, KeyHash, RootHash, Sha256Jmt, Version,
 };
 
 fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
@@ -493,3 +500,37 @@ fn test_1000_versions() {
     let seed: &[_] = &[1, 2, 3, 4];
     many_versions_update_proof_and_verify_tree_root(seed, 1000);
 }
+
+proptest!(
+// This is a replica of the test below, with the values tuned to the smallest values that were
+// useful when isolating bugs. Set `PROPTEST_MAX_SHRINK_ITERS=5000000` to shrink enough to
+// isolate bugs down to minimal examples when hunting using this test. Good hunting.
+#[test]
+fn proptest_clairvoyant_construction_matches_interleaved_construction_small_proved(
+    operations_by_version in
+        (1usize..4) // possible numbers of versions
+            .prop_flat_map(|versions| {
+                arb_interleaved_insertions_and_deletions(2, 1, 5, 15) // (distinct keys, distinct values, insertions, deletions)
+                    .prop_flat_map(move |ops| arb_partitions(versions, ops))
+        })
+) {
+    test_clairvoyant_construction_matches_interleaved_construction_proved(operations_by_version)
+}
+
+// This is a replica of the test above, but with much larger parameters for more exhaustive
+// testing. It won't feasibly shrink to a useful counterexample because the generators for these
+// tests are not very efficient for shrinking. For some exhaustive fuzzing, try setting
+// `PROPTEST_CASES=10000`, which takes about 30 seconds on a fast machine.
+#[test]
+fn proptest_clairvoyant_construction_matches_interleaved_construction_proved(
+    operations_by_version in
+        (1usize..500) // possible numbers of versions
+            .prop_flat_map(|versions| {
+                arb_interleaved_insertions_and_deletions(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
+                    .prop_flat_map(move |ops| arb_partitions(versions, ops))
+        })
+) {
+    test_clairvoyant_construction_matches_interleaved_construction_proved(operations_by_version)
+}
+
+);

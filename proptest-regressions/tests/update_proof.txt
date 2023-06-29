@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0b3d6d063fc1f061474909bf87db24cf4e3df85996df23b9bd9e8d333701bce8 # shrinks to operations_by_version = [[], [(KeyHash("af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"), None)], [(KeyHash("af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"), Some([])), (KeyHash("af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"), Some([]))]]
