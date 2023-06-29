@@ -230,7 +230,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
         let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
                             + ((4*(common_prefix_len+1) - num_siblings) / 4 ) * 4 /* the number of default leaves we need to add to the path */
-                            + (default_siblings_leaf_nibble) - 4;
+                            + (default_siblings_leaf_nibble)
+            - 4;
 
         let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
@@ -305,15 +306,14 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                         .is_ok());
 
                     // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
-                    let new_merkle_path: SparseMerkleProof<H> = 
-            // In that case, the leaf is none so we don't need to change the siblings
-            SparseMerkleProof::new(
-                Some(SparseMerkleLeafNode::new(
-                    new_element_key,
-                    ValueHash::with::<H>(new_element_value),
-                )),
-                self.siblings,
-            );
+                    // In that case, the leaf is none so we don't need to change the siblings
+                    let new_merkle_path: SparseMerkleProof<H> = SparseMerkleProof::new(
+                        Some(SparseMerkleLeafNode::new(
+                            new_element_key,
+                            ValueHash::with::<H>(new_element_value),
+                        )),
+                        self.siblings,
+                    );
 
                     // Step 3: we compute the new Merkle root
                     Ok(new_merkle_path.root_hash())
