@@ -1,15 +1,16 @@
+use crate::storage::Node::Leaf;
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloc::{format, vec};
+use anyhow::{bail, ensure, format_err, Context, Result};
 use core::{cmp::Ordering, convert::TryInto};
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
+use sha2::Sha256;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
-use anyhow::{bail, ensure, format_err, Context, Result};
-use sha2::Sha256;
-
 use crate::proof::definition::UpdateMerkleProof;
+use crate::proof::SparseMerkleLeafNode;
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
@@ -440,6 +441,7 @@ where
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+                tree_cache.put_value(version, key, value);
                 self.put(key, value_hash, version, &mut tree_cache, false)
                     .with_context(|| {
                         format!(
@@ -447,7 +449,6 @@ where
                             action, i, version, key
                         )
                     })?;
-                tree_cache.put_value(version, key, value);
             }
 
             // Freezes the current cache to make all contents in the current cache immutable.
@@ -476,6 +477,7 @@ where
             for (i, (key, value)) in value_set.into_iter().enumerate() {
                 let action = if value.is_some() { "insert" } else { "delete" };
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+                tree_cache.put_value(version, key, value.clone());
                 let merkle_proof = self
                     .put(key, value_hash, version, &mut tree_cache, true)
                     .with_context(|| {
@@ -485,7 +487,6 @@ where
                         )
                     })?
                     .unwrap();
-                tree_cache.put_value(version, key, value.clone());
 
                 proofs.push((merkle_proof, key, value));
             }
@@ -646,57 +647,86 @@ where
 
         // Traverse downwards from this internal node recursively to get the `node_key` of the child
         // node at `child_index`.
-        let (put_result, merkle_proof) =
-            match internal_node.get_child_with_siblings(&node_key, child_index) {
-                (Some(child_node_key), mut siblings) => {
-                    let (update_result, proof_opt) = self.insert_at(
-                        child_node_key,
-                        version,
-                        nibble_iter,
-                        value,
-                        tree_cache,
-                        with_proof,
-                    )?;
+        let (put_result, merkle_proof) = match internal_node.child(child_index) {
+            Some(child) => {
+                let (child_node_key, mut siblings) = if with_proof {
+                    let (child_key, siblings) =
+                        internal_node.get_child_with_siblings(&node_key, child_index);
+                    (child_key.unwrap(), siblings)
+                } else {
+                    (
+                        node_key.gen_child_node_key(child.version, child_index),
+                        vec![],
+                    )
+                };
 
-                    let new_proof_opt = proof_opt.map(|proof| {
-                        // The move siblings function allows zero copy moves for proof
-                        let proof_leaf = proof.leaf();
-                        let mut new_siblings = proof.take_siblings();
-                        // We need to reverse the siblings
-                        siblings.reverse();
-                        new_siblings.append(&mut siblings);
-                        SparseMerkleProof::new(proof_leaf, new_siblings)
+                let (update_result, proof_opt) = self.insert_at(
+                    child_node_key,
+                    version,
+                    nibble_iter,
+                    value,
+                    tree_cache,
+                    with_proof,
+                )?;
+
+                let new_proof_opt = proof_opt.map(|proof| {
+                    // The move siblings function allows zero copy moves for proof
+                    let proof_leaf = proof.leaf();
+                    let mut new_siblings = proof.take_siblings();
+                    // We need to reverse the siblings
+                    siblings.reverse();
+                    new_siblings.append(&mut siblings);
+                    SparseMerkleProof::new(proof_leaf, new_siblings)
+                });
+
+                (update_result, new_proof_opt)
+            }
+            None => {
+                // In that case we couldn't find a child for this node at the nibble's position.
+                // We have to traverse down the virtual 4-level tree (which is the compressed
+                // representation of the jellyfish merkle tree) to get the closest leaf of the nibble
+                // we are looking for.
+                let merkle_proof = if with_proof {
+                    let (child_key_opt, mut siblings) =
+                        internal_node.get_only_child_with_siblings(&node_key, child_index);
+
+                    let leaf: Option<SparseMerkleLeafNode> = child_key_opt.map(|child_key|
+                    {
+                        // We should be able to find the node in the case
+                        let node = tree_cache.get_node(&child_key).expect("this node should be in the cache");
+                        match node {
+                            Leaf(leaf_node) => {
+                                leaf_node.into()
+                            },
+                            _ => unreachable!("get_only_child_with_siblings should return a leaf node in that case")
+                        }
                     });
 
-                    (update_result, new_proof_opt)
-                }
-                (None, mut siblings) => {
-                    let merkle_proof = if with_proof {
-                        siblings.reverse();
-                        Some(SparseMerkleProof::new(None, siblings))
-                    } else {
-                        None
-                    };
+                    siblings.reverse();
+                    Some(SparseMerkleProof::new(leaf, siblings))
+                } else {
+                    None
+                };
 
-                    if let Some(value) = value {
-                        // insert
-                        let new_child_node_key = node_key.gen_child_node_key(version, child_index);
+                if let Some(value) = value {
+                    // insert
+                    let new_child_node_key = node_key.gen_child_node_key(version, child_index);
 
-                        // The Merkle proof doesn't have a leaf
-                        (
-                            PutResult::Updated(Self::create_leaf_node(
-                                new_child_node_key,
-                                nibble_iter,
-                                value,
-                                tree_cache,
-                            )?),
-                            merkle_proof,
-                        )
-                    } else {
-                        (PutResult::NotChanged, merkle_proof)
-                    }
+                    // The Merkle proof doesn't have a leaf
+                    (
+                        PutResult::Updated(Self::create_leaf_node(
+                            new_child_node_key,
+                            nibble_iter,
+                            value,
+                            tree_cache,
+                        )?),
+                        merkle_proof,
+                    )
+                } else {
+                    (PutResult::NotChanged, merkle_proof)
                 }
-            };
+            }
+        };
 
         // Reuse the current `InternalNode` in memory to create a new internal node.
         let mut children: Children = internal_node.into();
@@ -1086,7 +1116,7 @@ where
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
                     let child_node_key =
-                        node.get_child_without_siblings(&next_node_key, queried_child_index);
+                        node.get_only_child_without_siblings(&next_node_key, queried_child_index);
 
                     match child_node_key {
                         Some(node_key) => {
@@ -1267,8 +1297,8 @@ where
                     // Find the leftmost nibble in the children
                     let queried_child_index =
                         min_or_max(&internal_node).expect("a child always exists");
-                    let child_node_key =
-                        internal_node.get_child_without_siblings(&node_key, queried_child_index);
+                    let child_node_key = internal_node
+                        .get_only_child_without_siblings(&node_key, queried_child_index);
                     // Proceed downwards
                     node_key = match child_node_key {
                         Some(node_key) => node_key,

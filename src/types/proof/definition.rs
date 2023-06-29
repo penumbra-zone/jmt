@@ -5,7 +5,6 @@
 
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
@@ -180,7 +179,6 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 }
             });
 
-        println!("Expected root hash {:?}", expected_root_hash);
         ensure!(
             actual_root_hash == expected_root_hash.0,
             "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
@@ -231,8 +229,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         }
 
         let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
-                            + ((4*common_prefix_len - num_siblings) / 4) * 4 /* the number of default leaves we need to add to the path */
-                            + (default_siblings_leaf_nibble);
+                            + ((4*(common_prefix_len+1) - num_siblings) / 4 ) * 4 /* the number of default leaves we need to add to the path */
+                            + (default_siblings_leaf_nibble) - 4;
 
         let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
@@ -302,39 +300,20 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                 // There is no leaf in the Merkle path, which means the key we are going to insert does not update an existing leaf
                 None => {
-                    let actual_root_hash = RootHash(
-                        self.siblings
-                            .iter()
-                            .zip(
-                                new_element_key
-                                    .0
-                                    .iter_bits()
-                                    .rev()
-                                    .skip(256 - self.siblings.len()),
-                            )
-                            .fold(
-                                SPARSE_MERKLE_PLACEHOLDER_HASH,
-                                |hash, (sibling_hash, bit)| {
-                                    if bit {
-                                        SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
-                                    } else {
-                                        SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
-                                    }
-                                },
-                            ),
-                    );
-
-                    ensure!(actual_root_hash == old_root_hash);
+                    ensure!(self
+                        .verify_nonexistence(old_root_hash, new_element_key)
+                        .is_ok());
 
                     // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
-                    // In this case the siblings are left unchanged, only the leaf value is updated
-                    let new_merkle_path: SparseMerkleProof<H> = SparseMerkleProof::new(
-                        Some(SparseMerkleLeafNode::new(
-                            new_element_key,
-                            ValueHash::with::<H>(new_element_value),
-                        )),
-                        self.siblings,
-                    );
+                    let new_merkle_path: SparseMerkleProof<H> = 
+            // In that case, the leaf is none so we don't need to change the siblings
+            SparseMerkleProof::new(
+                Some(SparseMerkleLeafNode::new(
+                    new_element_key,
+                    ValueHash::with::<H>(new_element_value),
+                )),
+                self.siblings,
+            );
 
                     // Step 3: we compute the new Merkle root
                     Ok(new_merkle_path.root_hash())

@@ -537,9 +537,13 @@ impl InternalNode {
     }
 
     /// Gets the child without its corresponding siblings (like using
-    /// [`get_child_with_siblings`](InternalNode::get_child_with_siblings) and dropping the
+    /// [`get_only_child_with_siblings`](InternalNode::get_only_child_with_siblings) and dropping the
     /// siblings, but more efficient).
-    pub fn get_child_without_siblings(&self, node_key: &NodeKey, n: Nibble) -> Option<NodeKey> {
+    pub fn get_only_child_without_siblings(
+        &self,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> Option<NodeKey> {
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
 
         // Nibble height from 3 to 0.
@@ -711,7 +715,7 @@ impl InternalNode {
 
     /// [`get_only_child_with_siblings`] will **either** return the child that matches the nibble n or the only
     /// child in the largest width range pointed by n (see the helper function [`get_child_with_siblings_helper`] for more information).
-    /// 
+    ///
     /// Even this leaf child is not the n-th child, it should be returned instead of
     /// `None` because it's existence indirectly proves the n-th child doesn't exist.
     /// Please read proof format for details.
