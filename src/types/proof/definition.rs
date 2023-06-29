@@ -335,44 +335,84 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 // In case of deletion, we need to rewind the nibble until we reach the first non-default hash
                 // to simulate node coalescing.
                 // Then, when we reach the first non-default hash, we have to compute the new merkle path
+                // We have two different cases:
+                // - the first non-default sibling is an internal node: we don't apply coalescing.
+                // - the first non-default sibling is a leaf node: we apply coalescing
                 let mut siblings_it = self.siblings.into_iter().peekable();
-                let mut new_leaf_hash = SparseMerkleNode::Null;
-                while let Some(next_sibling) = siblings_it.next() {
-                    if next_sibling != SparseMerkleNode::Null {
-                        new_leaf_hash = next_sibling;
-                        break;
-                    }
-                }
-
-                // We have to remove the default leaves left in the siblings before the next root
+                let mut next_non_default_sib = SparseMerkleNode::Null;
                 while let Some(next_sibling) = siblings_it.peek() {
                     if *next_sibling != SparseMerkleNode::Null {
+                        next_non_default_sib = *next_sibling;
                         break;
                     }
                     siblings_it.next();
                 }
 
-                let remaining_siblings_len = siblings_it.len();
+                let new_merkle_hash = match next_non_default_sib {
+                    SparseMerkleNode::Internal(_) => {
+                        // We need to keep the internal node in the iterator and simply compute the merkle path using the
+                        // default leave as the root
+                        let remaining_siblings_len = siblings_it.len();
 
-                let new_merkle_hash = RootHash(
-                    siblings_it
-                        .zip(
-                            new_element_key
-                                .0
-                                .iter_bits()
-                                .rev()
-                                .skip(256 - remaining_siblings_len),
+                        RootHash(
+                            siblings_it
+                                .zip(
+                                    new_element_key
+                                        .0
+                                        .iter_bits()
+                                        .rev()
+                                        .skip(256 - remaining_siblings_len),
+                                )
+                                .fold(Node::new_null().hash(), |hash, (sibling_node, bit)| {
+                                    if bit {
+                                        SparseMerkleInternalNode::new(sibling_node.hash(), hash)
+                                            .hash()
+                                    } else {
+                                        SparseMerkleInternalNode::new(hash, sibling_node.hash())
+                                            .hash()
+                                    }
+                                }),
                         )
-                        .fold(new_leaf_hash.hash(), |hash, (sibling_node, bit)| {
-                            if bit {
-                                SparseMerkleInternalNode::new(sibling_node.hash(), hash).hash()
-                            } else {
-                                SparseMerkleInternalNode::new(hash, sibling_node.hash()).hash()
-                            }
-                        }),
-                );
+                    }
+                    SparseMerkleNode::Leaf(_) => {
+                        // We need to remove the leaf from the iterator
+                        siblings_it.next();
 
-                // Step 3: we compute the new Merkle root
+                        // We have to remove the default leaves left in the siblings before the next root: coalescing
+                        while let Some(next_sibling) = siblings_it.peek() {
+                            if *next_sibling != SparseMerkleNode::Null {
+                                break;
+                            }
+                            siblings_it.next();
+                        }
+
+                        let remaining_siblings_len = siblings_it.len();
+
+                        RootHash(
+                            siblings_it
+                                .zip(
+                                    new_element_key
+                                        .0
+                                        .iter_bits()
+                                        .rev()
+                                        .skip(256 - remaining_siblings_len),
+                                )
+                                .fold(next_non_default_sib.hash(), |hash, (sibling_node, bit)| {
+                                    if bit {
+                                        SparseMerkleInternalNode::new(sibling_node.hash(), hash)
+                                            .hash()
+                                    } else {
+                                        SparseMerkleInternalNode::new(hash, sibling_node.hash())
+                                            .hash()
+                                    }
+                                }),
+                        )
+
+                        // Step 3: we compute the new Merkle root
+                    }
+                    SparseMerkleNode::Null => RootHash(SPARSE_MERKLE_PLACEHOLDER_HASH),
+                };
+
                 Ok(new_merkle_hash)
             } else {
                 bail!("Trying to remove an empty leaf")

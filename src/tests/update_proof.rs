@@ -300,7 +300,7 @@ fn test_delete_simple() {
 }
 
 #[test]
-fn test_delete_complex() {
+fn test_delete_simple2() {
     // ```text
     //                             internal(root)
     //                            /        \
@@ -329,6 +329,61 @@ fn test_delete_complex() {
         vec![(key4, Some(value4))],
         vec![(key4, None)],
     ];
+    insert_and_perform_checks(batches);
+}
+
+#[test]
+fn test_delete_complex() {
+    // ```text
+    //                             internal(root)
+    //                            /        \
+    //                       internal       2 (deleted)  <- nibble 0
+    //                      /   |   \
+    //              internal    3    4 (deleted)         <- nibble 1
+    //                 |
+    //              internal                             <- nibble 2
+    //              /      \
+    //        internal      6 (deleted)                  <- nibble 3
+    //           |
+    //        internal                                   <- nibble 4
+    //        /      \
+    //       1        5 .                                <- nibble 5
+    //
+    // Total: 12 nodes
+    // ```
+    let key1 = KeyHash([0u8; 32]);
+    let value1 = vec![1u8];
+
+    let key2 = update_nibble(&key1, 0, 2);
+    let value2 = vec![2u8];
+
+    let key3 = update_nibble(&key1, 1, 3);
+    let value3 = vec![3u8];
+
+    let key4 = update_nibble(&key1, 1, 4);
+    let value4 = vec![4u8];
+
+    let key5 = update_nibble(&key1, 5, 5);
+    let value5 = vec![5u8];
+
+    let key6 = update_nibble(&key1, 3, 6);
+    let value6 = vec![6u8];
+
+    let batches = vec![
+        vec![(key1, Some(value1))],
+        vec![(key2, Some(value2))],
+        vec![(key3, Some(value3))],
+        vec![(key4, Some(value4))],
+        vec![(key5, Some(value5))],
+        vec![(key4, None)],
+        vec![(key6, Some(value6))],
+        vec![(key2, None)],
+        vec![(key6, None)],
+        vec![(key5, None)],
+        vec![(key3, None)],
+        vec![(key1, None)],
+    ];
+
     insert_and_perform_checks(batches);
 }
 
