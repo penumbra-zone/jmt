@@ -291,6 +291,16 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction_proved(
         }
     }
 
+    // We know need to check that the updates from the tree have been performed correctly.
+    // We need to loop over the vectors of proofs and verify each one
+    if version_with_deletions != PRE_GENESIS_VERSION {
+        let mut old_root = RootHash(Node::new_null().hash());
+        for (new_root, proof) in roots_proofs_with_deletions {
+            assert!(proof.verify_update(old_root, new_root).is_ok());
+            old_root = new_root;
+        }
+    }
+
     // After having checked that the root hashes match, it's time to check that the actual values
     // contained in the trees match. We use the JellyfishMerkleIterator to extract a sorted list of
     // key-value pairs from each, and compare to the expected mapping:

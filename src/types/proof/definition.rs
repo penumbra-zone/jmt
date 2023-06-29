@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
-use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
+use super::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleNode};
 use crate::{
     storage::Node,
     types::nibble::nibble_path::{skip_common_prefix, NibblePath},
@@ -33,8 +33,9 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
     leaf: Option<SparseMerkleLeafNode>,
 
     /// All siblings in this proof, including the default ones. Siblings are ordered from the bottom
-    /// level to the root level.
-    siblings: Vec<[u8; 32]>,
+    /// level to the root level. The siblings contain the node type information to be able to efficiently
+    /// coalesce on deletes.
+    siblings: Vec<SparseMerkleNode>,
 
     /// A marker type showing which hash function is used in this proof.
     phantom_hasher: PhantomHasher<H>,
@@ -54,7 +55,7 @@ impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleProof<H> {
 
 impl<H: SimpleHasher> SparseMerkleProof<H> {
     /// Constructs a new `SparseMerkleProof` using leaf and a list of siblings.
-    pub(crate) fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<[u8; 32]>) -> Self {
+    pub(crate) fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<SparseMerkleNode>) -> Self {
         SparseMerkleProof {
             leaf,
             siblings,
@@ -68,11 +69,11 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     }
 
     /// Returns the list of siblings in this proof.
-    pub fn siblings(&self) -> &[[u8; 32]] {
+    pub(crate) fn siblings(&self) -> &[SparseMerkleNode] {
         &self.siblings
     }
 
-    pub fn take_siblings(self) -> Vec<[u8; 32]> {
+    pub(crate) fn take_siblings(self) -> Vec<SparseMerkleNode> {
         self.siblings
     }
 
@@ -171,11 +172,11 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                     .rev()
                     .skip(256 - self.siblings.len()),
             )
-            .fold(current_hash, |hash, (sibling_hash, bit)| {
+            .fold(current_hash, |hash, (sibling_node, bit)| {
                 if bit {
-                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                    SparseMerkleInternalNode::new(sibling_node.hash(), hash).hash()
                 } else {
-                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                    SparseMerkleInternalNode::new(hash, sibling_node.hash()).hash()
                 }
             });
 
@@ -233,15 +234,15 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                             + (default_siblings_leaf_nibble)
             - 4;
 
-        let mut new_siblings: Vec<[u8; 32]> = Vec::with_capacity(
+        let mut new_siblings: Vec<SparseMerkleNode> = Vec::with_capacity(
             num_default_siblings + 1 + self.siblings.len(), /* The default siblings, the current leaf that becomes a sibling and the former siblings */
         );
 
         // Add the previous leaf node
-        new_siblings.push(leaf_node.hash());
+        new_siblings.push(SparseMerkleNode::Leaf(leaf_node.hash()));
 
         // Fill the siblings with the former default siblings
-        new_siblings.resize(num_default_siblings + 1, Node::new_null().hash());
+        new_siblings.resize(num_default_siblings + 1, SparseMerkleNode::Null);
 
         // Finally add the other siblings
         new_siblings.append(&mut self.siblings);
@@ -330,27 +331,45 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                     leaf_node.key_hash
                 );
 
-                // Step 2: we compute the new Merkle tree path (same siblings but without the original leaf)
+                // Step 2: we compute the new Merkle tree path.
+                // In case of deletion, we need to rewind the nibble until we reach the first non-default hash
+                // to simulate node coalescing.
+                // Then, when we reach the first non-default hash, we have to compute the new merkle path
+                let mut siblings_it = self.siblings.into_iter().peekable();
+                let mut new_leaf_hash = SparseMerkleNode::Null;
+                while let Some(next_sibling) = siblings_it.next() {
+                    if next_sibling != SparseMerkleNode::Null {
+                        new_leaf_hash = next_sibling;
+                        break;
+                    }
+                }
+
+                // We have to remove the default leaves left in the siblings before the next root
+                while let Some(next_sibling) = siblings_it.peek() {
+                    if *next_sibling != SparseMerkleNode::Null {
+                        break;
+                    }
+                    siblings_it.next();
+                }
+
+                let remaining_siblings_len = siblings_it.len();
+
                 let new_merkle_hash = RootHash(
-                    self.siblings
-                        .iter()
+                    siblings_it
                         .zip(
                             new_element_key
                                 .0
                                 .iter_bits()
                                 .rev()
-                                .skip(256 - self.siblings.len()),
+                                .skip(256 - remaining_siblings_len),
                         )
-                        .fold(
-                            SPARSE_MERKLE_PLACEHOLDER_HASH,
-                            |hash, (sibling_hash, bit)| {
-                                if bit {
-                                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
-                                } else {
-                                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
-                                }
-                            },
-                        ),
+                        .fold(new_leaf_hash.hash(), |hash, (sibling_node, bit)| {
+                            if bit {
+                                SparseMerkleInternalNode::new(sibling_node.hash(), hash).hash()
+                            } else {
+                                SparseMerkleInternalNode::new(hash, sibling_node.hash()).hash()
+                            }
+                        }),
                 );
 
                 // Step 3: we compute the new Merkle root
@@ -377,11 +396,11 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                     .rev()
                     .skip(256 - self.siblings.len()),
             )
-            .fold(current_hash, |hash, (sibling_hash, bit)| {
+            .fold(current_hash, |hash, (sibling_node, bit)| {
                 if bit {
-                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                    SparseMerkleInternalNode::new(sibling_node.hash(), hash).hash()
                 } else {
-                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                    SparseMerkleInternalNode::new(hash, sibling_node.hash()).hash()
                 }
             });
 
@@ -473,17 +492,17 @@ impl<H: SimpleHasher, V: AsRef<[u8]>> UpdateMerkleProof<H, V> {
 pub struct SparseMerkleRangeProof {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
-    right_siblings: Vec<[u8; 32]>,
+    right_siblings: Vec<SparseMerkleNode>,
 }
 
 impl SparseMerkleRangeProof {
     /// Constructs a new `SparseMerkleRangeProof`.
-    pub(crate) fn new(right_siblings: Vec<[u8; 32]>) -> Self {
+    pub(crate) fn new(right_siblings: Vec<SparseMerkleNode>) -> Self {
         Self { right_siblings }
     }
 
     /// Returns the right siblings.
-    pub fn right_siblings(&self) -> &[[u8; 32]] {
+    pub(crate) fn right_siblings(&self) -> &[SparseMerkleNode] {
         &self.right_siblings
     }
 
@@ -517,9 +536,10 @@ impl SparseMerkleRangeProof {
             } else {
                 (
                     current_hash,
-                    *right_sibling_iter
+                    right_sibling_iter
                         .next()
-                        .ok_or_else(|| format_err!("Missing right sibling."))?,
+                        .ok_or_else(|| format_err!("Missing right sibling."))?
+                        .hash(),
                 )
             };
             current_hash = SparseMerkleInternalNode::new(left_hash, right_hash).hash();

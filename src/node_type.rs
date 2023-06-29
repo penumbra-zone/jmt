@@ -22,6 +22,7 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
+use crate::proof::SparseMerkleNode;
 use crate::{
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -495,6 +496,50 @@ impl InternalNode {
         (bitmaps.0 & mask, bitmaps.1 & mask)
     }
 
+    fn build_sibling(
+        &self,
+        start: u8,
+        width: u8,
+        (existence_bitmap, leaf_bitmap): (u16, u16),
+    ) -> SparseMerkleNode {
+        // Given a bit [start, 1 << nibble_height], return the value of that range.
+        let (range_existence_bitmap, range_leaf_bitmap) =
+            Self::range_bitmaps(start, width, (existence_bitmap, leaf_bitmap));
+        if range_existence_bitmap == 0 {
+            // No child under this subtree
+            SparseMerkleNode::Null
+        } else if width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+        {
+            // Only 1 leaf child under this subtree or reach the lowest level
+            let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
+
+            let child = self
+                .child(only_child_index)
+                .with_context(|| {
+                    format!(
+                        "Corrupted internal node: existence_bitmap indicates \
+                         the existence of a non-exist child at index {:x}",
+                        only_child_index
+                    )
+                })
+                .unwrap();
+
+            SparseMerkleNode::Leaf(child.hash)
+        } else {
+            let left_child = self.merkle_hash(
+                start,
+                width / 2,
+                (range_existence_bitmap, range_leaf_bitmap),
+            );
+            let right_child = self.merkle_hash(
+                start + width / 2,
+                width / 2,
+                (range_existence_bitmap, range_leaf_bitmap),
+            );
+            SparseMerkleNode::Internal(SparseMerkleInternalNode::new(left_child, right_child))
+        }
+    }
+
     fn merkle_hash(
         &self,
         start: u8,
@@ -612,8 +657,8 @@ impl InternalNode {
         node_key: &NodeKey,
         n: Nibble,
         get_only_child: bool,
-    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
-        let mut siblings = vec![];
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
+        let mut siblings: Vec<SparseMerkleNode> = vec![];
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
 
         let mut n_bitmap = [0_u8; 16];
@@ -636,7 +681,7 @@ impl InternalNode {
             let width = 1 << h;
             let (child_half_start, sibling_half_start) = get_child_and_sibling_half_start(n, h);
             // Compute the root hash of the subtree rooted at the sibling of `r`.
-            siblings.push(self.merkle_hash(
+            siblings.push(self.build_sibling(
                 sibling_half_start,
                 width,
                 (existence_bitmap, leaf_bitmap),
@@ -705,11 +750,11 @@ impl InternalNode {
 
     /// [`get_child_with_siblings`] will return the child from this subtree that matches the nibble n in addition
     /// to building the list of its sibblings. This function has the same behavior as [`child`].
-    pub fn get_child_with_siblings(
+    pub(crate) fn get_child_with_siblings(
         &self,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
         self.get_child_with_siblings_helper(node_key, n, false)
     }
 
@@ -719,11 +764,11 @@ impl InternalNode {
     /// Even this leaf child is not the n-th child, it should be returned instead of
     /// `None` because it's existence indirectly proves the n-th child doesn't exist.
     /// Please read proof format for details.
-    pub fn get_only_child_with_siblings(
+    pub(crate) fn get_only_child_with_siblings(
         &self,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
         self.get_child_with_siblings_helper(node_key, n, true)
     }
 

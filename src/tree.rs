@@ -10,7 +10,7 @@ use sha2::Sha256;
 use std::collections::HashMap;
 
 use crate::proof::definition::UpdateMerkleProof;
-use crate::proof::SparseMerkleLeafNode;
+use crate::proof::{SparseMerkleLeafNode, SparseMerkleNode};
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
@@ -970,7 +970,7 @@ where
     ) -> Result<(Option<OwnedValue>, SparseMerkleProof<H>)> {
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
-        let mut siblings = vec![];
+        let mut siblings: Vec<SparseMerkleNode> = vec![];
         let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 

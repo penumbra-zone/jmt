@@ -633,7 +633,7 @@ fn verify_range_proof(
         // add zeros.
         buf.resize(256, false);
         let key = KeyHash(<[u8; 32]>::from_bit_iter(buf.into_iter()).unwrap());
-        btree1.insert(key, *sibling);
+        btree1.insert(key, sibling.hash());
     }
 
     // Now we do the transformation (removing the suffixes) described above.
