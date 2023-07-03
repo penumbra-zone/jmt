@@ -24,15 +24,21 @@ pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
     Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
 )]
 #[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
-/// A SparseMerkleNode is either a null node, an internal sparse node or a leaf node.
+/// A [`SparseMerkleNode`] is either a null node, an internal sparse node or a leaf node.
 /// This is useful in the delete case to know if we need to coalesce the leaves on deletion.
+/// The [`SparseMerkleNode`] needs to store either a [`SparseMerkleInternalNode`] or a [`SparseMerkleLeafNode`]
+/// to be able to safely assert that the node is either a leaf or an internal node. Indeed,
+/// if one stores the node/leaf hash directly into the structure, any malicious prover would
+/// be able to forge the node/leaf type, as this assertion wouldn't be checked.
+/// Providing a [`SparseMerkleInternalNode`] or a [`SparseMerkleLeafNode`] structure is sufficient to
+/// prove the node type as one would need to reverse the hash function to forge them.
 pub(crate) enum SparseMerkleNode {
     // The default sparse node
     Null,
     // The internal sparse merkle tree node
     Internal(SparseMerkleInternalNode),
     // The leaf sparse merkle tree node
-    Leaf([u8; 32]),
+    Leaf(SparseMerkleLeafNode),
 }
 
 impl SparseMerkleNode {
@@ -40,7 +46,7 @@ impl SparseMerkleNode {
         match self {
             SparseMerkleNode::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
             Internal(node) => node.hash(),
-            Leaf(node) => *node,
+            Leaf(node) => node.hash(),
         }
     }
 }

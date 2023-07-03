@@ -239,7 +239,10 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         );
 
         // Add the previous leaf node
-        new_siblings.push(SparseMerkleNode::Leaf(leaf_node.hash()));
+        new_siblings.push(SparseMerkleNode::Leaf(SparseMerkleLeafNode {
+            key_hash: leaf_node.key_hash,
+            value_hash: leaf_node.value_hash,
+        }));
 
         // Fill the siblings with the former default siblings
         new_siblings.resize(num_default_siblings + 1, SparseMerkleNode::Null);
@@ -354,6 +357,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                         // default leave as the root
                         let remaining_siblings_len = siblings_it.len();
 
+                        // If the sibling is an internal node, it doesn't get coalesced after deletion.
                         RootHash(
                             siblings_it
                                 .zip(
@@ -388,6 +392,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                         let remaining_siblings_len = siblings_it.len();
 
+                        // If the sibling is a leaf, we need to start computing the merkle hash from the leaf value
+                        // because the node gets coalesced
                         RootHash(
                             siblings_it
                                 .zip(
@@ -415,7 +421,9 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                 Ok(new_merkle_hash)
             } else {
-                bail!("Trying to remove an empty leaf")
+                // We just return the old root hash if we try to remove the empty node
+                // because there isn't any changes to the merkle tree
+                Ok(old_root_hash)
             }
         }
     }

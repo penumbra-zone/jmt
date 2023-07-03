@@ -4,7 +4,6 @@ use sha2::Sha256;
 
 use crate::{
     mock::MockTreeStore,
-    proof,
     storage::Node,
     tests::{
         helper::{arb_interleaved_insertions_and_deletions, arb_partitions},
@@ -337,19 +336,19 @@ fn test_delete_complex() {
     // ```text
     //                             internal(root)
     //                            /        \
-    //                       internal       2 (deleted)  <- nibble 0
+    //                       internal       2            <- nibble 0
     //                      /   |   \
-    //              internal    3    4 (deleted)         <- nibble 1
+    //              internal    3    4                   <- nibble 1
     //                 |
     //              internal                             <- nibble 2
     //              /      \
-    //        internal      6 (deleted)                  <- nibble 3
+    //        internal      6                            <- nibble 3
     //           |
     //        internal                                   <- nibble 4
     //        /      \
     //       1        5 .                                <- nibble 5
     //
-    // Total: 12 nodes
+    // Total: 12 nodes, we delete all the nodes one after the other
     // ```
     let key1 = KeyHash([0u8; 32]);
     let value1 = vec![1u8];
@@ -388,6 +387,72 @@ fn test_delete_complex() {
 }
 
 #[test]
+// Deletes an empty tree
+fn test_delete_empty() {
+    let key1 = KeyHash([0u8; 32]);
+
+    let batches = vec![vec![(key1, None)]];
+
+    insert_and_perform_checks(batches);
+}
+
+#[test]
+// Deletes a key twice, reinserts it and deletes it again
+fn test_delete_key_twice() {
+    let key1 = KeyHash([10u8; 32]);
+
+    let batches = vec![
+        vec![(key1, Some(Vec::from([10_u8])))],
+        vec![(key1, None)],
+        vec![(key1, None)],
+        vec![(key1, Some(Vec::from([10_u8])))],
+        vec![(key1, None)],
+    ];
+
+    insert_and_perform_checks(batches);
+}
+
+#[test]
+fn test_delete_with_internal_sibling() {
+    // ```text
+    //                             internal(root)
+    //                            /        \
+    //                          (10)       11            <- nibble 0
+    //                         /    \
+    //                        1      10                  <- nibble 1
+    // Total
+    // ```text
+    let batch = vec![
+        vec![(KeyHash([176_u8; 32]), Some(vec![2]))],
+        vec![
+            (KeyHash([160_u8; 32]), Some(vec![1])),
+            (
+                KeyHash({
+                    let mut key = [160_u8; 32];
+                    key[1] = 16;
+                    key
+                }),
+                Some(vec![1]),
+            ),
+        ],
+        vec![(KeyHash([176_u8; 32]), None)],
+    ];
+
+    insert_and_perform_checks(batch);
+}
+
+#[test]
+fn test_multi_deletes_after_inserts() {
+    let batches = vec![vec![
+        (KeyHash([7_u8; 32]), Some(Vec::from([10_u8]))),
+        (KeyHash([10_u8; 32]), Some(Vec::from([10_u8]))),
+        (KeyHash([10_u8; 32]), None),
+        (KeyHash([10_u8; 32]), None),
+    ]];
+    insert_and_perform_checks(batches);
+}
+
+#[test]
 fn test_gets_then_delete_with_proof() {
     let db = MockTreeStore::default();
     let tree = Sha256Jmt::new(&db);
@@ -413,6 +478,7 @@ fn test_gets_then_delete_with_proof() {
     assert!(proof2.verify_update(root1, root2).is_ok());
 }
 
+// Test helper for [`test_1000_keys`]
 fn many_keys_update_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
@@ -449,12 +515,14 @@ fn many_keys_update_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
     }
 }
 
+// Inserts 1000 different keys in the tree and verifies the insertion merkle proof.
 #[test]
 fn test_1000_keys() {
     let seed: &[_] = &[1, 2, 3, 4];
     many_keys_update_proof_and_verify_tree_root(seed, 1000);
 }
 
+// Test helper for the [`test_1000_versions`].
 fn many_versions_update_proof_and_verify_tree_root(seed: &[u8], num_versions: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
@@ -518,6 +586,7 @@ fn many_versions_update_proof_and_verify_tree_root(seed: &[u8], num_versions: us
     }
 }
 
+// Inserts 1000 different keys with different version numbers and verifies the insertion proof
 #[test]
 fn test_1000_versions() {
     let seed: &[_] = &[1, 2, 3, 4];
@@ -528,12 +597,14 @@ proptest!(
 // This is a replica of the test below, with the values tuned to the smallest values that were
 // useful when isolating bugs. Set `PROPTEST_MAX_SHRINK_ITERS=5000000` to shrink enough to
 // isolate bugs down to minimal examples when hunting using this test. Good hunting.
+// This test is the same as the one in the [`jellyfish_merkle.rs`] file, except that
+// it proves the inserts and updates on the merkle tree.
 #[test]
 fn proptest_clairvoyant_construction_matches_interleaved_construction_small_proved(
     operations_by_version in
-        (1usize..4) // possible numbers of versions
+        (1usize..10) // possible numbers of versions
             .prop_flat_map(|versions| {
-                arb_interleaved_insertions_and_deletions(2, 1, 5, 15) // (distinct keys, distinct values, insertions, deletions)
+                arb_interleaved_insertions_and_deletions(20, 10, 10, 15) // (distinct keys, distinct values, insertions, deletions)
                     .prop_flat_map(move |ops| arb_partitions(versions, ops))
         })
 ) {
@@ -544,6 +615,8 @@ fn proptest_clairvoyant_construction_matches_interleaved_construction_small_prov
 // testing. It won't feasibly shrink to a useful counterexample because the generators for these
 // tests are not very efficient for shrinking. For some exhaustive fuzzing, try setting
 // `PROPTEST_CASES=10000`, which takes about 30 seconds on a fast machine.
+// This test is the same as the one in the [`jellyfish_merkle.rs`] file, except that
+// it proves the inserts and updates on the merkle tree.
 #[test]
 fn proptest_clairvoyant_construction_matches_interleaved_construction_proved(
     operations_by_version in

@@ -9,7 +9,7 @@ use proptest::{collection::vec, prelude::*};
 
 use crate::{
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
-    SimpleHasher, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    SimpleHasher,
 };
 
 use super::SparseMerkleNode;

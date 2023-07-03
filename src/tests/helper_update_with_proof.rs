@@ -1,3 +1,5 @@
+/// This file reproduces most of the tests within the helper folder but
+/// adds update proof verification in the test helpers.
 use std::collections::HashMap;
 
 use alloc::sync::Arc;
@@ -12,7 +14,7 @@ use sha2::{
 use crate::{
     mock::MockTreeStore, proof::definition::UpdateMerkleProof, storage::Node,
     types::PRE_GENESIS_VERSION, JellyfishMerkleIterator, KeyHash, OwnedValue, RootHash, Sha256Jmt,
-    SimpleHasher, Version,
+    Version,
 };
 
 type MockUpdateMerkleProof = UpdateMerkleProof<
@@ -25,74 +27,6 @@ type MockUpdateMerkleProof = UpdateMerkleProof<
     >,
     std::vec::Vec<u8>,
 >;
-
-/// Initializes a DB with a set of key-value pairs by inserting one key at each version.
-pub fn init_mock_db_proved<H: SimpleHasher, V: AsRef<[u8]>>(
-    kvs: &HashMap<KeyHash, OwnedValue>,
-) -> (
-    Vec<(RootHash, MockUpdateMerkleProof)>,
-    MockTreeStore,
-    Version,
-) {
-    assert!(!kvs.is_empty());
-
-    let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
-    let mut roots_proofs: Vec<(RootHash, MockUpdateMerkleProof)> = Vec::with_capacity(kvs.len());
-
-    for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
-        let (root_hash, proof, write_batch) = tree
-            .put_value_set_with_proof(vec![(key, Some(value))], i as Version)
-            .unwrap();
-        db.write_tree_update_batch(write_batch).unwrap();
-        roots_proofs.push((root_hash, proof))
-    }
-
-    (roots_proofs, db, (kvs.len() - 1) as Version)
-}
-
-/// Initializes a DB with a set of key-value pairs by inserting one key at each version, then
-/// deleting the specified keys afterwards.
-pub fn init_mock_db_with_deletions_afterwards_proved(
-    kvs: &HashMap<KeyHash, OwnedValue>,
-    deletions: Vec<KeyHash>,
-) -> (
-    Vec<(RootHash, MockUpdateMerkleProof)>,
-    MockTreeStore,
-    Version,
-) {
-    assert!(!kvs.is_empty());
-
-    let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
-    let mut roots_proofs: Vec<(RootHash, MockUpdateMerkleProof)> = Vec::with_capacity(kvs.len());
-
-    for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
-        let (root_hash, proof, write_batch) = tree
-            .put_value_set_with_proof(vec![(key, Some(value))], i as Version)
-            .unwrap();
-        db.write_tree_update_batch(write_batch).unwrap();
-        roots_proofs.push((root_hash, proof));
-    }
-
-    let after_insertions_version = kvs.len();
-
-    for (i, key) in deletions.iter().enumerate() {
-        let (root_hash, proof, write_batch) = tree
-            .put_value_set_with_proof(
-                vec![(*key, None)],
-                (after_insertions_version + i) as Version,
-            )
-            .unwrap();
-        db.write_tree_update_batch(write_batch).unwrap();
-        roots_proofs.push((root_hash, proof));
-    }
-    (
-        roots_proofs,
-        db,
-        (kvs.len() + deletions.len() - 1) as Version,
-    )
-}
 
 fn init_mock_db_versioned_proved(
     operations_by_version: Vec<Vec<(KeyHash, Vec<u8>)>>,

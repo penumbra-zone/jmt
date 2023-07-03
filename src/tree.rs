@@ -593,7 +593,7 @@ where
                 with_proof,
             ),
             Node::Null => {
-                let merkle_proof_opt = if with_proof {
+                let merkle_proof_null = if with_proof {
                     Some(SparseMerkleProof::new(None, vec![]))
                 } else {
                     None
@@ -619,11 +619,11 @@ where
                     )?;
                     Ok((
                         PutResult::Updated((new_root_node_key, new_root_node)),
-                        merkle_proof_opt,
+                        merkle_proof_null,
                     ))
                 } else {
                     // If we're deleting from the null root node, nothing needs to change
-                    Ok((PutResult::NotChanged, merkle_proof_opt))
+                    Ok((PutResult::NotChanged, merkle_proof_null))
                 }
             }
         }
@@ -651,7 +651,7 @@ where
             Some(child) => {
                 let (child_node_key, mut siblings) = if with_proof {
                     let (child_key, siblings) =
-                        internal_node.get_child_with_siblings(&node_key, child_index);
+                        internal_node.get_child_with_siblings(self.reader, &node_key, child_index);
                     (child_key.unwrap(), siblings)
                 } else {
                     (
@@ -687,8 +687,11 @@ where
                 // representation of the jellyfish merkle tree) to get the closest leaf of the nibble
                 // we are looking for.
                 let merkle_proof = if with_proof {
-                    let (child_key_opt, mut siblings) =
-                        internal_node.get_only_child_with_siblings(&node_key, child_index);
+                    let (child_key_opt, mut siblings) = internal_node.get_only_child_with_siblings(
+                        self.reader,
+                        &node_key,
+                        child_index,
+                    );
 
                     let leaf: Option<SparseMerkleLeafNode> = child_key_opt.map(|child_key|
                     {
@@ -723,7 +726,15 @@ where
                         merkle_proof,
                     )
                 } else {
-                    (PutResult::NotChanged, merkle_proof)
+                    // If there was no changes, don't generate a proof
+                    (
+                        PutResult::NotChanged,
+                        if with_proof {
+                            Some(SparseMerkleProof::new(None, vec![]))
+                        } else {
+                            None
+                        },
+                    )
                 }
             }
         };
@@ -732,7 +743,14 @@ where
         let mut children: Children = internal_node.into();
         match put_result {
             PutResult::NotChanged => {
-                return Ok((PutResult::NotChanged, merkle_proof));
+                return Ok((
+                    PutResult::NotChanged,
+                    if with_proof {
+                        Some(SparseMerkleProof::new(None, vec![]))
+                    } else {
+                        None
+                    },
+                ));
             }
             PutResult::Updated((_, new_node)) => {
                 // update child
@@ -912,29 +930,27 @@ where
                 tree_cache.put_node(node_key.clone(), internal_node.into())?;
             }
 
-            let merkle_proof = if with_proof {
-                Some(SparseMerkleProof::new(
-                    Some(existing_leaf_node.into()),
-                    vec![],
-                ))
-            } else {
-                None
-            };
             Ok((
                 PutResult::Updated((node_key, next_internal_node.into())),
-                merkle_proof,
+                if with_proof {
+                    Some(SparseMerkleProof::new(
+                        Some(existing_leaf_node.into()),
+                        vec![],
+                    ))
+                } else {
+                    None
+                },
             ))
         } else {
-            let merkle_proof = if with_proof {
-                Some(SparseMerkleProof::new(
-                    Some(existing_leaf_node.into()),
-                    vec![],
-                ))
-            } else {
-                None
-            };
             // delete not found
-            Ok((PutResult::NotChanged, merkle_proof))
+            Ok((
+                PutResult::NotChanged,
+                if with_proof {
+                    Some(SparseMerkleProof::new(None, vec![]))
+                } else {
+                    None
+                },
+            ))
         }
     }
 
@@ -990,7 +1006,11 @@ where
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
                     let (child_node_key, mut siblings_in_internal) = internal_node
-                        .get_only_child_with_siblings(&next_node_key, queried_child_index);
+                        .get_only_child_with_siblings(
+                            self.reader,
+                            &next_node_key,
+                            queried_child_index,
+                        );
                     siblings.append(&mut siblings_in_internal);
                     next_node_key = match child_node_key {
                         Some(node_key) => node_key,

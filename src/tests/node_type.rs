@@ -1,6 +1,6 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
-
+use crate::{mock::MockTreeStore, JellyfishMerkleTree, OwnedValue};
 use alloc::{rc::Rc, vec::Vec};
 use borsh::{BorshDeserialize, BorshSerialize};
 use core::{convert::TryInto, panic};
@@ -12,6 +12,7 @@ use sha2::Sha256;
 
 use crate::{
     node_type::{Child, Children, InternalNode, Node, NodeKey, NodeType},
+    storage::TreeReader,
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
@@ -29,29 +30,59 @@ fn hash_leaf(key: KeyHash, value_hash: ValueHash) -> [u8; 32] {
 }
 
 // Generate a random node key with 63 nibbles.
-fn random_63nibbles_node_key() -> NodeKey {
-    let mut bytes: [u8; 32] = OsRng.gen();
-    *bytes.last_mut().unwrap() &= 0xf0;
-    NodeKey::new(0 /* version */, NibblePath::new_odd(bytes.to_vec()))
+fn random_k_nibbles_node_key(k: u8) -> NodeKey {
+    assert!(k < 64);
+    let num_nibbles = k / 2;
+    let remainder = k % 2;
+    let mut nibbles: Vec<u8> = Vec::with_capacity((num_nibbles + remainder).into());
+    nibbles.resize((num_nibbles + remainder).into(), 0);
+
+    OsRng.fill_bytes(&mut nibbles);
+
+    if remainder == 1 {
+        *nibbles.last_mut().unwrap() &= 0xf0;
+        NodeKey::new(0 /* version */, NibblePath::new_odd(nibbles))
+    } else {
+        NodeKey::new(0 /* version */, NibblePath::new(nibbles))
+    }
 }
 
-// Generate a pair of leaf node key and account key with a passed-in 63-nibble node key and the last
-// nibble to be appended.
-fn gen_leaf_keys(version: Version, nibble_path: &NibblePath, nibble: Nibble) -> (NodeKey, KeyHash) {
-    assert_eq!(nibble_path.num_nibbles(), 63);
+// Generate a pair of leaf node key and account key with a passed-in k-nibble node key and the n-last
+// nibbles to be appended.
+fn gen_leaf_keys(
+    version: Version,
+    nibble_path: &NibblePath,
+    nibbles: Vec<Nibble>,
+) -> (NodeKey, KeyHash) {
+    assert_eq!(nibble_path.num_nibbles() + nibbles.len(), 64);
     let mut np = nibble_path.clone();
-    np.push(nibble);
+    for nibble in nibbles {
+        np.push(nibble);
+    }
+
     let account_key = KeyHash(np.bytes().try_into().unwrap());
     (NodeKey::new(version, np), account_key)
 }
 
 fn get_only_child_with_siblings_helper(
+    merkle_tree_reader: &impl TreeReader,
     internal_node: &InternalNode,
     internal_node_key: &NodeKey,
     i: Nibble,
 ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
-    let (child, siblings) = internal_node.get_only_child_with_siblings(internal_node_key, i.into());
+    let (child, siblings) =
+        internal_node.get_only_child_with_siblings(merkle_tree_reader, internal_node_key, i.into());
     (child, siblings.into_iter().map(|sib| sib.hash()).collect())
+}
+
+fn mock_tree_from_values(values: Vec<Vec<(KeyHash, Option<OwnedValue>)>>) -> impl TreeReader {
+    let db = MockTreeStore::default();
+    let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
+
+    let (_root, batch) = tree.put_value_sets(values, 0 /* version */).unwrap();
+    db.write_tree_update_batch(batch).unwrap();
+
+    db
 }
 
 proptest! {
@@ -101,18 +132,28 @@ fn test_leaf_hash() {
 
 proptest! {
     #[test]
-    fn two_leaves_test1(index1 in (0..8u8).prop_map(Nibble::from), index2 in (8..16u8).prop_map(Nibble::from)) {
-        let internal_node_key = random_63nibbles_node_key();
+    fn two_leaves_test1(index1 in (0..8u8).prop_map(Nibble::from), index2 in (8..16u8).prop_map(Nibble::from),
+    value1 in prop::collection::vec(any::<u8>(), 1..10), value2 in prop::collection::vec(any::<u8>(), 1..10)) {
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
-        let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
-        let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
-        let hash1 = OsRng.gen();
-        let hash2 = OsRng.gen();
+        // Now the version must be 1 for both leaves, because we update the internal node (and the first leaf)
+        // when inserting the second leaf. Indeed we have to update the leaf version
+        let (leaf1_node_key, leaf1_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index1]);
+        let (leaf2_node_key, leaf2_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index2]);
+        let leaf1 = Node::leaf_from_value::<Sha256>(leaf1_key_hash, value1.clone());
+        let leaf2 = Node::leaf_from_value::<Sha256>(leaf2_key_hash, value2.clone());
 
-        children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
+        let hash1 = leaf1.hash();
+        let hash2 = leaf2.hash();
+
+        children.insert(index1, Child::new(hash1, 1 /* version */, NodeType::Leaf));
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
         let internal_node = InternalNode::new(children);
+
+        let mock_tree = mock_tree_from_values(vec![
+           vec![(leaf1_key_hash, Some(value1))], vec![(leaf2_key_hash, Some(value2))]
+        ]);
 
         // Internal node will have a structure below
         //
@@ -126,13 +167,13 @@ proptest! {
 
         for i in 0..8 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+            get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf1_node_key.clone()), vec![hash2])
             );
         }
         for i in 8..16 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf2_node_key.clone()), vec![hash1])
             );
         }
@@ -140,18 +181,29 @@ proptest! {
     }
 
     #[test]
-    fn two_leaves_test2(index1 in (4..6u8).prop_map(Nibble::from), index2 in (6..8u8).prop_map(Nibble::from)) {
-        let internal_node_key = random_63nibbles_node_key();
+    fn two_leaves_test2(index1 in (4..6u8).prop_map(Nibble::from), index2 in (6..8u8).prop_map(Nibble::from),
+value1 in prop::collection::vec(any::<u8>(), 1..10), value2 in prop::collection::vec(any::<u8>(), 1..10)) {
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
-        let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
-        let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
-        let hash1 = OsRng.gen();
-        let hash2 = OsRng.gen();
+        // Now the version must be 1 for both leaves, because we update the internal node (and the first leaf)
+        // when inserting the second leaf. Indeed we have to update the leaf version
+        let (leaf1_node_key, leaf1_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index1]);
+        let (leaf2_node_key, leaf2_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index2]);
+        let leaf1 = Node::leaf_from_value::<Sha256>(leaf1_key_hash, value1.clone());
+        let leaf2 = Node::leaf_from_value::<Sha256>(leaf2_key_hash, value2.clone());
 
-        children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
+        let hash1 = leaf1.hash();
+        let hash2 = leaf2.hash();
+
+        children.insert(index1, Child::new(hash1, 1 /* version */, NodeType::Leaf));
+
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
         let internal_node = InternalNode::new(children);
+
+        let mock_tree = mock_tree_from_values(vec![
+           vec![(leaf1_key_hash, Some(value1))], vec![(leaf2_key_hash, Some(value2))]
+        ]);
 
         // Internal node will have a structure below
         //
@@ -171,16 +223,17 @@ proptest! {
         let root_hash = hash_internal(hash_x2, SPARSE_MERKLE_PLACEHOLDER_HASH);
         assert_eq!(internal_node.hash(), root_hash);
 
+
         for i in 0..4 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
         for i in 4..6 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (
                     Some(leaf1_node_key.clone()),
                     vec![
@@ -194,7 +247,7 @@ proptest! {
 
         for i in 6..8 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (
                     Some(leaf2_node_key.clone()),
                     vec![
@@ -208,7 +261,7 @@ proptest! {
 
         for i in 8..16 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (None, vec![hash_x2])
             );
         }
@@ -216,22 +269,33 @@ proptest! {
     }
 
     #[test]
-    fn three_leaves_test1(index1 in (0..4u8).prop_map(Nibble::from), index2 in (4..8u8).prop_map(Nibble::from), index3 in (8..16u8).prop_map(Nibble::from)) {
-        let internal_node_key = random_63nibbles_node_key();
+    fn three_leaves_test1(index1 in (0..4u8).prop_map(Nibble::from), index2 in (4..8u8).prop_map(Nibble::from), index3 in (8..16u8).prop_map(Nibble::from),
+value1 in prop::collection::vec(any::<u8>(), 1..10), value2 in prop::collection::vec(any::<u8>(), 1..10), value3 in prop::collection::vec(any::<u8>(), 1..10)) {
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
-        let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
-        let leaf2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), index2).0;
-        let leaf3_node_key = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), index3).0;
+        // Now the version must be 1 for both leaves, because we update the internal node (and the first leaf)
+        // when inserting the second leaf. Indeed we have to update the leaf version
+        let (leaf1_node_key, leaf1_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index1]);
+        let (leaf2_node_key, leaf2_key_hash) = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![index2]);
+        let (leaf3_node_key, leaf3_key_hash) = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), vec![index3]);
+        let leaf1 = Node::leaf_from_value::<Sha256>(leaf1_key_hash, value1.clone());
+        let leaf2 = Node::leaf_from_value::<Sha256>(leaf2_key_hash, value2.clone());
+        let leaf3 = Node::leaf_from_value::<Sha256>(leaf3_key_hash, value3.clone());
 
-        let hash1 = OsRng.gen();
-        let hash2 = OsRng.gen();
-        let hash3 = OsRng.gen();
+        let hash1 = leaf1.hash();
+        let hash2 = leaf2.hash();
+        let hash3 = leaf3.hash();
 
-        children.insert(index1, Child::new(hash1, 0 /* version */, NodeType::Leaf));
+        children.insert(index1, Child::new(hash1, 1 /* version */, NodeType::Leaf));
         children.insert(index2, Child::new(hash2, 1 /* version */, NodeType::Leaf));
         children.insert(index3, Child::new(hash3, 2 /* version */, NodeType::Leaf));
         let internal_node = InternalNode::new(children);
+
+        let mock_tree = mock_tree_from_values(vec![
+           vec![(leaf1_key_hash, Some(value1))], vec![(leaf2_key_hash, Some(value2))],
+        vec![(leaf3_key_hash, Some(value3))]
+        ]);
         // Internal node will have a structure below
         //
         //               root
@@ -247,21 +311,21 @@ proptest! {
 
         for i in 0..4 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf1_node_key.clone()),vec![hash3, hash2])
             );
         }
 
         for i in 4..8 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf2_node_key.clone()),vec![hash3, hash1])
             );
         }
 
         for i in 8..16 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf3_node_key.clone()),vec![hash_x])
             );
         }
@@ -269,13 +333,13 @@ proptest! {
 
     #[test]
     fn mixed_nodes_test(index1 in (0..2u8).prop_map(Nibble::from), index2 in (8..16u8).prop_map(Nibble::from)) {
-        let internal_node_key = random_63nibbles_node_key();
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
-        let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), index1).0;
-        let internal2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), 2.into()).0;
-        let internal3_node_key = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), 7.into()).0;
-        let leaf4_node_key = gen_leaf_keys(3 /* version */, internal_node_key.nibble_path(), index2).0;
+        let leaf1_node_key = gen_leaf_keys(0 /* version */, internal_node_key.nibble_path(), vec![index1]).0;
+        let internal2_node_key = gen_leaf_keys(1 /* version */, internal_node_key.nibble_path(), vec![2.into()]).0;
+        let internal3_node_key = gen_leaf_keys(2 /* version */, internal_node_key.nibble_path(), vec![7.into()]).0;
+        let leaf4_node_key = gen_leaf_keys(3 /* version */, internal_node_key.nibble_path(), vec![index2]).0;
 
         let hash1 = OsRng.gen();
         let hash2 = OsRng.gen();
@@ -286,6 +350,9 @@ proptest! {
         children.insert(7.into(), Child::new(hash3, 2, NodeType::InternalLegacy));
         children.insert(index2, Child::new(hash4, 3, NodeType::Leaf));
         let internal_node = InternalNode::new(children);
+
+        let mock_tree = mock_tree_from_values( vec![]);
+
         // Internal node (B) will have a structure below
         //
         //                   B (root hash)
@@ -301,7 +368,8 @@ proptest! {
         //               /       \
         //              /         \
         //          internal2      internal3
-        //
+        //          /     \          /     \
+        //       leaf2   leaf3    leaf5   leaf6
         let hash_x1 = hash_internal(hash2, SPARSE_MERKLE_PLACEHOLDER_HASH);
         let hash_x2 = hash_internal(hash1, hash_x1);
         let hash_x3 = hash_internal(SPARSE_MERKLE_PLACEHOLDER_HASH, hash3);
@@ -312,7 +380,7 @@ proptest! {
 
         for i in 0..2 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (
                     Some(leaf1_node_key.clone()),
                     vec![hash4, hash_x4, hash_x1]
@@ -321,7 +389,7 @@ proptest! {
         }
 
         prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 2.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, 2.into()),
             (
                 Some(internal2_node_key),
                 vec![
@@ -334,7 +402,7 @@ proptest! {
         );
 
         prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 3.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, 3.into()),
 
             (
                 None,
@@ -344,7 +412,7 @@ proptest! {
 
         for i in 4..6 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (
                     None,
                     vec![hash4, hash_x2, hash_x3]
@@ -353,7 +421,7 @@ proptest! {
         }
 
         prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 6.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, 6.into()),
             (
                 None,
                 vec![
@@ -366,7 +434,7 @@ proptest! {
         );
 
         prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 7.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, 7.into()),
             (
                 Some(internal3_node_key),
                 vec![
@@ -380,7 +448,7 @@ proptest! {
 
         for i in 8..16 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &internal_node, &internal_node_key, i.into()),
                 (Some(leaf4_node_key.clone()), vec![hash_x5])
             );
         }
@@ -391,7 +459,7 @@ proptest! {
 fn test_internal_hash_and_proof() {
     // non-leaf case 1
     {
-        let internal_node_key = random_63nibbles_node_key();
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
         let index1 = Nibble::from(4);
@@ -401,13 +469,13 @@ fn test_internal_hash_and_proof() {
         let child1_node_key = gen_leaf_keys(
             0, /* version */
             internal_node_key.nibble_path(),
-            index1,
+            vec![index1],
         )
         .0;
         let child2_node_key = gen_leaf_keys(
             1, /* version */
             internal_node_key.nibble_path(),
-            index2,
+            vec![index2],
         )
         .0;
         children.insert(
@@ -419,6 +487,8 @@ fn test_internal_hash_and_proof() {
             Child::new(hash2, 1 /* version */, NodeType::InternalLegacy),
         );
         let internal_node = InternalNode::new(children);
+        let mock_tree = mock_tree_from_values(vec![]);
+
         // Internal node (B) will have a structure below
         //
         //              root
@@ -446,13 +516,23 @@ fn test_internal_hash_and_proof() {
 
         for i in 0..4 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![hash_x6, hash_x2])
             );
         }
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, index1),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                index1
+            ),
             (
                 Some(child1_node_key),
                 vec![
@@ -465,7 +545,12 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 5.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                5.into()
+            ),
             (
                 None,
                 vec![
@@ -478,26 +563,46 @@ fn test_internal_hash_and_proof() {
         );
         for i in 6..8 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![hash_x6, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x1])
             );
         }
 
         for i in 8..12 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![hash_x3, hash_x5])
             );
         }
 
         for i in 12..14 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![hash_x3, SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4])
             );
         }
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 14.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                14.into()
+            ),
             (
                 None,
                 vec![
@@ -509,7 +614,12 @@ fn test_internal_hash_and_proof() {
             )
         );
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, index2),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                index2
+            ),
             (
                 Some(child2_node_key),
                 vec![
@@ -524,7 +634,7 @@ fn test_internal_hash_and_proof() {
 
     // non-leaf case 2
     {
-        let internal_node_key = random_63nibbles_node_key();
+        let internal_node_key = random_k_nibbles_node_key(63);
         let mut children = Children::default();
 
         let index1 = Nibble::from(0);
@@ -534,13 +644,13 @@ fn test_internal_hash_and_proof() {
         let child1_node_key = gen_leaf_keys(
             0, /* version */
             internal_node_key.nibble_path(),
-            index1,
+            vec![index1],
         )
         .0;
         let child2_node_key = gen_leaf_keys(
             1, /* version */
             internal_node_key.nibble_path(),
-            index2,
+            vec![index2],
         )
         .0;
 
@@ -553,6 +663,9 @@ fn test_internal_hash_and_proof() {
             Child::new(hash2, 1 /* version */, NodeType::InternalLegacy),
         );
         let internal_node = InternalNode::new(children);
+
+        let mock_tree = mock_tree_from_values(vec![]);
+
         // Internal node will have a structure below
         //
         //                     root
@@ -578,7 +691,12 @@ fn test_internal_hash_and_proof() {
         assert_eq!(internal_node.hash(), root_hash);
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 0.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                0.into()
+            ),
             (
                 Some(child1_node_key),
                 vec![
@@ -591,7 +709,12 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 1.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                1.into()
+            ),
             (
                 None,
                 vec![
@@ -605,20 +728,35 @@ fn test_internal_hash_and_proof() {
 
         for i in 2..4 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x4, hash_x1])
             );
         }
 
         for i in 4..6 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![SPARSE_MERKLE_PLACEHOLDER_HASH, hash_x2, hash_x3])
             );
         }
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 6.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                6.into()
+            ),
             (
                 None,
                 vec![
@@ -631,7 +769,12 @@ fn test_internal_hash_and_proof() {
         );
 
         assert_eq!(
-            get_only_child_with_siblings_helper(&internal_node, &internal_node_key, 7.into()),
+            get_only_child_with_siblings_helper(
+                &mock_tree,
+                &internal_node,
+                &internal_node_key,
+                7.into()
+            ),
             (
                 Some(child2_node_key),
                 vec![
@@ -645,7 +788,12 @@ fn test_internal_hash_and_proof() {
 
         for i in 8..16 {
             assert_eq!(
-                get_only_child_with_siblings_helper(&internal_node, &internal_node_key, i.into()),
+                get_only_child_with_siblings_helper(
+                    &mock_tree,
+                    &internal_node,
+                    &internal_node_key,
+                    i.into()
+                ),
                 (None, vec![hash_x5])
             );
         }
@@ -820,9 +968,10 @@ proptest! {
         ).no_shrink(),
         node in any::<InternalNode>(),
     ) {
+        let mock_tree = mock_tree_from_values( vec![]);
         for n in 0..16u8 {
             prop_assert_eq!(
-                get_only_child_with_siblings_helper(&node, &node_key, n.into()),
+                get_only_child_with_siblings_helper(&mock_tree, &node, &node_key, n.into()),
                 NaiveInternalNode::from_clever_node(&node).get_child_with_siblings(&node_key, n)
             )
         }
