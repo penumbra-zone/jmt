@@ -651,7 +651,7 @@ where
             Some(child) => {
                 let (child_node_key, mut siblings) = if with_proof {
                     let (child_key, siblings) =
-                        internal_node.get_child_with_siblings(self.reader, &node_key, child_index);
+                        internal_node.get_child_with_siblings(tree_cache, &node_key, child_index);
                     (child_key.unwrap(), siblings)
                 } else {
                     (
@@ -688,7 +688,7 @@ where
                 // we are looking for.
                 let merkle_proof = if with_proof {
                     let (child_key_opt, mut siblings) = internal_node.get_only_child_with_siblings(
-                        self.reader,
+                        tree_cache,
                         &node_key,
                         child_index,
                     );

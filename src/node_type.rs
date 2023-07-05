@@ -512,7 +512,7 @@ impl InternalNode {
     /// a node reader to get the leaves/internal nodes at the bottom level of this internal node
     fn build_sibling(
         &self,
-        merkle_tree_reader: &impl TreeReader,
+        tree_reader: &impl TreeReader,
         node_key: &NodeKey,
         start: u8,
         width: u8,
@@ -540,7 +540,7 @@ impl InternalNode {
                 })
                 .unwrap();
 
-            let child_node = merkle_tree_reader
+            let child_node = tree_reader
                 .get_node(&node_key.gen_child_node_key(child.version, only_child_index))
                 .with_context(|| {
                     format!(
@@ -685,7 +685,7 @@ impl InternalNode {
     /// ```
     fn get_child_with_siblings_helper(
         &self,
-        merkle_tree_reader: &impl TreeReader,
+        tree_reader: &impl TreeReader,
         node_key: &NodeKey,
         n: Nibble,
         get_only_child: bool,
@@ -714,7 +714,7 @@ impl InternalNode {
             let (child_half_start, sibling_half_start) = get_child_and_sibling_half_start(n, h);
             // Compute the root hash of the subtree rooted at the sibling of `r`.
             siblings.push(self.build_sibling(
-                merkle_tree_reader,
+                tree_reader,
                 node_key,
                 sibling_half_start,
                 width,
@@ -786,11 +786,11 @@ impl InternalNode {
     /// to building the list of its sibblings. This function has the same behavior as [`child`].
     pub(crate) fn get_child_with_siblings(
         &self,
-        merkle_tree_reader: &impl TreeReader,
+        tree_cache: &impl TreeReader,
         node_key: &NodeKey,
         n: Nibble,
     ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
-        self.get_child_with_siblings_helper(merkle_tree_reader, node_key, n, false)
+        self.get_child_with_siblings_helper(tree_cache, node_key, n, false)
     }
 
     /// [`get_only_child_with_siblings`] will **either** return the child that matches the nibble n or the only
@@ -801,11 +801,11 @@ impl InternalNode {
     /// Please read proof format for details.
     pub(crate) fn get_only_child_with_siblings(
         &self,
-        merkle_tree_reader: &impl TreeReader,
+        tree_reader: &impl TreeReader,
         node_key: &NodeKey,
         n: Nibble,
     ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
-        self.get_child_with_siblings_helper(merkle_tree_reader, node_key, n, true)
+        self.get_child_with_siblings_helper(tree_reader, node_key, n, true)
     }
 
     #[cfg(test)]
