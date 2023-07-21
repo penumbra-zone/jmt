@@ -16,13 +16,15 @@ category = ["cryptography", "data-structures"]
 publish = true
 
 [features]
-default = ["ics23", "std"]
+default = ["ics23", "std", "sha2"]
 mocks = ["dep:parking_lot"]
+blake3_tests = ["dep:blake3"]
 std = ["dep:thiserror"]
 
 [dependencies]
 anyhow = "1.0.38"
 borsh =  "0.10.0" 
+digest = "0.10" 
 hashbrown = "0.13.2"
 itertools = { version = "0.10.0", default-features = false }
 mirai-annotations = "1.10.1"
@@ -31,7 +33,8 @@ num-traits = "0.2.14"
 parking_lot = { version = "0.12.1", optional = true } 
 serde = { version = "1.0.124", features = ["derive"] }
 thiserror = { version = "1.0.24", optional = true } 
-sha2 = "0.10"
+sha2 = { version = "0.10", optional = true } 
+blake3 = { version = "1.4.0", optional = true, features = ["traits-preview"] } 
 hex = "0.4"
 tracing = "0.1"
 ics23 = { version = "0.10.0", optional = true}
@@ -43,3 +46,4 @@ parking_lot = { version = "0.12.1" }
 serde_json = { version  = "1.0.95" }
 proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.3.0" }
+sha2 = "0.10"

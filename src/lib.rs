@@ -73,10 +73,10 @@ extern crate alloc;
 
 use core::fmt::Debug;
 
+use digest::generic_array::GenericArray;
+use digest::Digest;
+use digest::OutputSizeUser;
 use serde::{Deserialize, Serialize};
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::OutputSizeUser;
-use sha2::Digest;
 #[cfg(feature = "std")]
 use thiserror::Error;
 
@@ -97,7 +97,10 @@ use bytes32ext::Bytes32Ext;
 pub use iterator::JellyfishMerkleIterator;
 #[cfg(feature = "ics23")]
 pub use tree::ics23_impl::ics23_spec;
-pub use tree::{JellyfishMerkleTree, Sha256Jmt};
+pub use tree::JellyfishMerkleTree;
+#[cfg(any(test, feature = "sha2"))]
+pub use tree::Sha256Jmt;
+
 use types::nibble::ROOT_NIBBLE_HEIGHT;
 pub use types::proof;
 pub use types::Version;
@@ -287,33 +290,6 @@ pub trait SimpleHasher: Sized {
         let mut hasher = Self::new();
         hasher.update(data.as_ref());
         hasher.finalize()
-    }
-}
-
-/// A wrapper around `core::marker::Phatomdata` which implements
-/// Debug, PartialEq, Eq, and Clone  This allows higher level
-/// structs to derive these traits even if the concrete hasher does not
-/// implement them.
-#[derive(Clone, Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct PhantomHasher<H: SimpleHasher>(core::marker::PhantomData<H>);
-
-impl<H: SimpleHasher> Debug for PhantomHasher<H> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("PhantomHasher")
-            .field(&stringify!(H))
-            .finish()
-    }
-}
-
-impl<H: SimpleHasher> PartialEq for PhantomHasher<H> {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl<H: SimpleHasher> Default for PhantomHasher<H> {
-    fn default() -> Self {
-        Self(core::marker::PhantomData)
     }
 }
 

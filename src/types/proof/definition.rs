@@ -3,22 +3,21 @@
 
 //! This module has definition of various proofs.
 
+use core::marker::PhantomData;
+
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, format_err, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{SparseMerkleInternalNode, SparseMerkleLeafNode};
 use crate::{
-    Bytes32Ext, KeyHash, PhantomHasher, RootHash, SimpleHasher, ValueHash,
-    SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
 /// hash. For example, `TransactionInfoToAccountProof` can be constructed on top of this structure.
-#[derive(
-    Clone, Eq, PartialEq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize,
-)]
-pub struct SparseMerkleProof<H: SimpleHasher> {
+#[derive(Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct SparseMerkleProof<H> {
     /// This proof can be used to authenticate whether a given leaf exists in the tree or not.
     ///     - If this is `Some(leaf_node)`
     ///         - If `leaf_node.key` equals requested key, this is an inclusion proof and
@@ -28,14 +27,16 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
     ///           corresponding account blob.
     ///     - If this is `None`, this is also a non-inclusion proof which indicates the subtree is
     ///       empty.
-    leaf: Option<SparseMerkleLeafNode>,
+    // Prevent serde from adding a spurious Serialize/Deserialize bound on H
+    #[serde(bound(serialize = "", deserialize = ""))]
+    leaf: Option<SparseMerkleLeafNode<H>>,
 
     /// All siblings in this proof, including the default ones. Siblings are ordered from the bottom
     /// level to the root level.
     siblings: Vec<[u8; 32]>,
 
     /// A marker type showing which hash function is used in this proof.
-    phantom_hasher: PhantomHasher<H>,
+    phantom_hasher: PhantomData<H>,
 }
 
 // Deriving Debug fails since H is not Debug though phantom_hasher implements it
@@ -50,9 +51,29 @@ impl<H: SimpleHasher> core::fmt::Debug for SparseMerkleProof<H> {
     }
 }
 
+// Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
+// TODO: Switch back to #[derive] once the perfect_derive feature lands
+impl<H: SimpleHasher> PartialEq for SparseMerkleProof<H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.leaf == other.leaf && self.siblings == other.siblings
+    }
+}
+
+// Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
+// TODO: Switch back to #[derive] once the perfect_derive feature lands
+impl<H: SimpleHasher> Clone for SparseMerkleProof<H> {
+    fn clone(&self) -> Self {
+        Self {
+            leaf: self.leaf.clone(),
+            siblings: self.siblings.clone(),
+            phantom_hasher: Default::default(),
+        }
+    }
+}
+
 impl<H: SimpleHasher> SparseMerkleProof<H> {
     /// Constructs a new `SparseMerkleProof` using leaf and a list of siblings.
-    pub(crate) fn new(leaf: Option<SparseMerkleLeafNode>, siblings: Vec<[u8; 32]>) -> Self {
+    pub(crate) fn new(leaf: Option<SparseMerkleLeafNode<H>>, siblings: Vec<[u8; 32]>) -> Self {
         SparseMerkleProof {
             leaf,
             siblings,
@@ -61,8 +82,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     }
 
     /// Returns the leaf node in this proof.
-    pub fn leaf(&self) -> Option<SparseMerkleLeafNode> {
-        self.leaf
+    pub fn leaf(&self) -> Option<SparseMerkleLeafNode<H>> {
+        self.leaf.clone()
     }
 
     /// Returns the list of siblings in this proof.
@@ -108,7 +129,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             self.siblings.len(),
         );
 
-        match (element_value, self.leaf) {
+        match (element_value, self.leaf.clone()) {
             (Some(value), Some(leaf)) => {
                 // This is an inclusion proof, so the key and value hash provided in the proof
                 // should match element_key and element_value_hash. `siblings` should prove the
@@ -154,6 +175,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
         let current_hash = self
             .leaf
+            .clone()
             .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
         let actual_root_hash = self
             .siblings
@@ -167,9 +189,9 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             )
             .fold(current_hash, |hash, (sibling_hash, bit)| {
                 if bit {
-                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                    SparseMerkleInternalNode::<H>::new(*sibling_hash, hash).hash()
                 } else {
-                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                    SparseMerkleInternalNode::<H>::new(hash, *sibling_hash).hash()
                 }
             });
         ensure!(
@@ -185,6 +207,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     pub fn root_hash(&self) -> RootHash {
         let current_hash = self
             .leaf
+            .clone()
             .map_or(SPARSE_MERKLE_PLACEHOLDER_HASH, |leaf| leaf.hash());
         let actual_root_hash = self
             .siblings
@@ -200,9 +223,9 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
             )
             .fold(current_hash, |hash, (sibling_hash, bit)| {
                 if bit {
-                    SparseMerkleInternalNode::new(*sibling_hash, hash).hash()
+                    SparseMerkleInternalNode::<H>::new(*sibling_hash, hash).hash()
                 } else {
-                    SparseMerkleInternalNode::new(hash, *sibling_hash).hash()
+                    SparseMerkleInternalNode::<H>::new(hash, *sibling_hash).hash()
                 }
             });
 
@@ -233,26 +256,51 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 ///
 /// if the proof wants show that `[a, b, c, d, e]` exists in the tree, it would need the siblings
 /// `X` and `h` on the right.
-#[derive(
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-)]
-pub struct SparseMerkleRangeProof {
+#[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct SparseMerkleRangeProof<H> {
     /// The vector of siblings on the right of the path from root to last leaf. The ones near the
     /// bottom are at the beginning of the vector. In the above example, it's `[X, h]`.
     right_siblings: Vec<[u8; 32]>,
+    _phantom: PhantomData<H>,
 }
 
-impl SparseMerkleRangeProof {
+// Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
+// TODO: Switch back to #[derive] once the perfect_derive feature lands
+impl<H> PartialEq for SparseMerkleRangeProof<H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.right_siblings == other.right_siblings
+    }
+}
+
+// Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
+// TODO: Switch back to #[derive] once the perfect_derive feature lands
+impl<H> Clone for SparseMerkleRangeProof<H> {
+    fn clone(&self) -> Self {
+        Self {
+            right_siblings: self.right_siblings.clone(),
+            _phantom: self._phantom.clone(),
+        }
+    }
+}
+
+// Manually implement Debug to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
+// TODO: Switch back to #[derive] once the perfect_derive feature lands
+impl<H> core::fmt::Debug for SparseMerkleRangeProof<H> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SparseMerkleRangeProof")
+            .field("right_siblings", &self.right_siblings)
+            .field("_phantom", &self._phantom)
+            .finish()
+    }
+}
+
+impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
     /// Constructs a new `SparseMerkleRangeProof`.
     pub(crate) fn new(right_siblings: Vec<[u8; 32]>) -> Self {
-        Self { right_siblings }
+        Self {
+            right_siblings,
+            _phantom: Default::default(),
+        }
     }
 
     /// Returns the right siblings.
@@ -265,7 +313,7 @@ impl SparseMerkleRangeProof {
     pub fn verify(
         &self,
         expected_root_hash: RootHash,
-        rightmost_known_leaf: SparseMerkleLeafNode,
+        rightmost_known_leaf: SparseMerkleLeafNode<H>,
         left_siblings: Vec<[u8; 32]>,
     ) -> Result<()> {
         let num_siblings = left_siblings.len() + self.right_siblings.len();
@@ -295,7 +343,7 @@ impl SparseMerkleRangeProof {
                         .ok_or_else(|| format_err!("Missing right sibling."))?,
                 )
             };
-            current_hash = SparseMerkleInternalNode::new(left_hash, right_hash).hash();
+            current_hash = SparseMerkleInternalNode::<H>::new(left_hash, right_hash).hash();
         }
 
         ensure!(
@@ -306,5 +354,80 @@ impl SparseMerkleRangeProof {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod serialization_tests {
+    //! These tests ensure that the various proofs supported by the JMT can actually be serialized and deserialized
+    //! when instantiated with a specific hasher. This is done as a sanity check to ensure the trait bounds inferred by Rustc
+    //! are not too restrictive.
+
+    use sha2::Sha256;
+
+    use crate::{proof::SparseMerkleLeafNode, KeyHash, ValueHash};
+
+    use super::{SparseMerkleProof, SparseMerkleRangeProof};
+
+    fn get_test_proof() -> SparseMerkleProof<Sha256> {
+        SparseMerkleProof {
+            leaf: Some(SparseMerkleLeafNode::new(
+                KeyHash([1u8; 32]),
+                ValueHash([2u8; 32]),
+            )),
+            siblings: alloc::vec![[3u8; 32], [4u8; 32]],
+            phantom_hasher: Default::default(),
+        }
+    }
+
+    fn get_test_range_proof() -> SparseMerkleRangeProof<Sha256> {
+        SparseMerkleRangeProof {
+            right_siblings: alloc::vec![[3u8; 32], [4u8; 32]],
+            _phantom: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_sparse_merkle_proof_roundtrip_serde() {
+        let proof = get_test_proof();
+        let serialized_proof = serde_json::to_string(&proof).expect("serialization is infallible");
+        let deserialized =
+            serde_json::from_str(&serialized_proof).expect("serialized proof is valid");
+
+        assert_eq!(proof, deserialized);
+    }
+
+    #[test]
+    fn test_sparse_merkle_proof_roundtrip_borsh() {
+        use borsh::{BorshDeserialize, BorshSerialize};
+        let proof = get_test_proof();
+        let serialized_proof = proof.try_to_vec().expect("serialization is infallible");
+        let deserialized =
+            SparseMerkleProof::<Sha256>::deserialize(&mut serialized_proof.as_slice())
+                .expect("serialized proof is valid");
+
+        assert_eq!(proof, deserialized);
+    }
+
+    #[test]
+    fn test_sparse_merkle_range_proof_roundtrip_serde() {
+        let proof = get_test_range_proof();
+        let serialized_proof = serde_json::to_string(&proof).expect("serialization is infallible");
+        let deserialized =
+            serde_json::from_str(&serialized_proof).expect("serialized proof is valid");
+
+        assert_eq!(proof, deserialized);
+    }
+
+    #[test]
+    fn test_sparse_merkle_range_proof_roundtrip_borsh() {
+        use borsh::{BorshDeserialize, BorshSerialize};
+        let proof = get_test_range_proof();
+        let serialized_proof = proof.try_to_vec().expect("serialization is infallible");
+        let deserialized =
+            SparseMerkleRangeProof::<Sha256>::deserialize(&mut serialized_proof.as_slice())
+                .expect("serialized proof is valid");
+
+        assert_eq!(proof, deserialized);
     }
 }

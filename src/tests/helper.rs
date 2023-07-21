@@ -15,8 +15,8 @@ use proptest::{
     prelude::*,
     sample,
 };
-use sha2::Sha256;
 
+use crate::SimpleHasher;
 use crate::{
     mock::MockTreeStore,
     node_type::LeafNode,
@@ -26,7 +26,7 @@ use crate::{
         Version, PRE_GENESIS_VERSION,
     },
     Bytes32Ext, JellyfishMerkleIterator, JellyfishMerkleTree, KeyHash, OwnedValue, RootHash,
-    Sha256Jmt, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 /// Computes the key immediately after `key`.
@@ -46,11 +46,13 @@ pub fn plus_one(key: KeyHash) -> KeyHash {
 }
 
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version.
-pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Version) {
+pub fn init_mock_db<H: SimpleHasher>(
+    kvs: &HashMap<KeyHash, OwnedValue>,
+) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
@@ -64,14 +66,14 @@ pub fn init_mock_db(kvs: &HashMap<KeyHash, OwnedValue>) -> (MockTreeStore, Versi
 
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version, then
 /// deleting the specified keys afterwards.
-pub fn init_mock_db_with_deletions_afterwards(
+pub fn init_mock_db_with_deletions_afterwards<H: SimpleHasher>(
     kvs: &HashMap<KeyHash, OwnedValue>,
     deletions: Vec<KeyHash>,
 ) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     for (i, (key, value)) in kvs.clone().into_iter().enumerate() {
         let (_root_hash, write_batch) = tree
@@ -94,13 +96,13 @@ pub fn init_mock_db_with_deletions_afterwards(
     (db, (kvs.len() + deletions.len() - 1) as Version)
 }
 
-fn init_mock_db_versioned(
+fn init_mock_db_versioned<H: SimpleHasher>(
     operations_by_version: Vec<Vec<(KeyHash, Vec<u8>)>>,
 ) -> (MockTreeStore, Version) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     if operations_by_version
         .iter()
@@ -131,13 +133,13 @@ fn init_mock_db_versioned(
     }
 }
 
-fn init_mock_db_versioned_with_deletions(
+fn init_mock_db_versioned_with_deletions<H: SimpleHasher>(
     operations_by_version: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>,
 ) -> (MockTreeStore, Version) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
-    let tree = Sha256Jmt::new(&db);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     if operations_by_version
         .iter()
@@ -205,7 +207,7 @@ pub fn arb_existent_kvs_and_deletions_and_nonexistent_keys(
         .prop_map(|(map, v1, v2)| (map.into_iter().collect(), v1, v2))
 }
 
-pub fn arb_interleaved_insertions_and_deletions(
+pub fn arb_interleaved_insertions_and_deletions<H: SimpleHasher>(
     num_keys: usize,
     num_values: usize,
     num_insertions: usize,
@@ -217,7 +219,7 @@ pub fn arb_interleaved_insertions_and_deletions(
         // use them in order
         Just(
             (0..num_keys)
-                .map(|n| KeyHash::with::<Sha256>(n.to_le_bytes()))
+                .map(|n| KeyHash::with::<H>(n.to_le_bytes()))
                 .collect::<Vec<_>>(),
         )
         .prop_shuffle(),
@@ -307,25 +309,26 @@ where
     })
 }
 
-pub fn test_get_with_proof(
+pub fn test_get_with_proof<H: SimpleHasher>(
     (existent_kvs, nonexistent_keys): (HashMap<KeyHash, OwnedValue>, Vec<KeyHash>),
 ) {
-    let (db, version) = init_mock_db(&existent_kvs);
-    let tree = JellyfishMerkleTree::new(&db);
+    let (db, version) = init_mock_db::<H>(&existent_kvs);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     test_existent_keys_impl(&tree, version, &existent_kvs);
     test_nonexistent_keys_impl(&tree, version, &nonexistent_keys);
 }
 
-pub fn test_get_with_proof_with_deletions(
+pub fn test_get_with_proof_with_deletions<H: SimpleHasher>(
     (mut existent_kvs, deletions, mut nonexistent_keys): (
         HashMap<KeyHash, OwnedValue>,
         Vec<KeyHash>,
         Vec<KeyHash>,
     ),
 ) {
-    let (db, version) = init_mock_db_with_deletions_afterwards(&existent_kvs, deletions.clone());
-    let tree = JellyfishMerkleTree::new(&db);
+    let (db, version) =
+        init_mock_db_with_deletions_afterwards::<H>(&existent_kvs, deletions.clone());
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     for key in deletions {
         // We shouldn't test deleted keys as existent; they should be tested as nonexistent:
@@ -341,7 +344,7 @@ pub fn test_get_with_proof_with_deletions(
 /// by version, the end result of having performed those operations is identical to having *already
 /// known* what the end result would be, and only performing the insertions necessary to get there,
 /// with no insertions that would have been overwritten, and no deletions at all.
-pub fn test_clairvoyant_construction_matches_interleaved_construction(
+pub fn test_clairvoyant_construction_matches_interleaved_construction<H: SimpleHasher>(
     operations_by_version: Vec<Vec<(KeyHash, Option<OwnedValue>)>>,
 ) {
     // Create the expected list of key-value pairs as a hashmap by following the list of operations
@@ -380,8 +383,8 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
     // Compute the root hash of the version without deletions (note that the computed root hash is a
     // `Result` which we haven't unwrapped yet)
     let (db_without_deletions, version_without_deletions) =
-        init_mock_db_versioned(clairvoyant_operations_by_version);
-    let tree_without_deletions = Sha256Jmt::new(&db_without_deletions);
+        init_mock_db_versioned::<H>(clairvoyant_operations_by_version);
+    let tree_without_deletions = JellyfishMerkleTree::<_, H>::new(&db_without_deletions);
 
     let root_hash_without_deletions =
         tree_without_deletions.get_root_hash(version_without_deletions);
@@ -389,8 +392,8 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
     // Compute the root hash of the version with deletions (note that the computed root hash is a
     // `Result` which we haven't unwrapped yet)
     let (db_with_deletions, version_with_deletions) =
-        init_mock_db_versioned_with_deletions(operations_by_version);
-    let tree_with_deletions = Sha256Jmt::new(&db_with_deletions);
+        init_mock_db_versioned_with_deletions::<H>(operations_by_version);
+    let tree_with_deletions = JellyfishMerkleTree::<_, H>::new(&db_with_deletions);
 
     let root_hash_with_deletions = tree_with_deletions.get_root_hash(version_with_deletions);
 
@@ -425,7 +428,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_with_deletions.unwrap(),
-                RootHash(Node::Null.hash())
+                RootHash(Node::Null.hash::<H>())
             );
         }
         (false, true) => {
@@ -437,7 +440,7 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction(
             // the null node, since it should contain nothing
             assert_eq!(
                 root_hash_without_deletions.unwrap(),
-                RootHash(Node::Null.hash())
+                RootHash(Node::Null.hash::<H>())
             );
         }
     }
@@ -504,15 +507,15 @@ pub fn arb_kv_pair_with_distinct_last_nibble(
         })
 }
 
-pub fn test_get_with_proof_with_distinct_last_nibble(
+pub fn test_get_with_proof_with_distinct_last_nibble<H: SimpleHasher>(
     (kv1, kv2): ((KeyHash, OwnedValue), (KeyHash, OwnedValue)),
 ) {
     let mut kvs = HashMap::new();
     kvs.insert(kv1.0, kv1.1);
     kvs.insert(kv2.0, kv2.1);
 
-    let (db, version) = init_mock_db(&kvs);
-    let tree = JellyfishMerkleTree::new(&db);
+    let (db, version) = init_mock_db::<H>(&kvs);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     test_existent_keys_impl(&tree, version, &kvs);
 }
@@ -526,9 +529,9 @@ pub fn arb_tree_with_index(
     })
 }
 
-pub fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) {
-    let (db, version) = init_mock_db(&btree.clone().into_iter().collect());
-    let tree = Sha256Jmt::new(&db);
+pub fn test_get_range_proof<H: SimpleHasher>((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) {
+    let (db, version) = init_mock_db::<H>(&btree.clone().into_iter().collect());
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let nth_key = btree.keys().nth(n).unwrap();
 
@@ -540,8 +543,8 @@ pub fn test_get_range_proof((btree, n): (BTreeMap<KeyHash, OwnedValue>, usize)) 
     );
 }
 
-fn test_existent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
+fn test_existent_keys_impl<'a, H: SimpleHasher>(
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     existent_kvs: &HashMap<KeyHash, OwnedValue>,
 ) {
@@ -554,8 +557,8 @@ fn test_existent_keys_impl<'a>(
     }
 }
 
-fn test_nonexistent_keys_impl<'a>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore, Sha256>,
+fn test_nonexistent_keys_impl<'a, H: SimpleHasher>(
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     nonexistent_keys: &[KeyHash],
 ) {
@@ -569,10 +572,10 @@ fn test_nonexistent_keys_impl<'a>(
 }
 
 /// Checks if we can construct the expected root hash using the entries in the btree and the proof.
-fn verify_range_proof(
+fn verify_range_proof<H: SimpleHasher>(
     expected_root_hash: RootHash,
     btree: BTreeMap<KeyHash, OwnedValue>,
-    proof: SparseMerkleRangeProof,
+    proof: SparseMerkleRangeProof<H>,
 ) {
     // For example, given the following sparse Merkle tree:
     //
@@ -608,8 +611,8 @@ fn verify_range_proof(
     // that would cause `X` to end up in the above position.
     let mut btree1 = BTreeMap::new();
     for (key, value) in &btree {
-        let leaf = LeafNode::new(*key, ValueHash::with::<Sha256>(value.as_slice()));
-        btree1.insert(*key, leaf.hash());
+        let leaf = LeafNode::new(*key, ValueHash::with::<H>(value.as_slice()));
+        btree1.insert(*key, leaf.hash::<H>());
     }
     // Using the above example, `last_proven_key` is `e`. We look at the path from root to `e`.
     // For each 0-bit, there should be a sibling in the proof. And we use the path from root to
@@ -658,7 +661,7 @@ fn verify_range_proof(
         kvs.push((transformed_key, *value));
     }
 
-    assert_eq!(compute_root_hash(kvs), expected_root_hash);
+    assert_eq!(compute_root_hash::<H>(kvs), expected_root_hash);
 }
 
 /// Reduces the problem by removing the first bit of every key.
@@ -689,15 +692,15 @@ where
 
 /// Computes the root hash of a sparse Merkle tree. `kvs` consists of the entire set of key-value
 /// pairs stored in the tree.
-fn compute_root_hash(kvs: Vec<(Vec<bool>, [u8; 32])>) -> RootHash {
+fn compute_root_hash<H: SimpleHasher>(kvs: Vec<(Vec<bool>, [u8; 32])>) -> RootHash {
     let mut kv_ref = vec![];
     for (key, value) in &kvs {
         kv_ref.push((&key[..], *value));
     }
-    RootHash(compute_root_hash_impl(kv_ref))
+    RootHash(compute_root_hash_impl::<H>(kv_ref))
 }
 
-fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
+fn compute_root_hash_impl<H: SimpleHasher>(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
     assert!(!kvs.is_empty());
 
     // If there is only one entry, it is the root.
@@ -714,26 +717,26 @@ fn compute_root_hash_impl(kvs: Vec<(&[bool], [u8; 32])>) -> [u8; 32] {
         Some(0) => {
             // Every key starts with a 1-bit, i.e., they are all in the right subtree.
             left_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
-            right_hash = compute_root_hash_impl(reduce(&kvs));
+            right_hash = compute_root_hash_impl::<H>(reduce(&kvs));
         }
         Some(index) => {
             // Both left subtree and right subtree have some keys.
-            left_hash = compute_root_hash_impl(reduce(&kvs[..index]));
-            right_hash = compute_root_hash_impl(reduce(&kvs[index..]));
+            left_hash = compute_root_hash_impl::<H>(reduce(&kvs[..index]));
+            right_hash = compute_root_hash_impl::<H>(reduce(&kvs[index..]));
         }
         None => {
             // Every key starts with a 0-bit, i.e., they are all in the left subtree.
-            left_hash = compute_root_hash_impl(reduce(&kvs));
+            left_hash = compute_root_hash_impl::<H>(reduce(&kvs));
             right_hash = SPARSE_MERKLE_PLACEHOLDER_HASH;
         }
     }
 
-    SparseMerkleInternalNode::new(left_hash, right_hash).hash()
+    SparseMerkleInternalNode::<H>::new(left_hash, right_hash).hash()
 }
 
-pub fn test_get_leaf_count(keys: HashSet<KeyHash>) {
+pub fn test_get_leaf_count<H: SimpleHasher>(keys: HashSet<KeyHash>) {
     let kvs = keys.into_iter().map(|k| (k, vec![])).collect();
-    let (db, version) = init_mock_db(&kvs);
-    let tree = Sha256Jmt::new(&db);
+    let (db, version) = init_mock_db::<H>(&kvs);
+    let tree = JellyfishMerkleTree::<_, H>::new(&db);
     assert_eq!(tree.get_leaf_count(version).unwrap().unwrap(), kvs.len())
 }
