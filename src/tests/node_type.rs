@@ -29,7 +29,7 @@ fn hash_leaf(key: KeyHash, value_hash: ValueHash) -> [u8; 32] {
     SparseMerkleLeafNode::new(key, value_hash).hash()
 }
 
-// Generate a random node key with 63 nibbles.
+// Generate a random node key with k nibbles.
 fn random_k_nibbles_node_key(k: u8) -> NodeKey {
     assert!(k < 64);
     let num_nibbles = k / 2;
@@ -39,12 +39,14 @@ fn random_k_nibbles_node_key(k: u8) -> NodeKey {
 
     OsRng.fill_bytes(&mut nibbles);
 
-    if remainder == 1 {
+    let nibble_path = if remainder == 1 {
         *nibbles.last_mut().unwrap() &= 0xf0;
-        NodeKey::new(0 /* version */, NibblePath::new_odd(nibbles))
+        NibblePath::new_odd(nibbles)
     } else {
-        NodeKey::new(0 /* version */, NibblePath::new(nibbles))
-    }
+        NibblePath::new(nibbles)
+    };
+
+    NodeKey::new(0 /* version */, nibble_path)
 }
 
 // Generate a pair of leaf node key and account key with a passed-in k-nibble node key and the n-last

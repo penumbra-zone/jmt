@@ -5,9 +5,9 @@ use sha2::Sha256;
 use crate::{
     mock::MockTreeStore,
     storage::Node,
-    tests::{
-        helper::{arb_interleaved_insertions_and_deletions, arb_partitions},
-        helper_update_with_proof::test_clairvoyant_construction_matches_interleaved_construction_proved,
+    tests::helper::{
+        arb_interleaved_insertions_and_deletions, arb_partitions,
+        test_clairvoyant_construction_matches_interleaved_construction_proved,
     },
     JellyfishMerkleTree, KeyHash, RootHash, Sha256Jmt, Version,
 };
@@ -38,15 +38,6 @@ fn insert_and_perform_checks(batches: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>) {
         assert!(proof
             .verify_update(RootHash(Node::new_null().hash()), root)
             .is_ok());
-    }
-
-    // Insert in multiple batches.
-    {
-        let db = MockTreeStore::default();
-        let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
-
-        let (_roots, batch) = tree.put_value_sets(batches, 0 /* first_version */).unwrap();
-        db.write_tree_update_batch(batch).unwrap();
     }
 }
 
@@ -219,7 +210,7 @@ fn test_prove_insertion_separate() {
     insert_and_perform_checks(batches2);
 }
 #[test]
-// Same as last test, expect we update some nodes
+// Same as last test, except we update some nodes
 fn test_prove_update() {
     // ```text
     //                             internal(root)
