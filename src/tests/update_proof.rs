@@ -35,7 +35,7 @@ fn insert_and_perform_checks(batches: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>) {
     db.write_tree_update_batch(batch).unwrap();
 
     assert!(proof
-        .verify_update(RootHash(Node::new_null().hash()), root)
+        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root)
         .is_ok());
 }
 
@@ -87,7 +87,7 @@ fn test_update_proof() {
     let (root_hash1, proof1) = new_root_hash_and_proofs.pop().unwrap();
 
     assert!(proof1
-        .verify_update(RootHash(Node::new_null().hash()), root_hash1)
+        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root_hash1)
         .is_ok());
 
     assert!(proof2.verify_update(root_hash1, root_hash2).is_ok());
@@ -462,7 +462,7 @@ fn test_gets_then_delete_with_proof() {
     let (root1, proof1) = update_root.pop().unwrap();
 
     assert!(proof1
-        .verify_update(RootHash(Node::new_null().hash()), root1)
+        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root1)
         .is_ok());
     assert!(proof2.verify_update(root1, root2).is_ok());
 }
@@ -491,7 +491,7 @@ fn many_keys_update_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
 
     let first_root = roots_and_proofs[0].0;
 
-    let mut curr_root = RootHash(Node::new_null().hash());
+    let mut curr_root = RootHash(Node::new_null().hash::<Sha256>());
     for (root, proof) in roots_and_proofs {
         assert!(proof.verify_update(curr_root, root).is_ok());
         curr_root = root;
@@ -531,7 +531,7 @@ fn many_versions_update_proof_and_verify_tree_root(seed: &[u8], num_versions: us
         kvs.push((key, value.clone(), new_value.clone()));
     }
 
-    let mut curr_root = RootHash(Node::new_null().hash());
+    let mut curr_root = RootHash(Node::new_null().hash::<Sha256>());
     for (idx, (k, v_old, _v_new)) in kvs.iter().enumerate() {
         let (roots_and_proofs, batch) = tree
             .put_value_sets_with_proof(vec![vec![(*k, Some(v_old.clone()))]], idx as Version)
@@ -593,7 +593,7 @@ fn proptest_clairvoyant_construction_matches_interleaved_construction_small_prov
     operations_by_version in
         (1usize..10) // possible numbers of versions
             .prop_flat_map(|versions| {
-                arb_interleaved_insertions_and_deletions(20, 10, 10, 15) // (distinct keys, distinct values, insertions, deletions)
+                arb_interleaved_insertions_and_deletions::<Sha256>(20, 10, 10, 15) // (distinct keys, distinct values, insertions, deletions)
                     .prop_flat_map(move |ops| arb_partitions(versions, ops))
         })
 ) {
@@ -611,7 +611,7 @@ fn proptest_clairvoyant_construction_matches_interleaved_construction_proved(
     operations_by_version in
         (1usize..500) // possible numbers of versions
             .prop_flat_map(|versions| {
-                arb_interleaved_insertions_and_deletions(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
+                arb_interleaved_insertions_and_deletions::<Sha256>(100, 100, 1000, 1000) // (distinct keys, distinct values, insertions, deletions)
                     .prop_flat_map(move |ops| arb_partitions(versions, ops))
         })
 ) {

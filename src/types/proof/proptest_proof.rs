@@ -6,6 +6,7 @@
 
 use alloc::vec::Vec;
 use proptest::{collection::vec, prelude::*};
+use sha2::Sha256;
 
 use crate::{
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
@@ -27,7 +28,7 @@ fn arb_sparse_merkle_sibling() -> impl Strategy<Value = SparseMerkleNode> {
     ]
 }
 
-impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
+impl<H: SimpleHasher + 'static> Arbitrary for SparseMerkleProof<H> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
@@ -55,7 +56,7 @@ impl<H: SimpleHasher> Arbitrary for SparseMerkleProof<H> {
     }
 }
 
-impl Arbitrary for SparseMerkleRangeProof {
+impl<H: SimpleHasher + 'static> Arbitrary for SparseMerkleRangeProof<H> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 

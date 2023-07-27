@@ -5,6 +5,8 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
 //! key/value pairs.
 
+use core::marker::PhantomData;
+
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::{sync::Arc, vec::Vec};
@@ -26,8 +28,8 @@ use crate::{
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleRangeProof},
         Version,
     },
-    Bytes32Ext, KeyHash, OwnedValue, PhantomHasher, RootHash, SimpleHasher, ValueHash,
-    ROOT_NIBBLE_HEIGHT, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    Bytes32Ext, KeyHash, OwnedValue, RootHash, SimpleHasher, ValueHash, ROOT_NIBBLE_HEIGHT,
+    SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,7 +48,7 @@ enum ChildInfo {
 
 impl ChildInfo {
     /// Converts `self` to a child, assuming the hash is known if it's an internal node.
-    fn into_child(self, version: Version) -> Child {
+    fn into_child<H: SimpleHasher>(self, version: Version) -> Child {
         match self {
             Self::Internal { hash, leaf_count } => Child::new(
                 hash.expect("Must have been initialized."),
@@ -55,7 +57,7 @@ impl ChildInfo {
                     .map(|n| NodeType::Internal { leaf_count: n })
                     .unwrap_or(NodeType::InternalLegacy),
             ),
-            Self::Leaf { node } => Child::new(node.hash(), version, NodeType::Leaf),
+            Self::Leaf { node } => Child::new(node.hash::<H>(), version, NodeType::Leaf),
         }
     }
 }
@@ -86,7 +88,7 @@ impl InternalInfo {
 
     /// Converts `self` to an internal node, assuming all of its children are already known and
     /// fully initialized.
-    fn into_internal_node(
+    fn into_internal_node<H: SimpleHasher>(
         mut self,
         version: Version,
         leaf_count_migration: bool,
@@ -97,7 +99,7 @@ impl InternalInfo {
         // https://github.com/rust-lang/rust/issues/25725. So we use `iter_mut` and `take`.
         for (index, child_info_option) in self.children.iter_mut().enumerate() {
             if let Some(child_info) = child_info_option.take() {
-                children.insert((index as u8).into(), child_info.into_child(version));
+                children.insert((index as u8).into(), child_info.into_child::<H>(version));
             }
         }
 
@@ -166,7 +168,7 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher> {
     /// Whether to use the new internal node format where leaf counts are written.
     leaf_count_migration: bool,
 
-    _phantom_hasher: PhantomHasher<H>,
+    _phantom_hasher: PhantomData<H>,
 }
 
 impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
@@ -263,7 +265,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 if let Some(node) = store.get_node_option(&child_node_key)? {
                     let child_info = match node {
                         Node::Internal(internal_node) => ChildInfo::Internal {
-                            hash: Some(internal_node.hash()),
+                            hash: Some(internal_node.hash::<H>()),
                             leaf_count: internal_node.leaf_count(),
                         },
                         Node::Leaf(leaf_node) => ChildInfo::Leaf { node: leaf_node },
@@ -305,7 +307,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
     fn add_chunk_impl(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
-        proof: SparseMerkleRangeProof,
+        proof: SparseMerkleRangeProof<H>,
     ) -> Result<()> {
         ensure!(!chunk.is_empty(), "Should not add empty chunks.");
 
@@ -511,10 +513,10 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         while self.partial_nodes.len() > num_remaining_nodes {
             let last_node = self.partial_nodes.pop().expect("This node must exist.");
             let (node_key, internal_node) =
-                last_node.into_internal_node(self.version, self.leaf_count_migration);
+                last_node.into_internal_node::<H>(self.version, self.leaf_count_migration);
             // Keep the hash of this node before moving it into `frozen_nodes`, so we can update
             // its parent later.
-            let node_hash = internal_node.hash();
+            let node_hash = internal_node.hash::<H>();
             let node_leaf_count = internal_node.leaf_count();
             self.frozen_nodes
                 .insert_node(node_key, internal_node.into());
@@ -550,7 +552,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
     /// `self.previous_leaf`) are correct, i.e., we are able to construct `self.expected_root_hash`
     /// by combining all existing accounts and `proof`.
     #[allow(clippy::collapsible_if)]
-    fn verify(&self, proof: SparseMerkleRangeProof) -> Result<()> {
+    fn verify(&self, proof: SparseMerkleRangeProof<H>) -> Result<()> {
         let previous_leaf = self
             .previous_leaf
             .as_ref()
@@ -639,7 +641,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 Some(ChildInfo::Internal { hash, .. }) => {
                     (*hash.as_ref().expect("The hash must be known."), false)
                 }
-                Some(ChildInfo::Leaf { node }) => (node.hash(), true),
+                Some(ChildInfo::Leaf { node }) => (node.hash::<H>(), true),
                 None => (SPARSE_MERKLE_PLACEHOLDER_HASH, true),
             }
         } else {
@@ -654,7 +656,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 (left_hash, true)
             } else {
                 (
-                    SparseMerkleInternalNode::new(left_hash, right_hash).hash(),
+                    SparseMerkleInternalNode::new(left_hash, right_hash).hash::<H>(),
                     false,
                 )
             }
@@ -694,11 +696,11 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
 }
 
 /// The interface used with [`JellyfishMerkleRestore`], taken from the Diem `storage-interface` crate.
-pub trait StateSnapshotReceiver {
+pub trait StateSnapshotReceiver<H: SimpleHasher> {
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
-        proof: SparseMerkleRangeProof,
+        proof: SparseMerkleRangeProof<H>,
     ) -> Result<()>;
 
     fn finish(self) -> Result<()>;
@@ -706,11 +708,11 @@ pub trait StateSnapshotReceiver {
     fn finish_box(self: Box<Self>) -> Result<()>;
 }
 
-impl<H: SimpleHasher> StateSnapshotReceiver for JellyfishMerkleRestore<H> {
+impl<H: SimpleHasher> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H> {
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
-        proof: SparseMerkleRangeProof,
+        proof: SparseMerkleRangeProof<H>,
     ) -> Result<()> {
         self.add_chunk_impl(chunk, proof)
     }
