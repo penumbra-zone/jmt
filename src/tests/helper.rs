@@ -3,8 +3,6 @@
 
 #[cfg(not(feature = "std"))]
 use hashbrown::{HashMap, HashSet};
-use sha2::digest::core_api::{CoreWrapper, CtVariableCoreWrapper};
-use sha2::digest::typenum::{UInt, UTerm, B0, B1};
 #[cfg(feature = "std")]
 use std::collections::{HashMap, HashSet};
 
@@ -17,7 +15,7 @@ use proptest::{
     prelude::*,
     sample,
 };
-use sha2::{OidSha256, Sha256, Sha256VarCore};
+use sha2::Sha256;
 
 use crate::proof::definition::UpdateMerkleProof;
 use crate::{
@@ -32,16 +30,7 @@ use crate::{
     Sha256Jmt, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
-type MockUpdateMerkleProof = UpdateMerkleProof<
-    CoreWrapper<
-        CtVariableCoreWrapper<
-            Sha256VarCore,
-            UInt<UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>, B0>,
-            OidSha256,
-        >,
-    >,
-    std::vec::Vec<u8>,
->;
+type Sha256UpdateMerkleProof = UpdateMerkleProof<Sha256, Vec<u8>>;
 
 /// Computes the key immediately after `key`.
 pub fn plus_one(key: KeyHash) -> KeyHash {
@@ -114,13 +103,13 @@ fn init_mock_db_versioned(
 ) -> (
     MockTreeStore,
     Version,
-    Option<Vec<(RootHash, MockUpdateMerkleProof)>>,
+    Option<Vec<(RootHash, Sha256UpdateMerkleProof)>>,
 ) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
     let tree = Sha256Jmt::new(&db);
-    let mut roots_proofs: Option<Vec<(RootHash, MockUpdateMerkleProof)>> =
+    let mut roots_proofs: Option<Vec<(RootHash, Sha256UpdateMerkleProof)>> =
         if with_proof { Some(Vec::new()) } else { None };
 
     if operations_by_version
@@ -177,13 +166,13 @@ fn init_mock_db_versioned_with_deletions(
 ) -> (
     MockTreeStore,
     Version,
-    Option<Vec<(RootHash, MockUpdateMerkleProof)>>,
+    Option<Vec<(RootHash, Sha256UpdateMerkleProof)>>,
 ) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
     let tree = Sha256Jmt::new(&db);
-    let mut roots_proofs: Option<Vec<(RootHash, MockUpdateMerkleProof)>> =
+    let mut roots_proofs: Option<Vec<(RootHash, Sha256UpdateMerkleProof)>> =
         if with_proof { Some(Vec::new()) } else { None };
 
     if operations_by_version

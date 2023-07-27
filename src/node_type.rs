@@ -399,6 +399,22 @@ impl Arbitrary for InternalNode {
     }
 }
 
+/// Helper for `InternalNode` implementations. Test if the leaf exaclty has one child within the width range specified
+fn has_only_child(width: u8, range_existence_bitmap: u16, range_leaf_bitmap: u16) -> bool {
+    width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+}
+
+/// Helper for `InternalNode` implementations. Test if the leaf exactly has one child *at the position n*
+///  within the width range specified
+fn has_child(
+    width: u8,
+    range_existence_bitmap: u16,
+    n_bitmap: u16,
+    range_leaf_bitmap: u16,
+) -> bool {
+    width == 1 || (range_existence_bitmap == n_bitmap && range_leaf_bitmap != 0)
+}
+
 impl InternalNode {
     /// Creates a new Internal node.
     pub fn new(children: Children) -> Self {
@@ -524,7 +540,7 @@ impl InternalNode {
         if range_existence_bitmap == 0 {
             // No child under this subtree
             SparseMerkleNode::Null
-        } else if Self::test_get_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
+        } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
             // Only 1 leaf child under this subtree or reach the lowest level
             let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
 
@@ -582,7 +598,7 @@ impl InternalNode {
         if range_existence_bitmap == 0 {
             // No child under this subtree
             SPARSE_MERKLE_PLACEHOLDER_HASH
-        } else if Self::test_get_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
+        } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
             // Only 1 leaf child under this subtree or reach the lowest level
             let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
             self.child(only_child_index)
@@ -633,7 +649,7 @@ impl InternalNode {
             if range_existence_bitmap == 0 {
                 // No child in this range.
                 return None;
-            } else if Self::test_get_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
+            } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
                 // Return the only 1 leaf child under this subtree or reach the lowest level
                 // Even this leaf child is not the n-th child, it should be returned instead of
                 // `None` because it's existence indirectly proves the n-th child doesn't exist.
@@ -657,19 +673,6 @@ impl InternalNode {
             }
         }
         unreachable!("Impossible to get here without returning even at the lowest level.")
-    }
-
-    fn test_get_only_child(width: u8, range_existence_bitmap: u16, range_leaf_bitmap: u16) -> bool {
-        width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
-    }
-
-    fn test_get_child(
-        width: u8,
-        range_existence_bitmap: u16,
-        n_bitmap: u16,
-        range_leaf_bitmap: u16,
-    ) -> bool {
-        width == 1 || (range_existence_bitmap == n_bitmap && range_leaf_bitmap != 0)
     }
 
     /// Gets the child and its corresponding siblings that are necessary to generate the proof for
@@ -727,7 +730,7 @@ impl InternalNode {
                 // No child in this range.
                 return (None, siblings);
             } else if get_only_child
-                && (Self::test_get_only_child(width, range_existence_bitmap, range_leaf_bitmap))
+                && (has_only_child(width, range_existence_bitmap, range_leaf_bitmap))
             {
                 // Return the only 1 leaf child under this subtree or reach the lowest level
                 // Even this leaf child is not the n-th child, it should be returned instead of
@@ -753,12 +756,7 @@ impl InternalNode {
                     siblings,
                 );
             } else if !get_only_child
-                && (Self::test_get_child(
-                    width,
-                    range_existence_bitmap,
-                    n_bitmap,
-                    range_leaf_bitmap,
-                ))
+                && (has_child(width, range_existence_bitmap, n_bitmap, range_leaf_bitmap))
             {
                 // Early return the child in that subtree iff it is the only child and the nibble points
                 // to it

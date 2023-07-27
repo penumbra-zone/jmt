@@ -26,19 +26,17 @@ fn update_nibble(original_key: &KeyHash, n: usize, nibble: u8) -> KeyHash {
 fn insert_and_perform_checks(batches: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>) {
     let one_batch = batches.iter().flatten().cloned().collect::<Vec<_>>();
     // Insert as one batch and update one by one.
-    {
-        let db = MockTreeStore::default();
-        let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
+    let db = MockTreeStore::default();
+    let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
 
-        let (root, proof, batch) = tree
-            .put_value_set_with_proof(one_batch, 0 /* version */)
-            .unwrap();
-        db.write_tree_update_batch(batch).unwrap();
+    let (root, proof, batch) = tree
+        .put_value_set_with_proof(one_batch, 0 /* version */)
+        .unwrap();
+    db.write_tree_update_batch(batch).unwrap();
 
-        assert!(proof
-            .verify_update(RootHash(Node::new_null().hash()), root)
-            .is_ok());
-    }
+    assert!(proof
+        .verify_update(RootHash(Node::new_null().hash()), root)
+        .is_ok());
 }
 
 // Simple update proof test to check we can produce and verify merkle proofs for insertion
