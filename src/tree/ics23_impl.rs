@@ -39,14 +39,14 @@ fn sparse_merkle_proof_to_ics23_existence_proof<H: SimpleHasher>(
                     //    suffix = (empty)
                     let mut prefix = Vec::with_capacity(16 + 32);
                     prefix.extend_from_slice(INTERNAL_DOMAIN_SEPARATOR);
-                    prefix.extend_from_slice(&proof.siblings()[sibling_idx]);
+                    prefix.extend_from_slice(&proof.siblings()[sibling_idx].hash::<H>());
                     (prefix, Vec::new())
                 } else {
                     // We want hash( domsep || current || sibling )
                     // so prefix = domsep
                     //    suffix = sibling
                     let prefix = INTERNAL_DOMAIN_SEPARATOR.to_vec();
-                    let suffix = proof.siblings()[sibling_idx].to_vec();
+                    let suffix = proof.siblings()[sibling_idx].hash::<H>().to_vec();
                     (prefix, suffix)
                 };
                 path.push(ics23::InnerOp {

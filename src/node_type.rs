@@ -8,6 +8,7 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree). [`InternalNode`] represents a 4-level
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
+use crate::storage::TreeReader;
 
 use crate::SimpleHasher;
 use alloc::format;
@@ -22,6 +23,7 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
+use crate::proof::SparseMerkleNode;
 use crate::{
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
@@ -320,6 +322,16 @@ pub struct InternalNode {
     leaf_count_migration: bool,
 }
 
+impl SparseMerkleInternalNode {
+    fn from<H: SimpleHasher>(internal_node: InternalNode) -> Self {
+        let bitmaps = internal_node.generate_bitmaps();
+        SparseMerkleInternalNode::new(
+            internal_node.merkle_hash::<H>(0, 8, bitmaps),
+            internal_node.merkle_hash::<H>(8, 8, bitmaps),
+        )
+    }
+}
+
 /// Computes the hash of internal node according to [`JellyfishTree`](crate::JellyfishTree)
 /// data structure in the logical view. `start` and `nibble_height` determine a subtree whose
 /// root hash we want to get. For an internal node with 16 children at the bottom level, we compute
@@ -382,6 +394,22 @@ impl Arbitrary for InternalNode {
         .prop_map(InternalNode::new)
         .boxed()
     }
+}
+
+/// Helper for `InternalNode` implementations. Test if the leaf exaclty has one child within the width range specified
+fn has_only_child(width: u8, range_existence_bitmap: u16, range_leaf_bitmap: u16) -> bool {
+    width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+}
+
+/// Helper for `InternalNode` implementations. Test if the leaf exactly has one child *at the position n*
+///  within the width range specified
+fn has_child(
+    width: u8,
+    range_existence_bitmap: u16,
+    n_bitmap: u16,
+    range_leaf_bitmap: u16,
+) -> bool {
+    width == 1 || (range_existence_bitmap == n_bitmap && range_leaf_bitmap != 0)
 }
 
 impl InternalNode {
@@ -492,6 +520,71 @@ impl InternalNode {
         (bitmaps.0 & mask, bitmaps.1 & mask)
     }
 
+    /// [`build_sibling`] builds the sibling contained in the merkle tree between
+    /// [start; start+width) under the internal node (`self`) using the `TreeReader` as
+    /// a node reader to get the leaves/internal nodes at the bottom level of this internal node
+    fn build_sibling<H: SimpleHasher>(
+        &self,
+        tree_reader: &impl TreeReader,
+        node_key: &NodeKey,
+        start: u8,
+        width: u8,
+        (existence_bitmap, leaf_bitmap): (u16, u16),
+    ) -> SparseMerkleNode {
+        // Given a bit [start, 1 << nibble_height], return the value of that range.
+        let (range_existence_bitmap, range_leaf_bitmap) =
+            Self::range_bitmaps(start, width, (existence_bitmap, leaf_bitmap));
+        if range_existence_bitmap == 0 {
+            // No child under this subtree
+            SparseMerkleNode::Null
+        } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
+            // Only 1 leaf child under this subtree or reach the lowest level
+            let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
+
+            let child = self
+                .child(only_child_index)
+                .with_context(|| {
+                    format!(
+                        "Corrupted internal node: existence_bitmap indicates \
+                         the existence of a non-exist child at index {:x}",
+                        only_child_index
+                    )
+                })
+                .unwrap();
+
+            let child_node = tree_reader
+                .get_node(&node_key.gen_child_node_key(child.version, only_child_index))
+                .with_context(|| {
+                    format!(
+                        "Corruption error: the merkle tree reader supplied cannot find \
+                         the child of version {:?} at index {:x}.",
+                        child.version, only_child_index
+                    )
+                })
+                .unwrap();
+
+            match child_node {
+                Node::Internal(node) => {
+                    SparseMerkleNode::Internal(SparseMerkleInternalNode::from::<H>(node))
+                }
+                Node::Leaf(node) => SparseMerkleNode::Leaf(SparseMerkleLeafNode::from(node)),
+                Node::Null => unreachable!("Impossible to get a null node at this location"),
+            }
+        } else {
+            let left_child = self.merkle_hash::<H>(
+                start,
+                width / 2,
+                (range_existence_bitmap, range_leaf_bitmap),
+            );
+            let right_child = self.merkle_hash::<H>(
+                start + width / 2,
+                width / 2,
+                (range_existence_bitmap, range_leaf_bitmap),
+            );
+            SparseMerkleNode::Internal(SparseMerkleInternalNode::new(left_child, right_child))
+        }
+    }
+
     fn merkle_hash<H: SimpleHasher>(
         &self,
         start: u8,
@@ -504,8 +597,7 @@ impl InternalNode {
         if range_existence_bitmap == 0 {
             // No child under this subtree
             SPARSE_MERKLE_PLACEHOLDER_HASH
-        } else if width == 1 || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
-        {
+        } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
             // Only 1 leaf child under this subtree or reach the lowest level
             let only_child_index = Nibble::from(range_existence_bitmap.trailing_zeros() as u8);
             self.child(only_child_index)
@@ -529,14 +621,18 @@ impl InternalNode {
                 width / 2,
                 (range_existence_bitmap, range_leaf_bitmap),
             );
-            SparseMerkleInternalNode::<H>::new(left_child, right_child).hash()
+            SparseMerkleInternalNode::new(left_child, right_child).hash::<H>()
         }
     }
 
     /// Gets the child without its corresponding siblings (like using
-    /// [`get_child_with_siblings`](InternalNode::get_child_with_siblings) and dropping the
+    /// [`get_only_child_with_siblings`](InternalNode::get_only_child_with_siblings) and dropping the
     /// siblings, but more efficient).
-    pub fn get_child_without_siblings(&self, node_key: &NodeKey, n: Nibble) -> Option<NodeKey> {
+    pub fn get_only_child_without_siblings(
+        &self,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> Option<NodeKey> {
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
 
         // Nibble height from 3 to 0.
@@ -552,9 +648,7 @@ impl InternalNode {
             if range_existence_bitmap == 0 {
                 // No child in this range.
                 return None;
-            } else if width == 1
-                || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
-            {
+            } else if has_only_child(width, range_existence_bitmap, range_leaf_bitmap) {
                 // Return the only 1 leaf child under this subtree or reach the lowest level
                 // Even this leaf child is not the n-th child, it should be returned instead of
                 // `None` because it's existence indirectly proves the n-th child doesn't exist.
@@ -581,10 +675,11 @@ impl InternalNode {
     }
 
     /// Gets the child and its corresponding siblings that are necessary to generate the proof for
-    /// the `n`-th child. If it is an existence proof, the returned child must be the `n`-th
-    /// child; otherwise, the returned child may be another child. See inline explanation for
-    /// details. When calling this function with n = 11 (node `b` in the following graph), the
-    /// range at each level is illustrated as a pair of square brackets:
+    /// the `n`-th child. This function will **either** return the child that matches the nibble n or the only
+    /// child in the largest width range pointed by n. If it is an existence proof, the returned child must be the `n`-th
+    /// child; otherwise, the returned child may be another child in the same nibble pointed by n.
+    /// See inline explanation for details. When calling this function with n = 11
+    ///  (node `b` in the following graph), the range at each level is illustrated as a pair of square brackets:
     ///
     /// ```text
     ///     4      [f   e   d   c   b   a   9   8   7   6   5   4   3   2   1   0] -> root level
@@ -600,13 +695,17 @@ impl InternalNode {
     ///     |   MSB|<---------------------- uint 16 ---------------------------->|LSB
     ///  height    chs: `child_half_start`         shs: `sibling_half_start`
     /// ```
-    pub fn get_child_with_siblings<H: SimpleHasher>(
+    fn get_child_with_siblings_helper<H: SimpleHasher>(
         &self,
+        tree_reader: &impl TreeReader,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<[u8; 32]>) {
-        let mut siblings = vec![];
+        get_only_child: bool,
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
+        let mut siblings: Vec<SparseMerkleNode> = vec![];
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
+
+        let n_bitmap = 1 << n.as_usize();
 
         // Nibble height from 3 to 0.
         for h in (0..4).rev() {
@@ -615,7 +714,9 @@ impl InternalNode {
             let width = 1 << h;
             let (child_half_start, sibling_half_start) = get_child_and_sibling_half_start(n, h);
             // Compute the root hash of the subtree rooted at the sibling of `r`.
-            siblings.push(self.merkle_hash::<H>(
+            siblings.push(self.build_sibling::<H>(
+                tree_reader,
+                node_key,
                 sibling_half_start,
                 width,
                 (existence_bitmap, leaf_bitmap),
@@ -627,8 +728,8 @@ impl InternalNode {
             if range_existence_bitmap == 0 {
                 // No child in this range.
                 return (None, siblings);
-            } else if width == 1
-                || (range_existence_bitmap.count_ones() == 1 && range_leaf_bitmap != 0)
+            } else if get_only_child
+                && (has_only_child(width, range_existence_bitmap, range_leaf_bitmap))
             {
                 // Return the only 1 leaf child under this subtree or reach the lowest level
                 // Even this leaf child is not the n-th child, it should be returned instead of
@@ -643,7 +744,7 @@ impl InternalNode {
                             .with_context(|| {
                                 format!(
                                     "Corrupted internal node: child_bitmap indicates \
-                                     the existence of a non-exist child at index {:x}",
+                                         the existence of a non-exist child at index {:x}",
                                     only_child_index
                                 )
                             })
@@ -653,9 +754,58 @@ impl InternalNode {
                     },
                     siblings,
                 );
+            } else if !get_only_child
+                && (has_child(width, range_existence_bitmap, n_bitmap, range_leaf_bitmap))
+            {
+                // Early return the child in that subtree iff it is the only child and the nibble points
+                // to it
+                return (
+                    {
+                        let only_child_version = self
+                            .child(n)
+                            // Should be guaranteed by the self invariants, but these are not easy to express at the moment
+                            .with_context(|| {
+                                format!(
+                                    "Corrupted internal node: child_bitmap indicates \
+                                         the existence of a non-exist child at index {:x}",
+                                    n
+                                )
+                            })
+                            .unwrap()
+                            .version;
+                        Some(node_key.gen_child_node_key(only_child_version, n))
+                    },
+                    siblings,
+                );
             }
         }
         unreachable!("Impossible to get here without returning even at the lowest level.")
+    }
+
+    /// [`get_child_with_siblings`] will return the child from this subtree that matches the nibble n in addition
+    /// to building the list of its sibblings. This function has the same behavior as [`child`].
+    pub(crate) fn get_child_with_siblings<H: SimpleHasher>(
+        &self,
+        tree_cache: &impl TreeReader,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
+        self.get_child_with_siblings_helper::<H>(tree_cache, node_key, n, false)
+    }
+
+    /// [`get_only_child_with_siblings`] will **either** return the child that matches the nibble n or the only
+    /// child in the largest width range pointed by n (see the helper function [`get_child_with_siblings_helper`] for more information).
+    ///
+    /// Even this leaf child is not the n-th child, it should be returned instead of
+    /// `None` because it's existence indirectly proves the n-th child doesn't exist.
+    /// Please read proof format for details.
+    pub(crate) fn get_only_child_with_siblings<H: SimpleHasher>(
+        &self,
+        tree_reader: &impl TreeReader,
+        node_key: &NodeKey,
+        n: Nibble,
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
+        self.get_child_with_siblings_helper::<H>(tree_reader, node_key, n, true)
     }
 
     #[cfg(test)]
@@ -727,11 +877,11 @@ impl LeafNode {
     }
 
     pub fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
-        SparseMerkleLeafNode::<H>::new(self.key_hash, self.value_hash).hash()
+        SparseMerkleLeafNode::new(self.key_hash, self.value_hash).hash::<H>()
     }
 }
 
-impl<H: SimpleHasher> From<LeafNode> for SparseMerkleLeafNode<H> {
+impl From<LeafNode> for SparseMerkleLeafNode {
     fn from(leaf_node: LeafNode) -> Self {
         Self::new(leaf_node.key_hash, leaf_node.value_hash)
     }

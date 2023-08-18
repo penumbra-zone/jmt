@@ -4,5 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc b98005d22bdb2676872782f2e1027bb3dec9efb0f549485bb20e6851ae5459df # shrinks to keys = [[]]
-cc 9e563e3f8e111c0a387cdb961c8b53f6e6e21f66819b8f450016ebd5857df62b # shrinks to keys = [[34, 10, 22, 0, 0, 0, 0, 2], [14, 0, 16, 4, 196, 0, 3, 0]]
+cc ed6e873f05fe3babf16fed6ba14db58f0fb2cde8ad7c01cd18f3ee5912042b76 # shrinks to index1 = Nibble(0), index2 = Nibble(8)

@@ -9,19 +9,21 @@ use proptest::{collection::vec, prelude::*};
 
 use crate::{
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
-    SimpleHasher, SPARSE_MERKLE_PLACEHOLDER_HASH,
+    SimpleHasher,
 };
 
-fn arb_non_placeholder_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
-    any::<[u8; 32]>().prop_filter("Filter out placeholder sibling.", |x| {
-        *x != SPARSE_MERKLE_PLACEHOLDER_HASH
+use super::SparseMerkleNode;
+
+fn arb_non_placeholder_sparse_merkle_sibling() -> impl Strategy<Value = SparseMerkleNode> {
+    any::<SparseMerkleNode>().prop_filter("Filter out placeholder sibling.", |x| {
+        *x != SparseMerkleNode::Null
     })
 }
 
-fn arb_sparse_merkle_sibling() -> impl Strategy<Value = [u8; 32]> {
+fn arb_sparse_merkle_sibling() -> impl Strategy<Value = SparseMerkleNode> {
     prop_oneof![
         arb_non_placeholder_sparse_merkle_sibling(),
-        Just(SPARSE_MERKLE_PLACEHOLDER_HASH),
+        Just(SparseMerkleNode::Null),
     ]
 }
 
@@ -31,7 +33,7 @@ impl<H: SimpleHasher + 'static> Arbitrary for SparseMerkleProof<H> {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
-            any::<Option<SparseMerkleLeafNode<H>>>(),
+            any::<Option<SparseMerkleLeafNode>>(),
             (0..=256usize).prop_flat_map(|len| {
                 if len == 0 {
                     Just(Vec::new()).boxed()

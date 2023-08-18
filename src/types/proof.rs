@@ -7,32 +7,71 @@ pub(crate) mod definition;
 #[cfg(any(test, feature = "fuzzing"))]
 pub(crate) mod proptest_proof;
 
-use core::marker::PhantomData;
+use crate::{
+    proof::SparseMerkleNode::{Internal, Leaf},
+    SimpleHasher,
+};
 
-use serde::{Deserialize, Serialize};
+#[cfg(any(test, feature = "fuzzing"))]
+use proptest_derive::Arbitrary;
 
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
-use crate::{KeyHash, SimpleHasher, ValueHash};
+use crate::{KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 pub const LEAF_DOMAIN_SEPARATOR: &[u8] = b"JMT::LeafNode";
 pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
 
-pub(crate) struct SparseMerkleInternalNode<H> {
-    left_child: [u8; 32],
-    right_child: [u8; 32],
-    _phantom: PhantomData<H>,
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
+)]
+/// A [`SparseMerkleNode`] is either a null node, an internal sparse node or a leaf node.
+/// This is useful in the delete case to know if we need to coalesce the leaves on deletion.
+/// The [`SparseMerkleNode`] needs to store either a [`SparseMerkleInternalNode`] or a [`SparseMerkleLeafNode`]
+/// to be able to safely assert that the node is either a leaf or an internal node. Indeed,
+/// if one stores the node/leaf hash directly into the structure, any malicious prover would
+/// be able to forge the node/leaf type, as this assertion wouldn't be checked.
+/// Providing a [`SparseMerkleInternalNode`] or a [`SparseMerkleLeafNode`] structure is sufficient to
+/// prove the node type as one would need to reverse the hash function to forge them.
+pub(crate) enum SparseMerkleNode {
+    // The default sparse node
+    Null,
+    // The internal sparse merkle tree node
+    Internal(SparseMerkleInternalNode),
+    // The leaf sparse merkle tree node
+    Leaf(SparseMerkleLeafNode),
 }
 
-impl<H: SimpleHasher> SparseMerkleInternalNode<H> {
+impl SparseMerkleNode {
+    pub(crate) fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
+        match self {
+            SparseMerkleNode::Null => SPARSE_MERKLE_PLACEHOLDER_HASH,
+            Internal(node) => node.hash::<H>(),
+            Leaf(node) => node.hash::<H>(),
+        }
+    }
+}
+
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
+)]
+#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+pub(crate) struct SparseMerkleInternalNode {
+    left_child: [u8; 32],
+    right_child: [u8; 32],
+}
+
+impl SparseMerkleInternalNode {
     pub fn new(left_child: [u8; 32], right_child: [u8; 32]) -> Self {
         Self {
             left_child,
             right_child,
-            _phantom: Default::default(),
         }
     }
 
-    pub fn hash(&self) -> [u8; 32] {
+    pub fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
         let mut hasher = H::new();
         // chop a vowel to fit in 16 bytes
         hasher.update(INTERNAL_DOMAIN_SEPARATOR);
@@ -42,17 +81,16 @@ impl<H: SimpleHasher> SparseMerkleInternalNode<H> {
     }
 }
 
-#[derive(Eq, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct SparseMerkleLeafNode<H> {
+#[derive(Eq, Copy, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct SparseMerkleLeafNode {
     key_hash: KeyHash,
     value_hash: ValueHash,
-    _phantom: PhantomData<H>,
 }
 
 // Manually implement Arbitrary to get the correct bounds. The derived Arbitrary impl adds a spurious
 // H: Debug bound even with the proptest(no_bound) annotation
 #[cfg(any(test, feature = "fuzzing"))]
-impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
+impl proptest::arbitrary::Arbitrary for SparseMerkleLeafNode {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
 
@@ -62,7 +100,6 @@ impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
             .prop_map(|(key_hash, value_hash)| Self {
                 key_hash,
                 value_hash,
-                _phantom: Default::default(),
             })
             .boxed()
     }
@@ -70,42 +107,39 @@ impl<H> proptest::arbitrary::Arbitrary for SparseMerkleLeafNode<H> {
 
 // Manually implement Clone to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H> Clone for SparseMerkleLeafNode<H> {
+impl Clone for SparseMerkleLeafNode {
     fn clone(&self) -> Self {
         Self {
             key_hash: self.key_hash.clone(),
             value_hash: self.value_hash.clone(),
-            _phantom: self._phantom.clone(),
         }
     }
 }
 
 // Manually implement Debug to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H> core::fmt::Debug for SparseMerkleLeafNode<H> {
+impl core::fmt::Debug for SparseMerkleLeafNode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SparseMerkleLeafNode")
             .field("key_hash", &self.key_hash)
             .field("value_hash", &self.value_hash)
-            .field("_phantom", &self._phantom)
             .finish()
     }
 }
 
 // Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
-impl<H> PartialEq for SparseMerkleLeafNode<H> {
+impl PartialEq for SparseMerkleLeafNode {
     fn eq(&self, other: &Self) -> bool {
         self.key_hash == other.key_hash && self.value_hash == other.value_hash
     }
 }
 
-impl<H: SimpleHasher> SparseMerkleLeafNode<H> {
+impl SparseMerkleLeafNode {
     pub(crate) fn new(key_hash: KeyHash, value_hash: ValueHash) -> Self {
         SparseMerkleLeafNode {
             key_hash,
             value_hash,
-            _phantom: Default::default(),
         }
     }
 
@@ -113,7 +147,7 @@ impl<H: SimpleHasher> SparseMerkleLeafNode<H> {
         self.key_hash
     }
 
-    pub(crate) fn hash(&self) -> [u8; 32] {
+    pub(crate) fn hash<H: SimpleHasher>(&self) -> [u8; 32] {
         let mut hasher = H::new();
         hasher.update(LEAF_DOMAIN_SEPARATOR);
         hasher.update(&self.key_hash.0);

@@ -325,6 +325,37 @@ where
     }
 }
 
+impl<'a, R> TreeReader for TreeCache<'a, R>
+where
+    R: 'a + TreeReader,
+{
+    fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+        self.get_node_option(node_key)
+    }
+
+    fn get_value_option(
+        &self,
+        max_version: Version,
+        key_hash: KeyHash,
+    ) -> Result<Option<OwnedValue>> {
+        for ((version, _hash), value) in self
+            .value_cache
+            .iter()
+            .filter(|((_version, hash), _value)| *hash == key_hash)
+        {
+            if *version <= max_version {
+                return Ok(value.clone());
+            }
+        }
+
+        self.reader.get_value_option(max_version, key_hash)
+    }
+
+    fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, crate::storage::LeafNode)>> {
+        unimplemented!("get_rightmost_leaf should not be used with a tree cache")
+    }
+}
+
 impl<'a, R> From<TreeCache<'a, R>> for (Vec<RootHash>, TreeUpdateBatch)
 where
     R: 'a + TreeReader,

@@ -28,6 +28,14 @@ pub struct NodeBatch {
 }
 
 impl NodeBatch {
+    /// Creates a new node batch
+    pub fn new(
+        nodes: BTreeMap<NodeKey, Node>,
+        values: BTreeMap<(Version, KeyHash), Option<OwnedValue>>,
+    ) -> Self {
+        NodeBatch { nodes, values }
+    }
+
     /// Reset a NodeBatch to its empty state.
     pub fn clear(&mut self) {
         self.nodes.clear();

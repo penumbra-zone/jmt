@@ -656,7 +656,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 (left_hash, true)
             } else {
                 (
-                    SparseMerkleInternalNode::<H>::new(left_hash, right_hash).hash(),
+                    SparseMerkleInternalNode::new(left_hash, right_hash).hash::<H>(),
                     false,
                 )
             }

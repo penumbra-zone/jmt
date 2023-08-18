@@ -1,5 +1,7 @@
+use crate::storage::Node::Leaf;
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloc::{format, vec};
+use anyhow::{bail, ensure, format_err, Context, Result};
 use core::marker::PhantomData;
 use core::{cmp::Ordering, convert::TryInto};
 #[cfg(not(feature = "std"))]
@@ -7,8 +9,8 @@ use hashbrown::HashMap;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
-use anyhow::{bail, ensure, format_err, Context, Result};
-
+use crate::proof::definition::UpdateMerkleProof;
+use crate::proof::{SparseMerkleLeafNode, SparseMerkleNode};
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     storage::{TreeReader, TreeUpdateBatch},
@@ -366,6 +368,27 @@ where
         Ok((root_hashes[0], tree_update_batch))
     }
 
+    /// This is a convenient function that calls
+    /// [`put_value_sets_with_proof`](struct.JellyfishMerkleTree.html#method.put_value_sets) with a single
+    /// `keyed_value_set`.
+    pub fn put_value_set_with_proof(
+        &self,
+        value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
+        version: Version,
+    ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
+        let (mut hash_and_proof, batch_update) =
+            self.put_value_sets_with_proof(vec![value_set], version)?;
+        assert_eq!(
+            hash_and_proof.len(),
+            1,
+            "root_hashes must consist of a single value.",
+        );
+
+        let (hash, proof) = hash_and_proof.pop().unwrap();
+
+        Ok((hash, proof, batch_update))
+    }
+
     /// Returns the new nodes and values in a batch after applying `value_set`. For
     /// example, if after transaction `T_i` the committed state of tree in the persistent storage
     /// looks like the following structure:
@@ -415,26 +438,73 @@ where
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
-            value_set
-                .into_iter()
-                .enumerate()
-                .try_for_each(|(i, (key, value))| {
-                    let action = if value.is_some() { "insert" } else { "delete" };
-                    let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
-                    tree_cache.put_value(version, key, value);
-                    self.put(key, value_hash, version, &mut tree_cache)
-                        .with_context(|| {
-                            format!(
-                                "failed to {} key {} for version {}, key = {:?}",
-                                action, i, version, key
-                            )
-                        })
-                })?;
+            for (i, (key, value)) in value_set.into_iter().enumerate() {
+                let action = if value.is_some() { "insert" } else { "delete" };
+                let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+                tree_cache.put_value(version, key, value);
+                self.put(key, value_hash, version, &mut tree_cache, false)
+                    .with_context(|| {
+                        format!(
+                            "failed to {} key {} for version {}, key = {:?}",
+                            action, i, version, key
+                        )
+                    })?;
+            }
+
             // Freezes the current cache to make all contents in the current cache immutable.
             tree_cache.freeze::<H>()?;
         }
 
         Ok(tree_cache.into())
+    }
+
+    /// Same as [`put_value_sets`], this method returns a Merkle proof for every update of the Merkle tree.
+    /// The proofs can be verified using the [`verify_update`] method, which requires the old `root_hash`, the `merkle_proof` and the new `root_hash`
+    /// The first argument contains all the root hashes that were stored in the tree cache so far. The last one is the new root hash of the tree.
+    pub fn put_value_sets_with_proof(
+        &self,
+        value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
+        first_version: Version,
+    ) -> Result<(
+        Vec<(RootHash, UpdateMerkleProof<H, OwnedValue>)>,
+        TreeUpdateBatch,
+    )> {
+        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+        let mut batch_proofs = Vec::new();
+        for (idx, value_set) in value_sets.into_iter().enumerate() {
+            let version = first_version + idx as u64;
+            let mut proofs = Vec::new();
+            for (i, (key, value)) in value_set.into_iter().enumerate() {
+                let action = if value.is_some() { "insert" } else { "delete" };
+                let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+                tree_cache.put_value(version, key, value.clone());
+                let merkle_proof = self
+                    .put(key, value_hash, version, &mut tree_cache, true)
+                    .with_context(|| {
+                        format!(
+                            "failed to {} key {} for version {}, key = {:?}",
+                            action, i, version, key
+                        )
+                    })?
+                    .unwrap();
+
+                proofs.push((merkle_proof, key, value));
+            }
+
+            batch_proofs.push(UpdateMerkleProof::new(proofs));
+
+            // Freezes the current cache to make all contents in the current cache immutable.
+            tree_cache.freeze::<H>()?;
+        }
+
+        let (root_hashes, update_batch): (Vec<RootHash>, TreeUpdateBatch) = tree_cache.into();
+
+        let zipped_hashes_proofs = root_hashes
+            .into_iter()
+            .zip(batch_proofs.into_iter())
+            .collect();
+
+        Ok((zipped_hashes_proofs, update_batch))
     }
 
     fn put(
@@ -443,7 +513,8 @@ where
         value: Option<ValueHash>,
         version: Version,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<()> {
+        with_proof: bool,
+    ) -> Result<Option<SparseMerkleProof<H>>> {
         // tree_cache.ensure_initialized()?;
 
         let nibble_path = NibblePath::new(key.0.to_vec());
@@ -453,8 +524,17 @@ where
         let root_node_key = tree_cache.get_root_node_key().clone();
         let mut nibble_iter = nibble_path.nibbles();
 
+        let (put_result, merkle_proof) = self.insert_at(
+            root_node_key,
+            version,
+            &mut nibble_iter,
+            value,
+            tree_cache,
+            with_proof,
+        )?;
+
         // Start insertion from the root node.
-        match self.insert_at(root_node_key, version, &mut nibble_iter, value, tree_cache)? {
+        match put_result {
             PutResult::Updated((new_root_node_key, _)) => {
                 tree_cache.set_root_node_key(new_root_node_key);
             }
@@ -469,7 +549,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(merkle_proof)
     }
 
     /// Helper function for recursive insertion into the subtree that starts from the current
@@ -483,7 +563,8 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+        with_proof: bool,
+    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>)> {
         // Because deletions could cause the root node not to exist, we try to get the root node,
         // and if it doesn't exist, we synthesize a `Null` node, noting that it hasn't yet been
         // committed anywhere (we need to track this because the tree cache will panic if we try to
@@ -500,6 +581,7 @@ where
                 nibble_iter,
                 value,
                 tree_cache,
+                with_proof,
             ),
             Node::Leaf(leaf_node) => self.insert_at_leaf_node(
                 node_key,
@@ -508,8 +590,15 @@ where
                 nibble_iter,
                 value,
                 tree_cache,
+                with_proof,
             ),
             Node::Null => {
+                let merkle_proof_null = if with_proof {
+                    Some(SparseMerkleProof::new(None, vec![]))
+                } else {
+                    None
+                };
+
                 if !node_key.nibble_path().is_empty() {
                     bail!(
                         "Null node exists for non-root node with node_key {:?}",
@@ -528,10 +617,13 @@ where
                         value,
                         tree_cache,
                     )?;
-                    Ok(PutResult::Updated((new_root_node_key, new_root_node)))
+                    Ok((
+                        PutResult::Updated((new_root_node_key, new_root_node)),
+                        merkle_proof_null,
+                    ))
                 } else {
                     // If we're deleting from the null root node, nothing needs to change
-                    Ok(PutResult::NotChanged)
+                    Ok((PutResult::NotChanged, merkle_proof_null))
                 }
             }
         }
@@ -548,39 +640,117 @@ where
         nibble_iter: &mut NibbleIterator,
         value: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+        with_proof: bool,
+    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>)> {
         // Find the next node to visit following the next nibble as index.
         let child_index = nibble_iter.next().expect("Ran out of nibbles");
 
         // Traverse downwards from this internal node recursively to get the `node_key` of the child
         // node at `child_index`.
-        let result = match internal_node.child(child_index) {
+        let (put_result, merkle_proof) = match internal_node.child(child_index) {
             Some(child) => {
-                let child_node_key = node_key.gen_child_node_key(child.version, child_index);
-                self.insert_at(child_node_key, version, nibble_iter, value, tree_cache)?
+                let (child_node_key, mut siblings) = if with_proof {
+                    let (child_key, siblings) = internal_node.get_child_with_siblings::<H>(
+                        tree_cache,
+                        &node_key,
+                        child_index,
+                    );
+                    (child_key.unwrap(), siblings)
+                } else {
+                    (
+                        node_key.gen_child_node_key(child.version, child_index),
+                        vec![],
+                    )
+                };
+
+                let (update_result, proof_opt) = self.insert_at(
+                    child_node_key,
+                    version,
+                    nibble_iter,
+                    value,
+                    tree_cache,
+                    with_proof,
+                )?;
+
+                let new_proof_opt = proof_opt.map(|proof| {
+                    // The move siblings function allows zero copy moves for proof
+                    let proof_leaf = proof.leaf();
+                    let mut new_siblings = proof.take_siblings();
+                    // We need to reverse the siblings
+                    siblings.reverse();
+                    new_siblings.append(&mut siblings);
+                    SparseMerkleProof::new(proof_leaf, new_siblings)
+                });
+
+                (update_result, new_proof_opt)
             }
             None => {
+                // In that case we couldn't find a child for this node at the nibble's position.
+                // We have to traverse down the virtual 4-level tree (which is the compressed
+                // representation of the jellyfish merkle tree) to get the closest leaf of the nibble
+                // we are looking for.
+                let merkle_proof = if with_proof {
+                    let (child_key_opt, mut siblings) = internal_node
+                        .get_only_child_with_siblings::<H>(tree_cache, &node_key, child_index);
+
+                    let leaf: Option<SparseMerkleLeafNode> = child_key_opt.map(|child_key|
+                    {
+                        // We should be able to find the node in the case
+                        let node = tree_cache.get_node(&child_key).expect("this node should be in the cache");
+                        match node {
+                            Leaf(leaf_node) => {
+                                leaf_node.into()
+                            },
+                            _ => unreachable!("get_only_child_with_siblings should return a leaf node in that case")
+                        }
+                    });
+
+                    siblings.reverse();
+                    Some(SparseMerkleProof::new(leaf, siblings))
+                } else {
+                    None
+                };
+
                 if let Some(value) = value {
                     // insert
                     let new_child_node_key = node_key.gen_child_node_key(version, child_index);
-                    PutResult::Updated(Self::create_leaf_node(
-                        new_child_node_key,
-                        nibble_iter,
-                        value,
-                        tree_cache,
-                    )?)
+
+                    // The Merkle proof doesn't have a leaf
+                    (
+                        PutResult::Updated(Self::create_leaf_node(
+                            new_child_node_key,
+                            nibble_iter,
+                            value,
+                            tree_cache,
+                        )?),
+                        merkle_proof,
+                    )
                 } else {
-                    // delete not found
-                    PutResult::NotChanged
+                    // If there was no changes, don't generate a proof
+                    (
+                        PutResult::NotChanged,
+                        if with_proof {
+                            Some(SparseMerkleProof::new(None, vec![]))
+                        } else {
+                            None
+                        },
+                    )
                 }
             }
         };
 
         // Reuse the current `InternalNode` in memory to create a new internal node.
         let mut children: Children = internal_node.into();
-        match result {
+        match put_result {
             PutResult::NotChanged => {
-                return Ok(PutResult::NotChanged);
+                return Ok((
+                    PutResult::NotChanged,
+                    if with_proof {
+                        Some(SparseMerkleProof::new(None, vec![]))
+                    } else {
+                        None
+                    },
+                ));
             }
             PutResult::Updated((_, new_node)) => {
                 // update child
@@ -609,7 +779,7 @@ where
 
                 node_key.set_version(version);
                 tree_cache.put_node(node_key.clone(), child_node.clone())?;
-                Ok(PutResult::Updated((node_key, child_node)))
+                Ok((PutResult::Updated((node_key, child_node)), merkle_proof))
             } else {
                 drop(it);
                 let new_internal_node: InternalNode = InternalNode::new(children);
@@ -618,11 +788,14 @@ where
 
                 // Cache this new internal node.
                 tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
-                Ok(PutResult::Updated((node_key, new_internal_node.into())))
+                Ok((
+                    PutResult::Updated((node_key, new_internal_node.into())),
+                    merkle_proof,
+                ))
             }
         } else {
             // internal node becomes empty, remove it
-            Ok(PutResult::Removed)
+            Ok((PutResult::Removed, merkle_proof))
         }
     }
 
@@ -637,7 +810,8 @@ where
         nibble_iter: &mut NibbleIterator,
         value_hash: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<PutResult<(NodeKey, Node)>> {
+        with_proof: bool,
+    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>)> {
         // 1. Make sure that the existing leaf nibble_path has the same prefix as the already
         // visited part of the nibble iter of the incoming key and advances the existing leaf
         // nibble iterator by the length of that prefix.
@@ -666,19 +840,32 @@ where
         if nibble_iter.is_finished() {
             assert!(existing_leaf_nibble_iter_below_internal.is_finished());
             tree_cache.delete_node(&node_key, true /* is_leaf */);
+
+            let merkle_proof = if with_proof {
+                Some(SparseMerkleProof::new(
+                    Some(existing_leaf_node.into()),
+                    vec![],
+                ))
+            } else {
+                None
+            };
+
             if let Some(value_hash) = value_hash {
                 // The new leaf node will have the same nibble_path with a new version as node_key.
                 node_key.set_version(version);
                 // Create the new leaf node with the same address but new blob content.
-                return Ok(PutResult::Updated(Self::create_leaf_node(
-                    node_key,
-                    nibble_iter,
-                    value_hash,
-                    tree_cache,
-                )?));
+                return Ok((
+                    PutResult::Updated(Self::create_leaf_node(
+                        node_key,
+                        nibble_iter,
+                        value_hash,
+                        tree_cache,
+                    )?),
+                    merkle_proof,
+                ));
             } else {
                 // deleted
-                return Ok(PutResult::Removed);
+                return Ok((PutResult::Removed, merkle_proof));
             };
         }
 
@@ -706,7 +893,7 @@ where
             node_key = NodeKey::new(version, common_nibble_path.clone());
             tree_cache.put_node(
                 node_key.gen_child_node_key(version, existing_leaf_index),
-                existing_leaf_node.into(),
+                existing_leaf_node.clone().into(),
             )?;
 
             let (_, new_leaf_node) = Self::create_leaf_node(
@@ -743,10 +930,27 @@ where
                 tree_cache.put_node(node_key.clone(), internal_node.into())?;
             }
 
-            Ok(PutResult::Updated((node_key, next_internal_node.into())))
+            Ok((
+                PutResult::Updated((node_key, next_internal_node.into())),
+                if with_proof {
+                    Some(SparseMerkleProof::new(
+                        Some(existing_leaf_node.into()),
+                        vec![],
+                    ))
+                } else {
+                    None
+                },
+            ))
         } else {
             // delete not found
-            Ok(PutResult::NotChanged)
+            Ok((
+                PutResult::NotChanged,
+                if with_proof {
+                    Some(SparseMerkleProof::new(None, vec![]))
+                } else {
+                    None
+                },
+            ))
         }
     }
 
@@ -782,7 +986,7 @@ where
     ) -> Result<(Option<OwnedValue>, SparseMerkleProof<H>)> {
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
-        let mut siblings = vec![];
+        let mut siblings: Vec<SparseMerkleNode> = vec![];
         let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
@@ -802,7 +1006,11 @@ where
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
                     let (child_node_key, mut siblings_in_internal) = internal_node
-                        .get_child_with_siblings::<H>(&next_node_key, queried_child_index);
+                        .get_only_child_with_siblings::<H>(
+                            self.reader,
+                            &next_node_key,
+                            queried_child_index,
+                        );
                     siblings.append(&mut siblings_in_internal);
                     next_node_key = match child_node_key {
                         Some(node_key) => node_key,
@@ -928,7 +1136,7 @@ where
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
                     let child_node_key =
-                        node.get_child_without_siblings(&next_node_key, queried_child_index);
+                        node.get_only_child_without_siblings(&next_node_key, queried_child_index);
 
                     match child_node_key {
                         Some(node_key) => {
@@ -1109,8 +1317,8 @@ where
                     // Find the leftmost nibble in the children
                     let queried_child_index =
                         min_or_max(&internal_node).expect("a child always exists");
-                    let child_node_key =
-                        internal_node.get_child_without_siblings(&node_key, queried_child_index);
+                    let child_node_key = internal_node
+                        .get_only_child_without_siblings(&node_key, queried_child_index);
                     // Proceed downwards
                     node_key = match child_node_key {
                         Some(node_key) => node_key,
