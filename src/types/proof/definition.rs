@@ -239,19 +239,37 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
         let num_siblings = self.siblings().len();
 
+        // The number of default leaves we need to add to the path.
+        let default_leaves_to_add_to_the_path =
+            ((4 * (common_prefix_len + 1) - num_siblings) / 4) * 4;
+
+        // This variable contains the number of default siblings that are inserted within the last nibble subtree to distinguish
+        // between the former and the new key. Since we are splitting the former key, we are creating a new level of the jmt
+        // that only contains the new and the former key. When converted into a binary tree, we need to add default leaves to
+        // reach the binary tree level that can distinguish the two keys. This amounts adding as many default leaves as there
+        // are bits in common in the last nibble of both keys.
+        let mut default_siblings_leaf_nibble = 0;
+
         // We can safely unwrap these values as the check have been already performed in verify_nonexistence
         let mut new_key_bits = new_key_nibbles.bits();
         let mut old_key_bits = old_key_nibbles.bits();
 
-        let mut default_siblings_leaf_nibble = 0;
-
+        // Hence, we have to add the number of bits in common in both keys.
         while new_key_bits.next() == old_key_bits.next() {
             default_siblings_leaf_nibble += 1;
         }
 
-        let num_default_siblings = (4 - (num_siblings % 4)) % 4 /* the number of default leaves we need to add to the previous root */
-                            + ((4*(common_prefix_len+1) - num_siblings) / 4 ) * 4 /* the number of default leaves we need to add to the path */
-                            + (default_siblings_leaf_nibble)
+        // The number of default leaves we need to add to the previous root. When splitting a leaf node, we create a new internal node
+        // in place of the former leaf that has two leaf children. Hence we need to add some default siblings because the leaf node may
+        // not be at the last level of the subtree of the last nibble.
+        // To get this number, we need to take the number of siblings modulo 4 (this yields the hight of the splitted leaf in the last binary subtree,
+        // or the number of bits in the last nibble of the splitted leaf), substract it to 4 (to get the number of bits needed to complete the last nibble)
+        // and then take the result modulo 4 (in case num_siblings % 4 is zero, which happens when the leaf is at the lowest height of the last binary subtree).
+        let default_siblings_prev_root = (4 - (num_siblings % 4)) % 4;
+
+        let num_default_siblings = default_siblings_prev_root
+            + default_leaves_to_add_to_the_path
+            + default_siblings_leaf_nibble
             - 4;
 
         let mut new_siblings: Vec<SparseMerkleNode> = Vec::with_capacity(

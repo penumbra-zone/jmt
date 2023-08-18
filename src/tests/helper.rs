@@ -31,8 +31,6 @@ use crate::{
     ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 
-type Sha256UpdateMerkleProof = UpdateMerkleProof<Sha256, Vec<u8>>;
-
 /// Computes the key immediately after `key`.
 pub fn plus_one(key: KeyHash) -> KeyHash {
     assert_ne!(key, KeyHash([0xff; 32]));

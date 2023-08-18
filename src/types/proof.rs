@@ -7,8 +7,6 @@ pub(crate) mod definition;
 #[cfg(any(test, feature = "fuzzing"))]
 pub(crate) mod proptest_proof;
 
-use core::marker::PhantomData;
-
 use crate::{
     proof::SparseMerkleNode::{Internal, Leaf},
     SimpleHasher,

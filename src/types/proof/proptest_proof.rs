@@ -6,7 +6,6 @@
 
 use alloc::vec::Vec;
 use proptest::{collection::vec, prelude::*};
-use sha2::Sha256;
 
 use crate::{
     types::proof::{SparseMerkleLeafNode, SparseMerkleProof, SparseMerkleRangeProof},
