@@ -510,7 +510,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct UpdateMerkleProof<H: SimpleHasher, V: AsRef<[u8]>>(
     Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
 );
