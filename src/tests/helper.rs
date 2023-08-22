@@ -104,14 +104,25 @@ fn init_mock_db_versioned<H: SimpleHasher>(
 ) -> (
     MockTreeStore,
     Version,
-    Option<Vec<(RootHash, UpdateMerkleProof<H, Vec<u8>>)>>,
+    Option<
+        Vec<(
+            RootHash,
+            UpdateMerkleProof<H>,
+            Vec<(KeyHash, Option<Vec<u8>>)>,
+        )>,
+    >,
 ) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
-    let mut roots_proofs: Option<Vec<(RootHash, UpdateMerkleProof<H, Vec<u8>>)>> =
-        if with_proof { Some(Vec::new()) } else { None };
+    let mut roots_proofs: Option<
+        Vec<(
+            RootHash,
+            UpdateMerkleProof<H>,
+            Vec<(KeyHash, Option<Vec<u8>>)>,
+        )>,
+    > = if with_proof { Some(Vec::new()) } else { None };
 
     if operations_by_version
         .iter()
@@ -120,14 +131,15 @@ fn init_mock_db_versioned<H: SimpleHasher>(
         let mut next_version = 0;
 
         for operations in operations_by_version.into_iter() {
+            let operations = operations
+                .into_iter()
+                .map(|(key, value)| (key, Some(value)));
             let (root_hash, proof_opt, write_batch) = if with_proof {
                 let (root, proof, batch) = tree
                     .put_value_set_with_proof(
                         // Convert un-option-wrapped values to option-wrapped values to be compatible with
                         // deletion-enabled put_value_set:
-                        operations
-                            .into_iter()
-                            .map(|(key, value)| (key, Some(value))),
+                        operations.clone(),
                         next_version as Version,
                     )
                     .unwrap();
@@ -137,9 +149,7 @@ fn init_mock_db_versioned<H: SimpleHasher>(
                     .put_value_set(
                         // Convert un-option-wrapped values to option-wrapped values to be compatible with
                         // deletion-enabled put_value_set:
-                        operations
-                            .into_iter()
-                            .map(|(key, value)| (key, Some(value))),
+                        operations.clone(),
                         next_version as Version,
                     )
                     .unwrap();
@@ -150,7 +160,7 @@ fn init_mock_db_versioned<H: SimpleHasher>(
 
             roots_proofs
                 .as_mut()
-                .map(|proofs| proofs.push((root_hash, proof_opt.unwrap())));
+                .map(|proofs| proofs.push((root_hash, proof_opt.unwrap(), operations.collect())));
 
             next_version += 1;
         }
@@ -167,14 +177,19 @@ fn init_mock_db_versioned_with_deletions<H: SimpleHasher>(
 ) -> (
     MockTreeStore,
     Version,
-    Option<Vec<(RootHash, UpdateMerkleProof<H, Vec<u8>>)>>,
+    Option<
+        Vec<(
+            RootHash,
+            UpdateMerkleProof<H>,
+            Vec<(KeyHash, Option<Vec<u8>>)>,
+        )>,
+    >,
 ) {
     assert!(!operations_by_version.is_empty());
 
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
-    let mut roots_proofs: Option<Vec<(RootHash, UpdateMerkleProof<H, Vec<u8>>)>> =
-        if with_proof { Some(Vec::new()) } else { None };
+    let mut roots_proofs = if with_proof { Some(Vec::new()) } else { None };
 
     if operations_by_version
         .iter()
@@ -185,12 +200,12 @@ fn init_mock_db_versioned_with_deletions<H: SimpleHasher>(
         for operations in operations_by_version.into_iter() {
             let (root_hash, proof_opt, write_batch) = if with_proof {
                 let (root_hash, proof, write_batch) = tree
-                    .put_value_set_with_proof(operations, next_version as Version)
+                    .put_value_set_with_proof(operations.clone(), next_version as Version)
                     .unwrap();
                 (root_hash, Some(proof), write_batch)
             } else {
                 let (root_hash, write_batch) = tree
-                    .put_value_set(operations, next_version as Version)
+                    .put_value_set(operations.clone(), next_version as Version)
                     .unwrap();
                 (root_hash, None, write_batch)
             };
@@ -199,7 +214,7 @@ fn init_mock_db_versioned_with_deletions<H: SimpleHasher>(
 
             roots_proofs
                 .as_mut()
-                .map(|proofs| proofs.push((root_hash, proof_opt.unwrap())));
+                .map(|proofs| proofs.push((root_hash, proof_opt.unwrap(), operations)));
 
             next_version += 1;
         }
@@ -599,8 +614,8 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction_proved(
     // We need to loop over the vectors of proofs and verify each one
     if version_without_deletions != PRE_GENESIS_VERSION {
         let mut old_root = RootHash(Node::new_null().hash::<Sha256>());
-        for (new_root, proof) in roots_proofs_without_deletions.unwrap() {
-            assert!(proof.verify_update(old_root, new_root).is_ok());
+        for (new_root, proof, ops) in roots_proofs_without_deletions.unwrap() {
+            assert!(proof.verify_update(old_root, new_root, ops).is_ok());
             old_root = new_root;
         }
     }
@@ -609,8 +624,8 @@ pub fn test_clairvoyant_construction_matches_interleaved_construction_proved(
     // We need to loop over the vectors of proofs and verify each one
     if version_with_deletions != PRE_GENESIS_VERSION {
         let mut old_root = RootHash(Node::new_null().hash::<Sha256>());
-        for (new_root, proof) in roots_proofs_with_deletions.unwrap() {
-            assert!(proof.verify_update(old_root, new_root).is_ok());
+        for (new_root, proof, ops) in roots_proofs_with_deletions.unwrap() {
+            assert!(proof.verify_update(old_root, new_root, ops).is_ok());
             old_root = new_root;
         }
     }
