@@ -158,6 +158,12 @@ use proptest_derive::Arbitrary;
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct RootHash(pub [u8; 32]);
 
+impl From<RootHash> for [u8; 32] {
+    fn from(value: RootHash) -> Self {
+        value.0
+    }
+}
+
 /// A hashed key used to index a [`JellyfishMerkleTree`].
 ///
 /// # 🚨 Danger 🚨
