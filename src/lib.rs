@@ -164,6 +164,12 @@ impl From<RootHash> for [u8; 32] {
     }
 }
 
+impl AsRef<[u8]> for RootHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// A hashed key used to index a [`JellyfishMerkleTree`].
 ///
 /// # 🚨 Danger 🚨
