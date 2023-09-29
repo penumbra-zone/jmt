@@ -1,3 +1,7 @@
+use crate::alloc::string::ToString;
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
 use proptest::{proptest, strategy::Strategy};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sha2::Sha256;
