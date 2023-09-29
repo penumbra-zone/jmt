@@ -558,7 +558,7 @@ where
     /// for this tree is the length of the hash of account addresses.
     fn insert_at(
         &self,
-        node_key: NodeKey,
+        root_node_key: NodeKey,
         version: Version,
         nibble_iter: &mut NibbleIterator,
         value: Option<ValueHash>,
@@ -570,12 +570,13 @@ where
         // committed anywhere (we need to track this because the tree cache will panic if we try to
         // delete a node that it doesn't know about).
         let (node, node_already_exists) = tree_cache
-            .get_node_option(&node_key)?
+            .get_node_option(&root_node_key)?
             .map(|node| (node, true))
             .unwrap_or((Node::Null, false));
+
         match node {
             Node::Internal(internal_node) => self.insert_at_internal_node(
-                node_key,
+                root_node_key,
                 internal_node,
                 version,
                 nibble_iter,
@@ -584,7 +585,7 @@ where
                 with_proof,
             ),
             Node::Leaf(leaf_node) => self.insert_at_leaf_node(
-                node_key,
+                root_node_key,
                 leaf_node,
                 version,
                 nibble_iter,
@@ -599,15 +600,15 @@ where
                     None
                 };
 
-                if !node_key.nibble_path().is_empty() {
+                if !root_node_key.nibble_path().is_empty() {
                     bail!(
                         "Null node exists for non-root node with node_key {:?}",
-                        node_key
+                        root_node_key
                     );
                 }
                 // Delete the old null node if the at the same version
-                if node_key.version() == version && node_already_exists {
-                    tree_cache.delete_node(&node_key, false /* is_leaf */);
+                if root_node_key.version() == version && node_already_exists {
+                    tree_cache.delete_node(&root_node_key, false /* is_leaf */);
                 }
                 if let Some(value) = value {
                     // If we're inserting into the null root node, we should change it to be a leaf node
@@ -804,41 +805,45 @@ where
     /// [`NodeKey`](node_type/struct.NodeKey.html).
     fn insert_at_leaf_node(
         &self,
+        /* the root of the subtree we are inserting into */
         mut node_key: NodeKey,
+        /* the leaf node that we are inserting at */
         existing_leaf_node: LeafNode,
         version: Version,
+        /* the nibble iterator of the key hash we are inserting */
         nibble_iter: &mut NibbleIterator,
         value_hash: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
         with_proof: bool,
     ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>)> {
-        // 1. Make sure that the existing leaf nibble_path has the same prefix as the already
-        // visited part of the nibble iter of the incoming key and advances the existing leaf
-        // nibble iterator by the length of that prefix.
-        let mut visited_nibble_iter = nibble_iter.visited_nibbles();
-        let existing_leaf_nibble_path = NibblePath::new(existing_leaf_node.key_hash().0.to_vec());
-        let mut existing_leaf_nibble_iter = existing_leaf_nibble_path.nibbles();
-        skip_common_prefix(&mut visited_nibble_iter, &mut existing_leaf_nibble_iter);
+        // We are inserting a new key that shares a common prefix with the existing leaf node.
+        // This check is to make sure that the visited nibble path of the inserted key is a
+        // subpath of the existing leaf node's nibble path.
+        let mut visited_path = nibble_iter.visited_nibbles();
+        let path_to_leaf_node = NibblePath::new(existing_leaf_node.key_hash().0.to_vec());
+        let mut path_to_leaf = path_to_leaf_node.nibbles();
+        skip_common_prefix(&mut visited_path, &mut path_to_leaf);
 
-        // TODO(lightmark): Change this to corrupted error.
         assert!(
-            visited_nibble_iter.is_finished(),
-            "Leaf nodes failed to share the same visited nibbles before index {}",
-            existing_leaf_nibble_iter.visited_nibbles().num_nibbles()
+            visited_path.is_finished(),
+            "Inserting a key at the wrong leaf node (no common prefix - index={})",
+            path_to_leaf.visited_nibbles().num_nibbles()
         );
 
-        // 2. Determine the extra part of the common prefix that extends from the position where
-        // step 1 ends between this leaf node and the incoming key.
-        let mut existing_leaf_nibble_iter_below_internal =
-            existing_leaf_nibble_iter.remaining_nibbles();
-        let num_common_nibbles_below_internal =
-            skip_common_prefix(nibble_iter, &mut existing_leaf_nibble_iter_below_internal);
+        // We have established that the visited nibble path of the inserted key is a prefix of the
+        // leaf node's nibble path. Now, we can check if the unvisited nibble path of the inserted
+        // key overlaps with more the leaf node's nibble path.
+        let mut path_to_leaf_remaining = path_to_leaf.remaining_nibbles();
+        // To do this, we skip the common prefix between the remaining nibbles of the inserted key and
+        // and those of the leaf node.
+        let common_nibbles = skip_common_prefix(nibble_iter, &mut path_to_leaf_remaining);
         let mut common_nibble_path = nibble_iter.visited_nibbles().collect::<NibblePath>();
 
-        // 2.1. Both are finished. That means the incoming key already exists in the tree and we
-        // just need to update its value.
+        // If we have exhausted the nibble iterator of the inserted key, this means that the
+        // inserted key and leaf node have the same path. In this case, we just need to update the
+        // value of the leaf node.
         if nibble_iter.is_finished() {
-            assert!(existing_leaf_nibble_iter_below_internal.is_finished());
+            assert!(path_to_leaf_remaining.is_finished());
             tree_cache.delete_node(&node_key, true /* is_leaf */);
 
             let merkle_proof = if with_proof {
@@ -869,6 +874,9 @@ where
             };
         }
 
+        // If skipping the common prefix leaves us with some remaining nibbles, this means that the
+        // two nibble paths do overlap, but are not identical. In this case, we need to create an internal
+        // node to represent the common prefix, and two leaf nodes to represent each leaves.
         if let Some(value) = value_hash {
             tree_cache.delete_node(&node_key, true /* is_leaf */);
 
@@ -879,9 +887,7 @@ where
             // common prefix in step 2, a new leaf node for the incoming key, and update the
             // [`NodeKey`] of existing leaf node. We create new internal nodes in a bottom-up
             // order.
-            let existing_leaf_index = existing_leaf_nibble_iter_below_internal
-                .next()
-                .expect("Ran out of nibbles");
+            let existing_leaf_index = path_to_leaf_remaining.next().expect("Ran out of nibbles");
             let new_leaf_index = nibble_iter.next().expect("Ran out of nibbles");
             assert_ne!(existing_leaf_index, new_leaf_index);
 
@@ -911,7 +917,8 @@ where
             let mut next_internal_node = internal_node.clone();
             tree_cache.put_node(node_key.clone(), internal_node.into())?;
 
-            for _i in 0..num_common_nibbles_below_internal {
+            for _i in 0..common_nibbles {
+                // Pop a nibble from the end of path.
                 let nibble = common_nibble_path
                     .pop()
                     .expect("Common nibble_path below internal node ran out of nibble");
@@ -990,9 +997,12 @@ where
         let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
+        tracing::debug!(?key, ?version, "IN GET WITH PROOF");
+
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
+            tracing::debug!(?nibble_depth, ?next_node_key, "getting next_node_key");
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     anyhow::anyhow!(MissingRootError { version })
@@ -1000,17 +1010,27 @@ where
                     err
                 }
             })?;
+            tracing::debug!(?next_node, "Found node:");
             match next_node {
                 Node::Internal(internal_node) => {
+                    tracing::debug!("it's an internal node, querying the next child");
                     let queried_child_index = nibble_iter
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
+
+                    tracing::debug!(?queried_child_index, "next child index");
                     let (child_node_key, mut siblings_in_internal) = internal_node
                         .get_only_child_with_siblings::<H>(
                             self.reader,
                             &next_node_key,
                             queried_child_index,
                         );
+
+                    tracing::debug!(
+                        ?child_node_key,
+                        ?siblings_in_internal,
+                        "result of get only child with siblings"
+                    );
                     siblings.append(&mut siblings_in_internal);
                     next_node_key = match child_node_key {
                         Some(node_key) => node_key,
@@ -1026,10 +1046,13 @@ where
                     };
                 }
                 Node::Leaf(leaf_node) => {
+                    tracing::debug!("it's a leaf node");
                     return Ok((
                         if leaf_node.key_hash() == key {
+                            tracing::debug!("it's the leaf node we asked for");
                             Some(self.reader.get_value(version, leaf_node.key_hash())?)
                         } else {
+                            tracing::debug!("it's NOT the leaf node we asked for");
                             None
                         },
                         SparseMerkleProof::new(Some(leaf_node.into()), {
@@ -1120,7 +1143,9 @@ where
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut internal_nodes = vec![];
 
+        tracing::debug!("searching for closest node");
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
+            tracing::debug!(?nibble_depth, ?next_node_key, "getting next_node_key");
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     anyhow::anyhow!(MissingRootError { version })
@@ -1128,6 +1153,8 @@ where
                     err
                 }
             })?;
+
+            tracing::debug!(?next_node, "Found node:");
             match next_node {
                 Node::Internal(node) => {
                     internal_nodes.push(node.clone());
@@ -1184,7 +1211,10 @@ where
         search_key: KeyHash,
         version: Version,
     ) -> Result<(Option<KeyHash>, Option<KeyHash>)> {
+        tracing::debug!("constructing the bonding path: looking for closest nodes");
         let search_result = self.search_for_closest_node(version, search_key)?;
+
+        tracing::debug!(?search_result, "search result");
 
         match search_result {
             SearchResult::FoundLeaf {
@@ -1195,8 +1225,10 @@ where
             } => {
                 match ordering {
                     Ordering::Less => {
+                        tracing::debug!("search key is less than the leaf key");
                         // found the closest leaf to the left of the search key.
                         // find the other bound (the leftmost right keyhash)
+                        tracing::debug!("searching for the leftmost right keyhash");
                         let leftmost_right_keyhash = self.search_closest_extreme_node(
                             version,
                             Extreme::Right,
@@ -1204,16 +1236,21 @@ where
                             parents,
                         )?;
 
+                        tracing::debug!("found the leftmost right keyhash");
+
                         Ok((Some(leaf_hash), leftmost_right_keyhash))
                     }
                     Ordering::Greater => {
+                        tracing::debug!("search key is greater than the leaf key");
                         // found the closest leaf to the right of the search key
+                        tracing::debug!("searching for the rightmost left keyhash 1");
                         let rightmost_left_keyhash = self.search_closest_extreme_node(
                             version,
                             Extreme::Left,
                             path_to_leaf,
                             parents,
                         )?;
+                        tracing::debug!("found the rightmost left keyhash");
 
                         Ok((rightmost_left_keyhash, Some(leaf_hash)))
                     }
@@ -1226,18 +1263,23 @@ where
                 path_to_internal,
                 parents,
             } => {
+                tracing::debug!("search key is equal to the internal node key");
+                tracing::debug!("searching for the rightmost left keyhashi 2");
                 let leftmost_right_keyhash = self.search_closest_extreme_node(
                     version,
                     Extreme::Right,
                     path_to_internal.clone(),
                     parents.clone(),
                 )?;
+                tracing::debug!("found the leftmost right keyhash");
+                tracing::debug!("searching for the rightmost left keyhash 3");
                 let rightmost_left_keyhash = self.search_closest_extreme_node(
                     version,
                     Extreme::Left,
                     path_to_internal,
                     parents,
                 )?;
+                tracing::debug!("found the rightmost left keyhash");
 
                 Ok((rightmost_left_keyhash, leftmost_right_keyhash))
             }
@@ -1250,10 +1292,16 @@ where
         key: KeyHash,
         version: Version,
     ) -> Result<Result<(OwnedValue, SparseMerkleProof<H>), ExclusionProof<H>>> {
+        tracing::debug!("optimistically attempt to get_with_proof");
         // Optimistically attempt get_with_proof, if that succeeds, we're done.
         if let (Some(value), proof) = self.get_with_proof(key, version)? {
+            tracing::debug!("worked!");
             return Ok(Ok((value, proof)));
         }
+
+        tracing::debug!(
+            "optimistic lookup didn't work out, nonexistence mode: constructing bounding path"
+        );
 
         // Otherwise, we know this key doesn't exist, so construct an exclusion proof.
 
@@ -1262,10 +1310,16 @@ where
         // the search key.
         let (left_bound, right_bound) = self.get_bounding_path(key, version)?;
 
+        tracing::debug!(?left_bound, ?right_bound, "found this bounding path");
+
         match (left_bound, right_bound) {
             (Some(left_bound), Some(right_bound)) => {
+                tracing::debug!("both bounds exist, we can construct a middle exclusion proof");
+                tracing::debug!("getting proofs for the left bound");
                 let left_proof = self.get_with_proof(left_bound, version)?.1;
+                tracing::debug!("getting proofs for the right bound");
                 let right_proof = self.get_with_proof(right_bound, version)?.1;
+                tracing::debug!(?left_proof, ?right_proof, "got proofs for both bounds");
 
                 Ok(Err(ExclusionProof::Middle {
                     rightmost_left_proof: left_proof,
@@ -1273,13 +1327,23 @@ where
                 }))
             }
             (Some(left_bound), None) => {
+                tracing::debug!(
+                    "only left bound exists, we can construct a rightmost exclusion proof"
+                );
+                tracing::debug!("getting proofs for the left bound");
                 let left_proof = self.get_with_proof(left_bound, version)?.1;
+                tracing::debug!(?left_proof, "got proof for left bound");
                 Ok(Err(ExclusionProof::Rightmost {
                     rightmost_left_proof: left_proof,
                 }))
             }
             (None, Some(right_bound)) => {
+                tracing::debug!(
+                    "only right bound exists, we can construct a leftmost exclusion proof"
+                );
+                tracing::debug!("getting proofs for the right bound");
                 let right_proof = self.get_with_proof(right_bound, version)?.1;
+                tracing::debug!(?right_proof, "got proof for right bound");
                 Ok(Err(ExclusionProof::Leftmost {
                     leftmost_right_proof: right_proof,
                 }))
@@ -1295,6 +1359,12 @@ where
         nibble_depth: usize,
         extreme: Extreme,
     ) -> Result<KeyHash> {
+        tracing::debug!(
+            ?node_key,
+            ?nibble_depth,
+            ?extreme,
+            "getting extreme key hash"
+        );
         // Depending on the extreme specified, get either the least nibble or the most nibble
         let min_or_max = |internal_node: &InternalNode| {
             match extreme {
@@ -1304,11 +1374,15 @@ where
             .map(|(nibble, _)| nibble)
         };
 
+        tracing::debug!("iterating through the tree");
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
+            tracing::debug!(?nibble_depth, ?node_key, "iterating");
             let node = self.reader.get_node(&node_key).map_err(|err| {
                 if nibble_depth == 0 {
+                    tracing::debug!("missing root error");
                     anyhow::anyhow!(MissingRootError { version })
                 } else {
+                    tracing::debug!(?err, "other error");
                     err
                 }
             })?;
@@ -1434,7 +1508,7 @@ pub enum ExclusionProof<H: SimpleHasher> {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum Extreme {
     Left,
     Right,
@@ -1449,6 +1523,7 @@ impl Extreme {
     }
 }
 
+#[derive(Debug)]
 enum SearchResult {
     FoundLeaf {
         ordering: Ordering,

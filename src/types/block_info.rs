@@ -4,7 +4,7 @@
 use crate::types::{epoch_state::EpochState, on_chain_config::ValidatorSet, transaction::Version};
 use core::fmt::{Display, Formatter};
 use diem_crypto::hash::{HashValue, ACCUMULATOR_PLACEHOLDER_HASH};
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ pub const GENESIS_TIMESTAMP_USECS: u64 = 0;
 /// without having access to the block or its execution output state. It
 /// assumes that the block is the last block executed within the ledger.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct BlockInfo {
     /// Epoch number corresponds to the set of validators that are active for this block.
     epoch: u64,
@@ -73,7 +73,7 @@ impl BlockInfo {
         }
     }
 
-    #[cfg(any(test, feature = "fuzzing"))]
+    #[cfg(any(test))]
     pub fn random(round: Round) -> Self {
         Self {
             epoch: 1,
@@ -113,7 +113,7 @@ impl BlockInfo {
 
     /// Create a mock genesis `BlockInfo` with an empty state tree and empty
     /// validator set.
-    #[cfg(any(test, feature = "fuzzing"))]
+    #[cfg(any(test))]
     pub fn mock_genesis(validator_set: Option<ValidatorSet>) -> Self {
         let validator_set = validator_set.unwrap_or_else(ValidatorSet::empty);
         Self::genesis(*ACCUMULATOR_PLACEHOLDER_HASH, validator_set)

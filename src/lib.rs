@@ -118,7 +118,7 @@ pub mod storage {
     use super::*;
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 mod tests;
 
 /// An error that occurs when the state root for a requested version is missing (e.g., because it was pruned).
@@ -150,12 +150,12 @@ const SPARSE_MERKLE_PLACEHOLDER_HASH: [u8; 32] = *b"SPARSE_MERKLE_PLACEHOLDER_HA
 /// An owned value stored in the [`JellyfishMerkleTree`].
 pub type OwnedValue = alloc::vec::Vec<u8>;
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest_derive::Arbitrary;
 
 /// A root of a [`JellyfishMerkleTree`].
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct RootHash(pub [u8; 32]);
 
 /// A hashed key used to index a [`JellyfishMerkleTree`].
@@ -179,7 +179,7 @@ pub struct RootHash(pub [u8; 32]);
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct KeyHash(pub [u8; 32]);
 
 #[derive(
@@ -195,7 +195,7 @@ pub struct KeyHash(pub [u8; 32]);
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 // This needs to be public for the fuzzing/Arbitrary feature, but we don't
 // really want it to be, so #[doc(hidden)] is the next best thing.
 #[doc(hidden)]

@@ -9,7 +9,7 @@ use core::{fmt, iter::FromIterator};
 
 use alloc::vec::Vec;
 use mirai_annotations::*;
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest::{collection::vec, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -59,7 +59,7 @@ impl FromIterator<Nibble> for NibblePath {
     }
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 impl Arbitrary for NibblePath {
     type Parameters = ();
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
@@ -68,7 +68,7 @@ impl Arbitrary for NibblePath {
     type Strategy = BoxedStrategy<Self>;
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 prop_compose! {
     fn arb_nibble_path()(
         mut bytes in vec(any::<u8>(), 0..=ROOT_NIBBLE_HEIGHT/2),
@@ -84,7 +84,7 @@ prop_compose! {
     }
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 prop_compose! {
     pub(crate) fn arb_internal_nibble_path()(
         nibble_path in arb_nibble_path().prop_filter(

@@ -3,7 +3,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use anyhow::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest_derive::Arbitrary;
 
 use crate::{
@@ -101,7 +101,7 @@ pub struct NodeStats {
 
 /// Indicates a node becomes stale since `stale_since_version`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, BorshDeserialize, BorshSerialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct StaleNodeIndex {
     /// The version since when the node is overwritten and becomes stale.
     pub stale_since_version: Version,
