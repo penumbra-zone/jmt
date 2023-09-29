@@ -462,10 +462,11 @@ mod tests {
     /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple() {
+        use crate::Sha256Jmt;
         let db = MockTreeStore::default();
         let tree = Sha256Jmt::new(&db);
 
-        const MAX_VERSION: u64 = 3;
+        const MAX_VERSION: u64 = 4;
 
         for version in 0..=MAX_VERSION {
             let key_str = format!("key-{}", version);
