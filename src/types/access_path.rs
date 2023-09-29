@@ -38,13 +38,13 @@
 use crate::types::account_address::AccountAddress;
 use diem_crypto::hash::HashValue;
 use move_core_types::language_storage::{ModuleId, ResourceKey, StructTag, CODE_TAG, RESOURCE_TAG};
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt};
 
 #[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct AccessPath {
     pub address: AccountAddress,
     #[serde(with = "serde_bytes")]

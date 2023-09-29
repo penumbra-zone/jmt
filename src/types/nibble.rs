@@ -9,7 +9,7 @@ pub mod nibble_path;
 
 use core::fmt;
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -90,7 +90,7 @@ impl<'a> core::iter::Iterator for NibbleRangeIterator<'a> {
     }
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 impl Arbitrary for Nibble {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;

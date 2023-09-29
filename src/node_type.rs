@@ -17,9 +17,9 @@ use alloc::{boxed::Box, vec};
 use anyhow::{ensure, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_derive::{FromPrimitive, ToPrimitive};
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest::prelude::*;
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +47,7 @@ use crate::{
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct NodeKey {
     // The version at which the node is created.
     version: Version,
@@ -122,7 +122,7 @@ pub enum NodeType {
     },
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 impl Arbitrary for NodeType {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -148,7 +148,7 @@ impl Arbitrary for NodeType {
     Serialize,
     Deserialize,
 )]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(Arbitrary))]
+#[cfg_attr(any(test), derive(Arbitrary))]
 pub struct Child {
     /// The hash value of this child node.
     pub hash: [u8; 32],
@@ -203,7 +203,7 @@ pub struct Children {
     num_children: usize,
 }
 
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 impl Arbitrary for Children {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -378,7 +378,7 @@ impl SparseMerkleInternalNode {
 /// height
 /// Note: @ denotes placeholder hash.
 /// ```
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(any(test))]
 impl Arbitrary for InternalNode {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -931,7 +931,7 @@ impl Node {
     }
 
     /// Creates the [`Internal`](Node::Internal) variant.
-    #[cfg(any(test, feature = "fuzzing"))]
+    #[cfg(any(test))]
     pub(crate) fn new_internal(children: Children) -> Self {
         Node::Internal(InternalNode::new(children))
     }
@@ -942,7 +942,7 @@ impl Node {
     }
 
     /// Creates the [`Leaf`](Node::Leaf) variant by hashing a raw value.
-    #[cfg(any(test, feature = "fuzzing"))]
+    #[cfg(any(test))]
     pub(crate) fn leaf_from_value<H: SimpleHasher>(
         key_hash: KeyHash,
         value: impl AsRef<[u8]>,
