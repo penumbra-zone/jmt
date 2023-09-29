@@ -32,7 +32,7 @@ jobs:
       - name: cargo test
         run: >-
           cargo test --no-default-features
-          || find -type f -iname '*.proptest-regressions' -exec cat {} +
+          && find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   test-default-features:
     name: Test Suite with Default Features
@@ -48,7 +48,7 @@ jobs:
       - name: cargo test
         run: >-
           cargo test
-          || find -type f -iname '*.proptest-regressions' -exec cat {} +
+          && find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   test-all-features:
     name: Test Suite with All Features
@@ -64,7 +64,7 @@ jobs:
       - name: cargo test
         run: >-
           cargo test --all-features
-          || find -type f -iname '*.proptest-regressions' -exec cat {} +
+          && find -type f -iname '*.proptest-regressions' -exec cat {} +
 
   fmt:
     name: Rustfmt
