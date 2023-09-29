@@ -4,7 +4,7 @@
 //! Merkle proof types.
 
 pub(crate) mod definition;
-#[cfg(any(test))]
+#[cfg(all(test, feature = "std"))]
 pub(crate) mod proptest_proof;
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     SimpleHasher,
 };
 
-#[cfg(any(test))]
+#[cfg(all(test, feature = "std"))]
 use proptest_derive::Arbitrary;
 
 pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 pub const LEAF_DOMAIN_SEPARATOR: &[u8] = b"JMT::LeafNode";
 pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
 
-#[cfg_attr(test, derive(Arbitrary))]
+#[cfg_attr(all(test, feature = "std"), derive(Arbitrary))]
 #[derive(
     Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
 )]
@@ -57,7 +57,7 @@ impl SparseMerkleNode {
 #[derive(
     Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
 )]
-#[cfg_attr(any(test), derive(Arbitrary))]
+#[cfg_attr(all(test, feature = "std"), derive(Arbitrary))]
 pub(crate) struct SparseMerkleInternalNode {
     left_child: [u8; 32],
     right_child: [u8; 32],
