@@ -195,6 +195,7 @@ where
         version: Version,
     ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof)> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
+        tracing::debug!("calling get_with_exclusion_proof");
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
         match proof_or_exclusion {
