@@ -457,4 +457,36 @@ mod tests {
 
         assert_eq!(value_retrieved.unwrap(), value_maxversion);
     }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`
+    fn test_jmt_ics23_nonexistence_simple() {
+        let db = MockTreeStore::default();
+        let tree = Sha256Jmt::new(&db);
+
+        const MAX_VERSION: u64 = 3;
+
+        for version in 0..=MAX_VERSION {
+            let key_str = format!("key-{}", version);
+            let key = key_str.clone().into_bytes();
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
+                .collect::<Vec<_>>();
+
+            db.put_key_preimage(&key);
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+        let (_value_retrieved, _commitment_proof) = tree
+            .get_with_ics23_proof(format!("does_not_exist").into_bytes(), MAX_VERSION)
+            .unwrap();
+    }
 }
