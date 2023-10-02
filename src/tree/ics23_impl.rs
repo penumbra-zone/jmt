@@ -463,10 +463,6 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple() {
         use crate::Sha256Jmt;
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
-            .init();
-
         let db = MockTreeStore::<Sha256>::default();
         let tree = Sha256Jmt::new(&db);
 
@@ -500,10 +496,6 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple_large() {
         use crate::Sha256Jmt;
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
-            .init();
-
         let db = MockTreeStore::<Sha256>::default();
         let tree = Sha256Jmt::new(&db);
 
@@ -540,10 +532,6 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`. This test uses
     /// the `TransparentJmt` type, which uses a mock hash function that does not hash.
     fn test_jmt_ics23_nonexistence_simple_transparent() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
-            .init();
-
         let db = MockTreeStore::<TransparentHasher>::default();
         let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&db);
 
