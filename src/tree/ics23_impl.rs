@@ -539,15 +539,15 @@ mod tests {
         const MAX_VERSION: u64 = 4;
 
         let mock_keys_str = vec![
-            pad_hex_to_32_bytes("a0"),
-            pad_hex_to_32_bytes("b1"),
-            pad_hex_to_32_bytes("c2"),
-            pad_hex_to_32_bytes("d3"),
-            pad_hex_to_32_bytes("e4"),
+            prefix_pad("a0"),
+            prefix_pad("b1"),
+            prefix_pad("c2"),
+            prefix_pad("d3"),
+            prefix_pad("e4"),
         ];
 
         for version in 0..=MAX_VERSION {
-            let (_key_str, key) = mock_keys_str[version as usize].clone();
+            let key = mock_keys_str[version as usize].clone();
             let key_hash = KeyHash::with::<TransparentHasher>(&key);
             let value_str = format!("value-{}", version);
             let value = value_str.clone().into_bytes();
@@ -564,13 +564,16 @@ mod tests {
                 .expect("can insert node batch");
         }
 
-        let (_, nonexisting_key) = pad_hex_to_32_bytes("c3");
+        let nonexisting_key = prefix_pad("c3");
         let (_value_retrieved, _commitment_proof) = tree
             .get_with_ics23_proof(nonexisting_key.to_vec(), MAX_VERSION)
             .unwrap();
     }
 
-    fn pad_hex_to_32_bytes(hex_str: &str) -> (String, [u8; 32]) {
+    /// Takes an hexadecimal prefix string (e.g "deadbeef") and returns a padded byte string
+    /// that encodes to the padded hexadecimal string (e.g. "deadbeef0....0")
+    /// This is useful to create keys with specific hexadecimal representations.
+    fn prefix_pad(hex_str: &str) -> [u8; 32] {
         if hex_str.len() > 64 {
             panic!("hexadecimal string is longer than 32 bytes when decoded");
         }
@@ -585,6 +588,6 @@ mod tests {
         let mut padded_bytes = [0u8; 32];
         padded_bytes[..bytes.len()].copy_from_slice(&bytes);
 
-        (hex_str.to_string(), padded_bytes)
+        padded_bytes
     }
 }
