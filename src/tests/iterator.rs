@@ -97,7 +97,11 @@ fn test_n_consecutive_addresses(n: usize) {
     run_tests(db, &btree, 0 /* version */);
 }
 
-fn run_tests(db: Arc<MockTreeStore<Sha256>>, btree: &BTreeMap<KeyHash, OwnedValue>, version: Version) {
+fn run_tests(
+    db: Arc<MockTreeStore<Sha256>>,
+    btree: &BTreeMap<KeyHash, OwnedValue>,
+    version: Version,
+) {
     {
         let iter =
             JellyfishMerkleIterator::new(Arc::clone(&db), version, KeyHash([0u8; 32])).unwrap();

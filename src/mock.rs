@@ -8,7 +8,6 @@ use parking_lot::RwLock;
 
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, Result};
-use sha2::Sha256;
 
 use core::marker::PhantomData;
 #[cfg(not(feature = "std"))]
@@ -36,6 +35,9 @@ struct MockTreeStoreInner {
 /// The tree store is internally represented with a `HashMap`.  This structure
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
+///
+/// We make the mock tree generic over the hasher type, so that we can test
+/// different configurations of the tree, e.g. Sha256 vs Blake2b vs Transparent.
 pub struct MockTreeStore<H: SimpleHasher> {
     data: RwLock<MockTreeStoreInner>,
     allow_overwrite: bool,
