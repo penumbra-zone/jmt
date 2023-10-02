@@ -994,12 +994,9 @@ where
         let nibble_path = NibblePath::new(key.0.to_vec());
         let mut nibble_iter = nibble_path.nibbles();
 
-        tracing::debug!(?key, ?version, "IN GET WITH PROOF");
-
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            tracing::debug!(?nibble_depth, ?next_node_key, "getting next_node_key");
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     anyhow::anyhow!(MissingRootError { version })
@@ -1007,15 +1004,12 @@ where
                     err
                 }
             })?;
-            tracing::debug!(?next_node, "Found node:");
             match next_node {
                 Node::Internal(internal_node) => {
-                    tracing::debug!("it's an internal node, querying the next child");
                     let queried_child_index = nibble_iter
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
-                    tracing::debug!(?queried_child_index, "next child index");
                     let (child_node_key, mut siblings_in_internal) = internal_node
                         .get_only_child_with_siblings::<H>(
                             self.reader,
@@ -1023,11 +1017,6 @@ where
                             queried_child_index,
                         );
 
-                    tracing::debug!(
-                        ?child_node_key,
-                        ?siblings_in_internal,
-                        "result of get only child with siblings"
-                    );
                     siblings.append(&mut siblings_in_internal);
                     next_node_key = match child_node_key {
                         Some(node_key) => node_key,
@@ -1043,13 +1032,10 @@ where
                     };
                 }
                 Node::Leaf(leaf_node) => {
-                    tracing::debug!("it's a leaf node");
                     return Ok((
                         if leaf_node.key_hash() == key {
-                            tracing::debug!("it's the leaf node we asked for");
                             Some(self.reader.get_value(version, leaf_node.key_hash())?)
                         } else {
-                            tracing::debug!("it's NOT the leaf node we asked for");
                             None
                         },
                         SparseMerkleProof::new(Some(leaf_node.into()), {
@@ -1158,9 +1144,7 @@ where
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut internal_nodes = vec![];
 
-        tracing::debug!("searching for closest node");
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            tracing::debug!(?nibble_depth, ?next_node_key, "getting next_node_key");
             let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
                 if nibble_depth == 0 {
                     anyhow::anyhow!(MissingRootError { version })
@@ -1169,20 +1153,15 @@ where
                 }
             })?;
 
-            tracing::debug!(?next_node, "Found node:");
             match next_node {
                 Node::Internal(node) => {
-                    tracing::debug!("the node is internal");
                     internal_nodes.push(node.clone());
                     let queried_child_index = search_nibbles
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
-                    tracing::debug!(?queried_child_index, "get only child without siblings");
-
                     let child_node_key =
                         node.get_only_child_without_siblings(&next_node_key, queried_child_index);
-                    tracing::debug!(?child_node_key, "result of get only child without siblings");
 
                     match child_node_key {
                         Some(node_key) => {
@@ -1230,10 +1209,7 @@ where
         search_key: KeyHash,
         version: Version,
     ) -> Result<(Option<KeyHash>, Option<KeyHash>)> {
-        tracing::debug!("constructing the bonding path: looking for closest nodes");
         let search_result = self.search_for_closest_node(version, search_key)?;
-
-        tracing::debug!(?search_result, "search result");
 
         match search_result {
             SearchResult::FoundLeaf {
@@ -1244,10 +1220,8 @@ where
             } => {
                 match ordering {
                     Ordering::Less => {
-                        tracing::debug!("search key is less than the leaf key");
                         // found the closest leaf to the left of the search key.
                         // find the other bound (the leftmost right keyhash)
-                        tracing::debug!("searching for the leftmost right keyhash");
                         let leftmost_right_keyhash = self.search_closest_extreme_node(
                             version,
                             Extreme::Right,
@@ -1255,21 +1229,16 @@ where
                             parents,
                         )?;
 
-                        tracing::debug!("found the leftmost right keyhash");
-
                         Ok((Some(leaf_hash), leftmost_right_keyhash))
                     }
                     Ordering::Greater => {
-                        tracing::debug!("search key is greater than the leaf key");
                         // found the closest leaf to the right of the search key
-                        tracing::debug!("searching for the rightmost left keyhash 1");
                         let rightmost_left_keyhash = self.search_closest_extreme_node(
                             version,
                             Extreme::Left,
                             path_to_leaf,
                             parents,
                         )?;
-                        tracing::debug!("found the rightmost left keyhash");
 
                         Ok((rightmost_left_keyhash, Some(leaf_hash)))
                     }
@@ -1282,23 +1251,18 @@ where
                 path_to_internal,
                 parents,
             } => {
-                tracing::debug!("search key is equal to the internal node key");
-                tracing::debug!("searching for the rightmost left keyhashi 2");
                 let leftmost_right_keyhash = self.search_closest_extreme_node(
                     version,
                     Extreme::Right,
                     path_to_internal.clone(),
                     parents.clone(),
                 )?;
-                tracing::debug!("found the leftmost right keyhash");
-                tracing::debug!("searching for the rightmost left keyhash 3");
                 let rightmost_left_keyhash = self.search_closest_extreme_node(
                     version,
                     Extreme::Left,
                     path_to_internal,
                     parents,
                 )?;
-                tracing::debug!("found the rightmost left keyhash");
 
                 Ok((rightmost_left_keyhash, leftmost_right_keyhash))
             }
@@ -1311,16 +1275,10 @@ where
         key_hash: KeyHash,
         version: Version,
     ) -> Result<Result<(OwnedValue, SparseMerkleProof<H>), ExclusionProof<H>>> {
-        tracing::debug!("optimistically attempt to get_with_proof");
         // Optimistically attempt get_with_proof, if that succeeds, we're done.
         if let (Some(value), proof) = self.get_with_proof(key_hash, version)? {
-            tracing::debug!("worked!");
             return Ok(Ok((value, proof)));
         }
-
-        tracing::debug!(
-            "optimistic lookup didn't work out, nonexistence mode: constructing bounding path"
-        );
 
         // Otherwise, we know this key doesn't exist, so construct an exclusion proof.
 
@@ -1329,16 +1287,10 @@ where
         // the search key.
         let (left_bound, right_bound) = self.get_bounding_path(key_hash, version)?;
 
-        tracing::debug!(?left_bound, ?right_bound, "found this bounding path");
-
         match (left_bound, right_bound) {
             (Some(left_bound), Some(right_bound)) => {
-                tracing::debug!("both bounds exist, we can construct a middle exclusion proof");
-                tracing::debug!("getting proofs for the left bound");
                 let left_proof = self.get_with_proof(left_bound, version)?.1;
-                tracing::debug!("getting proofs for the right bound");
                 let right_proof = self.get_with_proof(right_bound, version)?.1;
-                tracing::debug!(?left_proof, ?right_proof, "got proofs for both bounds");
 
                 Ok(Err(ExclusionProof::Middle {
                     rightmost_left_proof: left_proof,
@@ -1346,23 +1298,13 @@ where
                 }))
             }
             (Some(left_bound), None) => {
-                tracing::debug!(
-                    "only left bound exists, we can construct a rightmost exclusion proof"
-                );
-                tracing::debug!("getting proofs for the left bound");
                 let left_proof = self.get_with_proof(left_bound, version)?.1;
-                tracing::debug!(?left_proof, "got proof for left bound");
                 Ok(Err(ExclusionProof::Rightmost {
                     rightmost_left_proof: left_proof,
                 }))
             }
             (None, Some(right_bound)) => {
-                tracing::debug!(
-                    "only right bound exists, we can construct a leftmost exclusion proof"
-                );
-                tracing::debug!("getting proofs for the right bound");
                 let right_proof = self.get_with_proof(right_bound, version)?.1;
-                tracing::debug!(?right_proof, "got proof for right bound");
                 Ok(Err(ExclusionProof::Leftmost {
                     leftmost_right_proof: right_proof,
                 }))
@@ -1378,12 +1320,6 @@ where
         nibble_depth: usize,
         extreme: Extreme,
     ) -> Result<KeyHash> {
-        tracing::debug!(
-            ?node_key,
-            ?nibble_depth,
-            ?extreme,
-            "getting extreme key hash"
-        );
         // Depending on the extreme specified, get either the least nibble or the most nibble
         let min_or_max = |internal_node: &InternalNode| {
             match extreme {
@@ -1393,15 +1329,11 @@ where
             .map(|(nibble, _)| nibble)
         };
 
-        tracing::debug!("iterating through the tree");
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
-            tracing::debug!(?nibble_depth, ?node_key, "iterating");
             let node = self.reader.get_node(&node_key).map_err(|err| {
                 if nibble_depth == 0 {
-                    tracing::debug!("missing root error");
                     anyhow::anyhow!(MissingRootError { version })
                 } else {
-                    tracing::debug!(?err, "other error");
                     err
                 }
             })?;
