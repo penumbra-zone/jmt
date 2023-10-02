@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use anyhow::{bail, ensure, Result};
 use sha2::Sha256;
 
+use core::marker::PhantomData;
 #[cfg(not(feature = "std"))]
 use hashbrown::{hash_map::Entry, HashMap};
 #[cfg(feature = "std")]
@@ -19,7 +20,7 @@ use crate::{
     node_type::{LeafNode, Node, NodeKey},
     storage::{HasPreimage, NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
-    KeyHash, OwnedValue,
+    KeyHash, OwnedValue, SimpleHasher,
 };
 
 #[derive(Default, Debug)]
@@ -35,21 +36,23 @@ struct MockTreeStoreInner {
 /// The tree store is internally represented with a `HashMap`.  This structure
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
-pub struct MockTreeStore {
+pub struct MockTreeStore<H: SimpleHasher> {
     data: RwLock<MockTreeStoreInner>,
     allow_overwrite: bool,
+    _phantom: PhantomData<H>,
 }
 
-impl Default for MockTreeStore {
+impl<H: SimpleHasher> Default for MockTreeStore<H> {
     fn default() -> Self {
         Self {
             data: RwLock::new(Default::default()),
             allow_overwrite: false,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl TreeReader for MockTreeStore {
+impl<H: SimpleHasher> TreeReader for MockTreeStore<H> {
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
         Ok(self.data.read().nodes.get(node_key).cloned())
     }
@@ -90,13 +93,13 @@ impl TreeReader for MockTreeStore {
     }
 }
 
-impl HasPreimage for MockTreeStore {
+impl<H: SimpleHasher> HasPreimage for MockTreeStore<H> {
     fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>> {
         Ok(self.data.read().preimages.get(&key_hash).cloned())
     }
 }
 
-impl TreeWriter for MockTreeStore {
+impl<H: SimpleHasher> TreeWriter for MockTreeStore<H> {
     fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()> {
         let mut locked = self.data.write();
         for (node_key, node) in node_batch.nodes() {
@@ -146,7 +149,7 @@ pub fn put_value(
     Ok(())
 }
 
-impl MockTreeStore {
+impl<H: SimpleHasher> MockTreeStore<H> {
     pub fn new(allow_overwrite: bool) -> Self {
         Self {
             allow_overwrite,
@@ -168,7 +171,7 @@ impl MockTreeStore {
     }
 
     pub fn put_key_preimage(&self, preimage: &Vec<u8>) {
-        let key_hash: KeyHash = KeyHash::with::<Sha256>(preimage);
+        let key_hash: KeyHash = KeyHash::with::<H>(preimage);
         self.data
             .write()
             .preimages

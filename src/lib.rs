@@ -339,3 +339,22 @@ where
         self.finalize().into()
     }
 }
+
+pub struct TransparentHasher {
+    key: [u8; 32],
+}
+
+impl SimpleHasher for TransparentHasher {
+    fn new() -> Self {
+        TransparentHasher { key: [0u8; 32] }
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        for (dest, &src) in self.key.iter_mut().zip(data.iter()) {
+            *dest = src;
+        }
+    }
+    fn finalize(self) -> [u8; 32] {
+        self.key
+    }
+}

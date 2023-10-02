@@ -14,7 +14,7 @@ use crate::{
     JellyfishMerkleTree, KeyHash, OwnedValue, RootHash, SimpleHasher, Version,
 };
 
-fn test_restore_with_interruption<H: SimpleHasher>(
+fn test_restore_with_interruption<H: SimpleHasher + 'static>(
     entries: BTreeMap<KeyHash, OwnedValue>,
     first_batch_size: usize,
 ) {
@@ -157,7 +157,7 @@ proptest! {
 }
 
 fn assert_success<H: SimpleHasher>(
-    db: &MockTreeStore,
+    db: &MockTreeStore<H>,
     expected_root_hash: RootHash,
     btree: &BTreeMap<KeyHash, OwnedValue>,
     version: Version,
@@ -171,10 +171,10 @@ fn assert_success<H: SimpleHasher>(
     assert_eq!(actual_root_hash, expected_root_hash);
 }
 
-fn restore_without_interruption<H: SimpleHasher>(
+fn restore_without_interruption<H: SimpleHasher + 'static>(
     btree: &BTreeMap<KeyHash, OwnedValue>,
     target_version: Version,
-    target_db: &Arc<MockTreeStore>,
+    target_db: &Arc<MockTreeStore<H>>,
     try_resume: bool,
 ) {
     let (db, source_version) = init_mock_db::<H>(&btree.clone().into_iter().collect());

@@ -259,7 +259,7 @@ mod tests {
     use sha2::Sha256;
 
     use super::*;
-    use crate::{mock::MockTreeStore, KeyHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
+    use crate::{mock::MockTreeStore, KeyHash, TransparentHasher, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
     #[test]
     #[should_panic]
@@ -275,7 +275,7 @@ mod tests {
     }
 
     fn test_jmt_ics23_nonexistence_with_keys(keys: impl Iterator<Item = Vec<u8>>) {
-        let db = MockTreeStore::default();
+        let db = MockTreeStore::<Sha256>::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         let mut kvs = Vec::new();
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_jmt_ics23_existence() {
-        let db = MockTreeStore::default();
+        let db = MockTreeStore::<Sha256>::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         let key = b"key";
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_jmt_ics23_existence_random_keys() {
-        let db = MockTreeStore::default();
+        let db = MockTreeStore::<Sha256>::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         const MAX_VERSION: u64 = 1 << 14;
@@ -463,10 +463,14 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple() {
         use crate::Sha256Jmt;
-        let db = MockTreeStore::default();
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
+            .init();
+
+        let db = MockTreeStore::<Sha256>::default();
         let tree = Sha256Jmt::new(&db);
 
-        const MAX_VERSION: u64 = 4;
+        const MAX_VERSION: u64 = 3;
 
         for version in 0..=MAX_VERSION {
             let key_str = format!("key-{}", version);
@@ -489,5 +493,109 @@ mod tests {
         let (_value_retrieved, _commitment_proof) = tree
             .get_with_ics23_proof(format!("does_not_exist").into_bytes(), MAX_VERSION)
             .unwrap();
+    }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`
+    fn test_jmt_ics23_nonexistence_simple_large() {
+        use crate::Sha256Jmt;
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
+            .init();
+
+        let db = MockTreeStore::<Sha256>::default();
+        let tree = Sha256Jmt::new(&db);
+
+        const MAX_VERSION: u64 = 100;
+
+        for version in 0..=MAX_VERSION {
+            let key_str = format!("key-{}", version);
+            let key = key_str.clone().into_bytes();
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
+                .collect::<Vec<_>>();
+
+            db.put_key_preimage(&key);
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+
+        for version in 0..=MAX_VERSION {
+            let (_value_retrieved, _commitment_proof) = tree
+                .get_with_ics23_proof(format!("does_not_exist").into_bytes(), version)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`. This test uses
+    /// the `TransparentJmt` type, which uses a mock hash function that does not hash.
+    fn test_jmt_ics23_nonexistence_simple_transparent() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG) // Set the max level to DEBUG or TRACE
+            .init();
+
+        let db = MockTreeStore::<TransparentHasher>::default();
+        let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&db);
+
+        const MAX_VERSION: u64 = 4;
+
+        let mock_keys_str = vec![
+            pad_hex_to_32_bytes("a0"),
+            pad_hex_to_32_bytes("b1"),
+            pad_hex_to_32_bytes("c2"),
+            pad_hex_to_32_bytes("d3"),
+            pad_hex_to_32_bytes("e4"),
+        ];
+
+        for version in 0..=MAX_VERSION {
+            let (_key_str, key) = mock_keys_str[version as usize].clone();
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<TransparentHasher>(&k), Some(v)))
+                .collect::<Vec<_>>();
+
+            db.put_key_preimage(&key.to_vec());
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+
+        let (_, nonexisting_key) = pad_hex_to_32_bytes("c3");
+        let (_value_retrieved, _commitment_proof) = tree
+            .get_with_ics23_proof(nonexisting_key.to_vec(), MAX_VERSION)
+            .unwrap();
+    }
+
+    fn pad_hex_to_32_bytes(hex_str: &str) -> (String, [u8; 32]) {
+        if hex_str.len() > 64 {
+            panic!("hexadecimal string is longer than 32 bytes when decoded");
+        }
+
+        let mut bytes = Vec::with_capacity(hex_str.len() / 2);
+        for i in (0..hex_str.len()).step_by(2) {
+            let byte_str = &hex_str[i..i + 2];
+            let byte = u8::from_str_radix(byte_str, 16).expect("Invalid hex character");
+            bytes.push(byte);
+        }
+
+        let mut padded_bytes = [0u8; 32];
+        padded_bytes[..bytes.len()].copy_from_slice(&bytes);
+
+        (hex_str.to_string(), padded_bytes)
     }
 }

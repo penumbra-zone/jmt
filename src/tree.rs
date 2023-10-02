@@ -1084,26 +1084,43 @@ where
             node: &InternalNode,
             child_index: Nibble,
             extreme: Extreme,
-        ) -> Option<Nibble> {
+        ) -> Option<(Nibble, Version)> {
             match extreme {
                 // Rightmost left neighbor
                 Extreme::Left => node
                     .children_unsorted()
                     .filter(|(nibble, _)| nibble < &child_index)
                     .max_by_key(|(nibble, _)| *nibble)
-                    .map(|p| p.0),
+                    .map(|p| (p.0, p.1.version)),
                 // Leftmost right neighbor
                 Extreme::Right => node
                     .children_unsorted()
                     .filter(|(nibble, _)| nibble > &child_index)
                     .min_by_key(|(nibble, _)| *nibble)
-                    .map(|p| p.0),
+                    .map(|p| (p.0, p.1.version)),
             }
         }
+        // todo: try this refactor later
+        //   let mut parents = parents.clone();
+        //   let mut to = to.clone();
+        //   // Traverse up the tree until a neighbor in the desired direction is found.
+        //   while let (Some(index), Some(parent)) = (to.pop(), parents.pop()) {
+        //       if let Some(neighbor) = neighbor_nibble(&parent, index, extreme) {
+        //           to.push(neighbor);
+        //           return Ok(Some(self.get_extreme_key_hash(
+        //               version,
+        //               NodeKey::new(version, to.clone()),
+        //               to.num_nibbles(),
+        //               extreme.opposite(),
+        //           )?));
+        //       }
+        //   }
 
         let mut parents = parents;
         let mut neighbor: Option<Nibble> = None;
         let mut path = to;
+
+        let mut found_version = Version::default();
 
         while neighbor.is_none() {
             let index = path.pop();
@@ -1111,11 +1128,12 @@ where
             if next_parent.is_none() {
                 return Ok(None);
             }
-            neighbor = neighbor_nibble(&next_parent.unwrap(), index.unwrap(), extreme);
-
-            if neighbor.is_none() {
+            if let Some((n, v)) = neighbor_nibble(&next_parent.unwrap(), index.unwrap(), extreme) {
+                neighbor = Some(n);
+                found_version = v;
+            } else {
                 continue;
-            }
+            };
         }
         path.push(neighbor.unwrap());
 
@@ -1123,7 +1141,7 @@ where
         // the parent of the leaf for `key`
         Ok(Some(self.get_extreme_key_hash(
             version,
-            NodeKey::new(version, path.clone()),
+            NodeKey::new(found_version, path.clone()),
             path.num_nibbles(),
             extreme.opposite(),
         )?))
@@ -1154,13 +1172,17 @@ where
             tracing::debug!(?next_node, "Found node:");
             match next_node {
                 Node::Internal(node) => {
+                    tracing::debug!("the node is internal");
                     internal_nodes.push(node.clone());
                     let queried_child_index = search_nibbles
                         .next()
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
+                    tracing::debug!(?queried_child_index, "get only child without siblings");
+
                     let child_node_key =
                         node.get_only_child_without_siblings(&next_node_key, queried_child_index);
+                    tracing::debug!(?child_node_key, "result of get only child without siblings");
 
                     match child_node_key {
                         Some(node_key) => {
@@ -1286,12 +1308,12 @@ where
     /// Returns the value (if applicable) and the corresponding merkle proof.
     pub fn get_with_exclusion_proof(
         &self,
-        key: KeyHash,
+        key_hash: KeyHash,
         version: Version,
     ) -> Result<Result<(OwnedValue, SparseMerkleProof<H>), ExclusionProof<H>>> {
         tracing::debug!("optimistically attempt to get_with_proof");
         // Optimistically attempt get_with_proof, if that succeeds, we're done.
-        if let (Some(value), proof) = self.get_with_proof(key, version)? {
+        if let (Some(value), proof) = self.get_with_proof(key_hash, version)? {
             tracing::debug!("worked!");
             return Ok(Ok((value, proof)));
         }
@@ -1305,7 +1327,7 @@ where
         // first, find out what are its bounding path, i.e. the greatest key that is strictly less
         // than the non-present search key and/or the smallest key that is strictly greater than
         // the search key.
-        let (left_bound, right_bound) = self.get_bounding_path(key, version)?;
+        let (left_bound, right_bound) = self.get_bounding_path(key_hash, version)?;
 
         tracing::debug!(?left_bound, ?right_bound, "found this bounding path");
 
@@ -1490,7 +1512,7 @@ enum PutResult<T> {
     NotChanged,
 }
 
-/// A proof of non-existence by exclusion between two adjacent neighbors._
+/// A proof of non-existence by exclusion between two adjacent neighbors.
 #[derive(Debug)]
 pub enum ExclusionProof<H: SimpleHasher> {
     Leftmost {

@@ -633,10 +633,18 @@ impl InternalNode {
         node_key: &NodeKey,
         n: Nibble,
     ) -> Option<NodeKey> {
+        tracing::debug!("get_only_child_without_siblings: n={:x}", n);
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
+
+        tracing::debug!(
+            "get_only_child_without_siblings: existence_bitmap={:b}, leaf_bitmap={:b}",
+            existence_bitmap,
+            leaf_bitmap
+        );
 
         // Nibble height from 3 to 0.
         for h in (0..4).rev() {
+            tracing::debug!("get_only_child_without_siblings: h={}", h);
             // Get the number of children of the internal node that each subtree at this height
             // covers.
             let width = 1 << h;
