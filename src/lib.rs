@@ -340,6 +340,9 @@ where
     }
 }
 
+/// A trivial implementation of [`SimpleHasher`] that simply returns the first 32 bytes of the
+/// provided data. This is useful to avoid hashing data when testing, and facilitate debugging
+/// specific tree configurations.
 pub struct TransparentHasher {
     key: [u8; 32],
 }

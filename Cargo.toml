@@ -47,4 +47,3 @@ serde_json = { version  = "1.0.95" }
 proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.3.0" }
 sha2 = "0.10"
-tracing-subscriber = "0.3.1"

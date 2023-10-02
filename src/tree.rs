@@ -1086,51 +1086,23 @@ where
                     .map(|p| (p.0, p.1.version)),
             }
         }
-        // todo: try this refactor later
-        //   let mut parents = parents.clone();
-        //   let mut to = to.clone();
-        //   // Traverse up the tree until a neighbor in the desired direction is found.
-        //   while let (Some(index), Some(parent)) = (to.pop(), parents.pop()) {
-        //       if let Some(neighbor) = neighbor_nibble(&parent, index, extreme) {
-        //           to.push(neighbor);
-        //           return Ok(Some(self.get_extreme_key_hash(
-        //               version,
-        //               NodeKey::new(version, to.clone()),
-        //               to.num_nibbles(),
-        //               extreme.opposite(),
-        //           )?));
-        //       }
-        //   }
-
         let mut parents = parents;
-        let mut neighbor: Option<Nibble> = None;
         let mut path = to;
 
-        let mut found_version = Version::default();
-
-        while neighbor.is_none() {
-            let index = path.pop();
-            let next_parent = parents.pop();
-            if next_parent.is_none() {
-                return Ok(None);
+        while let (Some(index), Some(parent)) = (path.pop(), parents.pop()) {
+            if let Some((neighbor, found_version)) = neighbor_nibble(&parent, index, extreme) {
+                // nibble path will represent the left nibble path. this is currently at
+                // the parent of the leaf for `key`
+                path.push(neighbor);
+                return Ok(Some(self.get_extreme_key_hash(
+                    version,
+                    NodeKey::new(found_version, path.clone()),
+                    path.num_nibbles(),
+                    extreme.opposite(),
+                )?));
             }
-            if let Some((n, v)) = neighbor_nibble(&next_parent.unwrap(), index.unwrap(), extreme) {
-                neighbor = Some(n);
-                found_version = v;
-            } else {
-                continue;
-            };
         }
-        path.push(neighbor.unwrap());
-
-        // nibble path will represent the left nibble path. this is currently at
-        // the parent of the leaf for `key`
-        Ok(Some(self.get_extreme_key_hash(
-            version,
-            NodeKey::new(found_version, path.clone()),
-            path.num_nibbles(),
-            extreme.opposite(),
-        )?))
+        Ok(None)
     }
 
     // given a search_key,
