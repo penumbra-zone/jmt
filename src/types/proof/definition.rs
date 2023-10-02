@@ -510,16 +510,12 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
     }
 }
 
-#[derive(Debug)]
-pub struct UpdateMerkleProof<H: SimpleHasher, V: AsRef<[u8]>>(
-    Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
-);
+#[derive(Debug, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct UpdateMerkleProof<H: SimpleHasher>(Vec<SparseMerkleProof<H>>);
 
-impl<H: SimpleHasher, V: AsRef<[u8]>> UpdateMerkleProof<H, V> {
-    pub fn new(
-        merkle_proof_and_new_key_values: Vec<(SparseMerkleProof<H>, KeyHash, Option<V>)>,
-    ) -> Self {
-        UpdateMerkleProof(merkle_proof_and_new_key_values)
+impl<H: SimpleHasher> UpdateMerkleProof<H> {
+    pub fn new(merkle_proofs: Vec<SparseMerkleProof<H>>) -> Self {
+        UpdateMerkleProof(merkle_proofs)
     }
 
     /// Verifies an update of the [`JellyfishMerkleTree`], proving the transition from an `old_root_hash` to a `new_root_hash` ([`RootHash`])
@@ -534,16 +530,29 @@ impl<H: SimpleHasher, V: AsRef<[u8]>> UpdateMerkleProof<H, V> {
     /// If these steps are verified then the [`JellyfishMerkleTree`] has been soundly updated
     ///
     /// This function consumes the Merkle proof to avoid uneccessary copying.
-    pub fn verify_update(self, old_root_hash: RootHash, new_root_hash: RootHash) -> Result<()> {
-        let merkle_proof_and_new_key_values = self.0;
+    pub fn verify_update<V: AsRef<[u8]>>(
+        self,
+        old_root_hash: RootHash,
+        new_root_hash: RootHash,
+        updates: impl AsRef<[(KeyHash, Option<V>)]>,
+    ) -> Result<()> {
+        let updates = updates.as_ref();
+        ensure!(
+            updates.len() == self.0.len(),
+            "Mismatched number of updates and proofs. Received {} proofs for {} updates",
+            self.0.len(),
+            updates.len()
+        );
         let mut curr_root_hash = old_root_hash;
 
-        for (merkle_proof, new_element_key, new_element_value) in merkle_proof_and_new_key_values {
+        for (merkle_proof, (new_element_key, new_element_value)) in
+            self.0.into_iter().zip(updates.iter())
+        {
             // Checks the old root hash and computes the new root
             curr_root_hash = merkle_proof.check_compute_new_root(
                 curr_root_hash,
-                new_element_key,
-                new_element_value,
+                *new_element_key,
+                new_element_value.as_ref(),
             )?;
         }
 

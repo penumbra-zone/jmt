@@ -15,7 +15,7 @@ use crate::{
 #[cfg(all(test, feature = "std"))]
 use proptest_derive::Arbitrary;
 
-pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof};
+pub use self::definition::{SparseMerkleProof, SparseMerkleRangeProof, UpdateMerkleProof};
 use crate::{KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};

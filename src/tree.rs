@@ -375,7 +375,7 @@ where
         &self,
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
-    ) -> Result<(RootHash, UpdateMerkleProof<H, OwnedValue>, TreeUpdateBatch)> {
+    ) -> Result<(RootHash, UpdateMerkleProof<H>, TreeUpdateBatch)> {
         let (mut hash_and_proof, batch_update) =
             self.put_value_sets_with_proof(vec![value_set], version)?;
         assert_eq!(
@@ -465,10 +465,7 @@ where
         &self,
         value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
-    ) -> Result<(
-        Vec<(RootHash, UpdateMerkleProof<H, OwnedValue>)>,
-        TreeUpdateBatch,
-    )> {
+    ) -> Result<(Vec<(RootHash, UpdateMerkleProof<H>)>, TreeUpdateBatch)> {
         let mut tree_cache = TreeCache::new(self.reader, first_version)?;
         let mut batch_proofs = Vec::new();
         for (idx, value_set) in value_sets.into_iter().enumerate() {
@@ -488,7 +485,7 @@ where
                     })?
                     .unwrap();
 
-                proofs.push((merkle_proof, key, value));
+                proofs.push(merkle_proof);
             }
 
             batch_proofs.push(UpdateMerkleProof::new(proofs));

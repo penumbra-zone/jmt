@@ -34,12 +34,12 @@ fn insert_and_perform_checks(batches: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>) {
     let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
 
     let (root, proof, batch) = tree
-        .put_value_set_with_proof(one_batch, 0 /* version */)
+        .put_value_set_with_proof(one_batch.clone(), 0 /* version */)
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
 
     assert!(proof
-        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root)
+        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root, one_batch)
         .is_ok());
 }
 
@@ -67,15 +67,14 @@ fn test_update_proof() {
     let key3 = update_nibble(&key1, 2, 3);
     let value3 = vec![3u8];
 
+    let value_sets = vec![
+        vec![(key1, Some(value1.clone()))],
+        vec![(key2, Some(value2.clone()))],
+        vec![(key3, Some(value3.clone()))],
+    ];
+
     let (mut new_root_hash_and_proofs, batch) = tree
-        .put_value_sets_with_proof(
-            vec![
-                vec![(key1, Some(value1.clone()))],
-                vec![(key2, Some(value2.clone()))],
-                vec![(key3, Some(value3.clone()))],
-            ],
-            0, /* version */
-        )
+        .put_value_sets_with_proof(value_sets.clone(), 0 /* version */)
         .unwrap();
 
     // Verify we get the correct values of the tree
@@ -91,12 +90,20 @@ fn test_update_proof() {
     let (root_hash1, proof1) = new_root_hash_and_proofs.pop().unwrap();
 
     assert!(proof1
-        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root_hash1)
+        .verify_update(
+            RootHash(Node::new_null().hash::<Sha256>()),
+            root_hash1,
+            &value_sets[0]
+        )
         .is_ok());
 
-    assert!(proof2.verify_update(root_hash1, root_hash2).is_ok());
+    assert!(proof2
+        .verify_update(root_hash1, root_hash2, &value_sets[1])
+        .is_ok());
 
-    assert!(proof3.verify_update(root_hash2, root_hash3).is_ok());
+    assert!(proof3
+        .verify_update(root_hash2, root_hash3, &value_sets[2])
+        .is_ok());
 }
 
 #[test]
@@ -454,11 +461,9 @@ fn test_gets_then_delete_with_proof() {
 
     let value = "".to_string().into_bytes();
 
+    let value_sets = vec![vec![(key1, Some(value.clone()))], vec![(key1, None)]];
     let (mut update_root, batch) = tree
-        .put_value_sets_with_proof(
-            vec![vec![(key1, Some(value.clone()))], vec![(key1, None)]],
-            0, /* version */
-        )
+        .put_value_sets_with_proof(value_sets.clone(), 0 /* version */)
         .unwrap();
     db.write_tree_update_batch(batch).unwrap();
 
@@ -466,9 +471,13 @@ fn test_gets_then_delete_with_proof() {
     let (root1, proof1) = update_root.pop().unwrap();
 
     assert!(proof1
-        .verify_update(RootHash(Node::new_null().hash::<Sha256>()), root1)
+        .verify_update(
+            RootHash(Node::new_null().hash::<Sha256>()),
+            root1,
+            &value_sets[0]
+        )
         .is_ok());
-    assert!(proof2.verify_update(root1, root2).is_ok());
+    assert!(proof2.verify_update(root1, root2, &value_sets[1]).is_ok());
 }
 
 // Test helper for [`test_1000_keys`]
@@ -497,7 +506,7 @@ fn many_keys_update_proof_and_verify_tree_root(seed: &[u8], num_keys: usize) {
 
     let mut curr_root = RootHash(Node::new_null().hash::<Sha256>());
     for (root, proof) in roots_and_proofs {
-        assert!(proof.verify_update(curr_root, root).is_ok());
+        assert!(proof.verify_update(curr_root, root, kvs.clone()).is_ok());
         curr_root = root;
     }
 
@@ -537,14 +546,15 @@ fn many_versions_update_proof_and_verify_tree_root(seed: &[u8], num_versions: us
 
     let mut curr_root = RootHash(Node::new_null().hash::<Sha256>());
     for (idx, (k, v_old, _v_new)) in kvs.iter().enumerate() {
+        let value_sets = vec![vec![(*k, Some(v_old.clone()))]];
         let (roots_and_proofs, batch) = tree
-            .put_value_sets_with_proof(vec![vec![(*k, Some(v_old.clone()))]], idx as Version)
+            .put_value_sets_with_proof(value_sets.clone(), idx as Version)
             .unwrap();
         roots.push(roots_and_proofs[0].0);
         db.write_tree_update_batch(batch).unwrap();
 
-        for (root, proof) in roots_and_proofs {
-            assert!(proof.verify_update(curr_root, root).is_ok());
+        for ((root, proof), ops) in roots_and_proofs.into_iter().zip(value_sets) {
+            assert!(proof.verify_update(curr_root, root, ops.iter()).is_ok());
             curr_root = root;
         }
     }
@@ -552,14 +562,15 @@ fn many_versions_update_proof_and_verify_tree_root(seed: &[u8], num_versions: us
     // Update value of all keys
     for (idx, (k, _v_old, v_new)) in kvs.iter().enumerate() {
         let version = (num_versions + idx) as Version;
+        let value_sets = vec![vec![(*k, Some(v_new.clone()))]];
         let (roots_and_proofs, batch) = tree
-            .put_value_sets_with_proof(vec![vec![(*k, Some(v_new.clone()))]], version)
+            .put_value_sets_with_proof(value_sets.clone(), version)
             .unwrap();
         roots.push(roots_and_proofs[0].0);
         db.write_tree_update_batch(batch).unwrap();
 
-        for (root, proof) in roots_and_proofs {
-            assert!(proof.verify_update(curr_root, root).is_ok());
+        for ((root, proof), ops) in roots_and_proofs.into_iter().zip(value_sets) {
+            assert!(proof.verify_update(curr_root, root, ops).is_ok());
             curr_root = root;
         }
     }

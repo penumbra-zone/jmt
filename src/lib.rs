@@ -154,9 +154,39 @@ pub type OwnedValue = alloc::vec::Vec<u8>;
 use proptest_derive::Arbitrary;
 
 /// A root of a [`JellyfishMerkleTree`].
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct RootHash(pub [u8; 32]);
+
+impl From<RootHash> for [u8; 32] {
+    fn from(value: RootHash) -> Self {
+        value.0
+    }
+}
+
+impl From<[u8; 32]> for RootHash {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<[u8]> for RootHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// A hashed key used to index a [`JellyfishMerkleTree`].
 ///
