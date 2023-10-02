@@ -50,7 +50,7 @@ pub fn plus_one(key: KeyHash) -> KeyHash {
 /// Initializes a DB with a set of key-value pairs by inserting one key at each version.
 pub fn init_mock_db<H: SimpleHasher>(
     kvs: &HashMap<KeyHash, OwnedValue>,
-) -> (MockTreeStore<H>, Version) {
+) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
@@ -71,7 +71,7 @@ pub fn init_mock_db<H: SimpleHasher>(
 pub fn init_mock_db_with_deletions_afterwards<H: SimpleHasher>(
     kvs: &HashMap<KeyHash, OwnedValue>,
     deletions: Vec<KeyHash>,
-) -> (MockTreeStore<H>, Version) {
+) -> (MockTreeStore, Version) {
     assert!(!kvs.is_empty());
 
     let db = MockTreeStore::default();
@@ -102,7 +102,7 @@ fn init_mock_db_versioned<H: SimpleHasher>(
     operations_by_version: Vec<Vec<(KeyHash, Vec<u8>)>>,
     with_proof: bool,
 ) -> (
-    MockTreeStore<H>,
+    MockTreeStore,
     Version,
     Option<
         Vec<(
@@ -175,7 +175,7 @@ fn init_mock_db_versioned_with_deletions<H: SimpleHasher>(
     operations_by_version: Vec<Vec<(KeyHash, Option<Vec<u8>>)>>,
     with_proof: bool,
 ) -> (
-    MockTreeStore<H>,
+    MockTreeStore,
     Version,
     Option<
         Vec<(
@@ -680,7 +680,7 @@ pub fn test_get_range_proof<H: SimpleHasher>((btree, n): (BTreeMap<KeyHash, Owne
 }
 
 fn test_existent_keys_impl<'a, H: SimpleHasher>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore<H>, H>,
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     existent_kvs: &HashMap<KeyHash, OwnedValue>,
 ) {
@@ -694,7 +694,7 @@ fn test_existent_keys_impl<'a, H: SimpleHasher>(
 }
 
 fn test_nonexistent_keys_impl<'a, H: SimpleHasher>(
-    tree: &JellyfishMerkleTree<'a, MockTreeStore<H>, H>,
+    tree: &JellyfishMerkleTree<'a, MockTreeStore, H>,
     version: Version,
     nonexistent_keys: &[KeyHash],
 ) {

@@ -102,7 +102,7 @@ fn mock_tree_from_values_with_version(
     version: Version,
 ) -> impl TreeReader {
     let db = MockTreeStore::default();
-    let tree: JellyfishMerkleTree<MockTreeStore<Sha256>, Sha256> = JellyfishMerkleTree::new(&db);
+    let tree: JellyfishMerkleTree<MockTreeStore, Sha256> = JellyfishMerkleTree::new(&db);
 
     let (_root, batch) = tree.put_value_sets(values, version /* version */).unwrap();
     db.write_tree_update_batch(batch).unwrap();

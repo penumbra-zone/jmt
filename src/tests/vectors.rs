@@ -33,7 +33,7 @@ fn test_with_vectors() {
     let test_file: TestVectorWrapper =
         serde_json::from_str(test_vectors).expect("test vectors must be valid json");
 
-    let store = &MockTreeStore::<Sha256>::default();
+    let store = &MockTreeStore::default();
 
     let jmt = Sha256Jmt::new(store);
     for vector in test_file.vectors {

@@ -25,7 +25,7 @@ fn random_leaf_with_key(next_version: Version) -> (LeafNode, OwnedValue, NodeKey
 #[test]
 fn test_get_node() {
     let next_version = 0;
-    let db = MockTreeStore::<Sha256>::default();
+    let db = MockTreeStore::default();
     let cache = TreeCache::new(&db, next_version).unwrap();
 
     let (node, value, node_key) = random_leaf_with_key(next_version);
@@ -37,7 +37,7 @@ fn test_get_node() {
 #[test]
 fn test_root_node() {
     let next_version = 0;
-    let db = MockTreeStore::<Sha256>::default();
+    let db = MockTreeStore::default();
     let mut cache = TreeCache::new(&db, next_version).unwrap();
     assert_eq!(*cache.get_root_node_key(), NodeKey::new_empty_path(0));
 
@@ -51,7 +51,7 @@ fn test_root_node() {
 #[test]
 fn test_pre_genesis() {
     let next_version = 0;
-    let db = MockTreeStore::<Sha256>::default();
+    let db = MockTreeStore::default();
     let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
     let (pre_genesis_only_node, pre_genesis_only_value, _) =
         random_leaf_with_key(PRE_GENESIS_VERSION);
@@ -69,7 +69,7 @@ fn test_pre_genesis() {
 #[test]
 fn test_freeze_with_delete() {
     let next_version = 0;
-    let db = MockTreeStore::<Sha256>::default();
+    let db = MockTreeStore::default();
     let mut cache = TreeCache::new(&db, next_version).unwrap();
 
     assert_eq!(*cache.get_root_node_key(), NodeKey::new_empty_path(0));

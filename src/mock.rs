@@ -9,7 +9,6 @@ use parking_lot::RwLock;
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, Result};
 
-use core::marker::PhantomData;
 #[cfg(not(feature = "std"))]
 use hashbrown::{hash_map::Entry, HashMap};
 #[cfg(feature = "std")]
@@ -19,7 +18,7 @@ use crate::{
     node_type::{LeafNode, Node, NodeKey},
     storage::{HasPreimage, NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
     types::Version,
-    KeyHash, OwnedValue, SimpleHasher,
+    KeyHash, OwnedValue,
 };
 
 #[derive(Default, Debug)]
@@ -35,26 +34,21 @@ struct MockTreeStoreInner {
 /// The tree store is internally represented with a `HashMap`.  This structure
 /// is exposed for use only by downstream crates' tests, and it should obviously
 /// not be used in production.
-///
-/// We make the mock tree generic over the hasher type, so that we can test
-/// different configurations of the tree, e.g. Sha256 vs Blake2b vs Transparent.
-pub struct MockTreeStore<H: SimpleHasher> {
+pub struct MockTreeStore {
     data: RwLock<MockTreeStoreInner>,
     allow_overwrite: bool,
-    _phantom: PhantomData<H>,
 }
 
-impl<H: SimpleHasher> Default for MockTreeStore<H> {
+impl Default for MockTreeStore {
     fn default() -> Self {
         Self {
             data: RwLock::new(Default::default()),
             allow_overwrite: false,
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<H: SimpleHasher> TreeReader for MockTreeStore<H> {
+impl TreeReader for MockTreeStore {
     fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
         Ok(self.data.read().nodes.get(node_key).cloned())
     }
@@ -95,13 +89,13 @@ impl<H: SimpleHasher> TreeReader for MockTreeStore<H> {
     }
 }
 
-impl<H: SimpleHasher> HasPreimage for MockTreeStore<H> {
+impl HasPreimage for MockTreeStore {
     fn preimage(&self, key_hash: KeyHash) -> Result<Option<Vec<u8>>> {
         Ok(self.data.read().preimages.get(&key_hash).cloned())
     }
 }
 
-impl<H: SimpleHasher> TreeWriter for MockTreeStore<H> {
+impl TreeWriter for MockTreeStore {
     fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()> {
         let mut locked = self.data.write();
         for (node_key, node) in node_batch.nodes() {
@@ -151,7 +145,7 @@ pub fn put_value(
     Ok(())
 }
 
-impl<H: SimpleHasher> MockTreeStore<H> {
+impl MockTreeStore {
     pub fn new(allow_overwrite: bool) -> Self {
         Self {
             allow_overwrite,
@@ -172,8 +166,7 @@ impl<H: SimpleHasher> MockTreeStore<H> {
         put_value(&mut locked.value_history, version, key_hash, Some(value))
     }
 
-    pub fn put_key_preimage(&self, preimage: &Vec<u8>) {
-        let key_hash: KeyHash = KeyHash::with::<H>(preimage);
+    pub fn put_key_preimage(&self, key_hash: KeyHash, preimage: &Vec<u8>) {
         self.data
             .write()
             .preimages

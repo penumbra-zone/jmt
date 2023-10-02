@@ -195,7 +195,6 @@ where
         version: Version,
     ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof)> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
-        tracing::debug!("calling get_with_exclusion_proof");
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
         match proof_or_exclusion {
@@ -275,14 +274,14 @@ mod tests {
     }
 
     fn test_jmt_ics23_nonexistence_with_keys(keys: impl Iterator<Item = Vec<u8>>) {
-        let db = MockTreeStore::<Sha256>::default();
+        let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         let mut kvs = Vec::new();
 
         // Ensure that the tree contains at least one key-value pair
         kvs.push((KeyHash::with::<Sha256>(b"key"), Some(b"value1".to_vec())));
-        db.put_key_preimage(&b"key".to_vec());
+        db.put_key_preimage(KeyHash::with::<Sha256>(b"key"), &b"key".to_vec());
 
         for key_preimage in keys {
             // Since we hardcode the check for key, ensure that it's not inserted randomly by proptest
@@ -292,7 +291,7 @@ mod tests {
             let key_hash = KeyHash::with::<Sha256>(key_preimage.as_slice());
             let value = vec![0u8; 32];
             kvs.push((key_hash, Some(value)));
-            db.put_key_preimage(&key_preimage.to_vec());
+            db.put_key_preimage(key_hash, &key_preimage.to_vec());
         }
 
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
@@ -390,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_jmt_ics23_existence() {
-        let db = MockTreeStore::<Sha256>::default();
+        let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         let key = b"key";
@@ -425,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_jmt_ics23_existence_random_keys() {
-        let db = MockTreeStore::<Sha256>::default();
+        let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::<_, Sha256>::new(&db);
 
         const MAX_VERSION: u64 = 1 << 14;
@@ -463,7 +462,7 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple() {
         use crate::Sha256Jmt;
-        let db = MockTreeStore::<Sha256>::default();
+        let db = MockTreeStore::default();
         let tree = Sha256Jmt::new(&db);
 
         const MAX_VERSION: u64 = 3;
@@ -480,8 +479,9 @@ mod tests {
                 .zip(values.into_iter())
                 .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
                 .collect::<Vec<_>>();
+            let key_hash = KeyHash::with::<Sha256>(&key);
 
-            db.put_key_preimage(&key);
+            db.put_key_preimage(key_hash, &key);
             let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
             db.write_tree_update_batch(batch)
                 .expect("can insert node batch");
@@ -496,7 +496,7 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`
     fn test_jmt_ics23_nonexistence_simple_large() {
         use crate::Sha256Jmt;
-        let db = MockTreeStore::<Sha256>::default();
+        let db = MockTreeStore::default();
         let tree = Sha256Jmt::new(&db);
 
         const MAX_VERSION: u64 = 100;
@@ -513,8 +513,9 @@ mod tests {
                 .zip(values.into_iter())
                 .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
                 .collect::<Vec<_>>();
+            let key_hash = KeyHash::with::<Sha256>(&key);
 
-            db.put_key_preimage(&key);
+            db.put_key_preimage(key_hash, &key);
             let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
             db.write_tree_update_batch(batch)
                 .expect("can insert node batch");
@@ -532,7 +533,7 @@ mod tests {
     /// key. This reproduces a bug that was fixed in release `0.8.0`. This test uses
     /// the `TransparentJmt` type, which uses a mock hash function that does not hash.
     fn test_jmt_ics23_nonexistence_simple_transparent() {
-        let db = MockTreeStore::<TransparentHasher>::default();
+        let db = MockTreeStore::default();
         let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&db);
 
         const MAX_VERSION: u64 = 4;
@@ -547,6 +548,7 @@ mod tests {
 
         for version in 0..=MAX_VERSION {
             let (_key_str, key) = mock_keys_str[version as usize].clone();
+            let key_hash = KeyHash::with::<TransparentHasher>(&key);
             let value_str = format!("value-{}", version);
             let value = value_str.clone().into_bytes();
             let keys = vec![key.clone()];
@@ -556,8 +558,7 @@ mod tests {
                 .zip(values.into_iter())
                 .map(|(k, v)| (KeyHash::with::<TransparentHasher>(&k), Some(v)))
                 .collect::<Vec<_>>();
-
-            db.put_key_preimage(&key.to_vec());
+            db.put_key_preimage(key_hash, &key.to_vec());
             let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
             db.write_tree_update_batch(batch)
                 .expect("can insert node batch");

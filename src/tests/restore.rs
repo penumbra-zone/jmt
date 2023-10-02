@@ -157,7 +157,7 @@ proptest! {
 }
 
 fn assert_success<H: SimpleHasher>(
-    db: &MockTreeStore<H>,
+    db: &MockTreeStore,
     expected_root_hash: RootHash,
     btree: &BTreeMap<KeyHash, OwnedValue>,
     version: Version,
@@ -174,7 +174,7 @@ fn assert_success<H: SimpleHasher>(
 fn restore_without_interruption<H: SimpleHasher + 'static>(
     btree: &BTreeMap<KeyHash, OwnedValue>,
     target_version: Version,
-    target_db: &Arc<MockTreeStore<H>>,
+    target_db: &Arc<MockTreeStore>,
     try_resume: bool,
 ) {
     let (db, source_version) = init_mock_db::<H>(&btree.clone().into_iter().collect());
