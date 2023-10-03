@@ -158,7 +158,7 @@ fn test_insert_to_empty_tree<H: SimpleHasher>() {
 }
 
 fn test_insert_at_leaf_with_internal_created<H: SimpleHasher>() {
-    let db: MockTreeStore = MockTreeStore::default();
+    let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
     let key1 = KeyHash([0u8; 32]);

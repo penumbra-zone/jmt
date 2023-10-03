@@ -8,7 +8,6 @@ use parking_lot::RwLock;
 
 use alloc::vec::Vec;
 use anyhow::{bail, ensure, Result};
-use sha2::Sha256;
 
 #[cfg(not(feature = "std"))]
 use hashbrown::{hash_map::Entry, HashMap};
@@ -167,8 +166,7 @@ impl MockTreeStore {
         put_value(&mut locked.value_history, version, key_hash, Some(value))
     }
 
-    pub fn put_key_preimage(&self, preimage: &Vec<u8>) {
-        let key_hash: KeyHash = KeyHash::with::<Sha256>(preimage);
+    pub fn put_key_preimage(&self, key_hash: KeyHash, preimage: &Vec<u8>) {
         self.data
             .write()
             .preimages

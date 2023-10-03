@@ -339,3 +339,25 @@ where
         self.finalize().into()
     }
 }
+
+/// A trivial implementation of [`SimpleHasher`] that simply returns the first 32 bytes of the
+/// provided data. This is useful to avoid hashing data when testing, and facilitate debugging
+/// specific tree configurations.
+pub struct TransparentHasher {
+    key: [u8; 32],
+}
+
+impl SimpleHasher for TransparentHasher {
+    fn new() -> Self {
+        TransparentHasher { key: [0u8; 32] }
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        for (dest, &src) in self.key.iter_mut().zip(data.iter()) {
+            *dest = src;
+        }
+    }
+    fn finalize(self) -> [u8; 32] {
+        self.key
+    }
+}

@@ -195,7 +195,6 @@ where
         version: Version,
     ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof)> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
-        tracing::debug!("calling get_with_exclusion_proof");
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
         match proof_or_exclusion {
@@ -259,7 +258,7 @@ mod tests {
     use sha2::Sha256;
 
     use super::*;
-    use crate::{mock::MockTreeStore, KeyHash, SPARSE_MERKLE_PLACEHOLDER_HASH};
+    use crate::{mock::MockTreeStore, KeyHash, TransparentHasher, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
     #[test]
     #[should_panic]
@@ -282,7 +281,7 @@ mod tests {
 
         // Ensure that the tree contains at least one key-value pair
         kvs.push((KeyHash::with::<Sha256>(b"key"), Some(b"value1".to_vec())));
-        db.put_key_preimage(&b"key".to_vec());
+        db.put_key_preimage(KeyHash::with::<Sha256>(b"key"), &b"key".to_vec());
 
         for key_preimage in keys {
             // Since we hardcode the check for key, ensure that it's not inserted randomly by proptest
@@ -292,7 +291,7 @@ mod tests {
             let key_hash = KeyHash::with::<Sha256>(key_preimage.as_slice());
             let value = vec![0u8; 32];
             kvs.push((key_hash, Some(value)));
-            db.put_key_preimage(&key_preimage.to_vec());
+            db.put_key_preimage(key_hash, &key_preimage.to_vec());
         }
 
         let (new_root_hash, batch) = tree.put_value_set(kvs, 0).unwrap();
@@ -456,5 +455,139 @@ mod tests {
         ));
 
         assert_eq!(value_retrieved.unwrap(), value_maxversion);
+    }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`
+    fn test_jmt_ics23_nonexistence_simple() {
+        use crate::Sha256Jmt;
+        let db = MockTreeStore::default();
+        let tree = Sha256Jmt::new(&db);
+
+        const MAX_VERSION: u64 = 3;
+
+        for version in 0..=MAX_VERSION {
+            let key_str = format!("key-{}", version);
+            let key = key_str.clone().into_bytes();
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
+                .collect::<Vec<_>>();
+            let key_hash = KeyHash::with::<Sha256>(&key);
+
+            db.put_key_preimage(key_hash, &key);
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+        let (_value_retrieved, _commitment_proof) = tree
+            .get_with_ics23_proof(format!("does_not_exist").into_bytes(), MAX_VERSION)
+            .unwrap();
+    }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`
+    fn test_jmt_ics23_nonexistence_simple_large() {
+        use crate::Sha256Jmt;
+        let db = MockTreeStore::default();
+        let tree = Sha256Jmt::new(&db);
+
+        const MAX_VERSION: u64 = 100;
+
+        for version in 0..=MAX_VERSION {
+            let key_str = format!("key-{}", version);
+            let key = key_str.clone().into_bytes();
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<Sha256>(&k), Some(v)))
+                .collect::<Vec<_>>();
+            let key_hash = KeyHash::with::<Sha256>(&key);
+
+            db.put_key_preimage(key_hash, &key);
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+
+        for version in 0..=MAX_VERSION {
+            let (_value_retrieved, _commitment_proof) = tree
+                .get_with_ics23_proof(format!("does_not_exist").into_bytes(), version)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    /// Write four keys into the JMT, and query an ICS23 proof for a nonexistent
+    /// key. This reproduces a bug that was fixed in release `0.8.0`. This test uses
+    /// the `TransparentJmt` type, which uses a mock hash function that does not hash.
+    fn test_jmt_ics23_nonexistence_simple_transparent() {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&db);
+
+        const MAX_VERSION: u64 = 4;
+
+        let mock_keys_str = vec![
+            prefix_pad("a0"),
+            prefix_pad("b1"),
+            prefix_pad("c2"),
+            prefix_pad("d3"),
+            prefix_pad("e4"),
+        ];
+
+        for version in 0..=MAX_VERSION {
+            let key = mock_keys_str[version as usize].clone();
+            let key_hash = KeyHash::with::<TransparentHasher>(&key);
+            let value_str = format!("value-{}", version);
+            let value = value_str.clone().into_bytes();
+            let keys = vec![key.clone()];
+            let values = vec![value];
+            let value_set = keys
+                .into_iter()
+                .zip(values.into_iter())
+                .map(|(k, v)| (KeyHash::with::<TransparentHasher>(&k), Some(v)))
+                .collect::<Vec<_>>();
+            db.put_key_preimage(key_hash, &key.to_vec());
+            let (_root, batch) = tree.put_value_set(value_set, version).unwrap();
+            db.write_tree_update_batch(batch)
+                .expect("can insert node batch");
+        }
+
+        let nonexisting_key = prefix_pad("c3");
+        let (_value_retrieved, _commitment_proof) = tree
+            .get_with_ics23_proof(nonexisting_key.to_vec(), MAX_VERSION)
+            .unwrap();
+    }
+
+    /// Takes an hexadecimal prefix string (e.g "deadbeef") and returns a padded byte string
+    /// that encodes to the padded hexadecimal string (e.g. "deadbeef0....0")
+    /// This is useful to create keys with specific hexadecimal representations.
+    fn prefix_pad(hex_str: &str) -> [u8; 32] {
+        if hex_str.len() > 64 {
+            panic!("hexadecimal string is longer than 32 bytes when decoded");
+        }
+
+        let mut bytes = Vec::with_capacity(hex_str.len() / 2);
+        for i in (0..hex_str.len()).step_by(2) {
+            let byte_str = &hex_str[i..i + 2];
+            let byte = u8::from_str_radix(byte_str, 16).expect("Invalid hex character");
+            bytes.push(byte);
+        }
+
+        let mut padded_bytes = [0u8; 32];
+        padded_bytes[..bytes.len()].copy_from_slice(&bytes);
+
+        padded_bytes
     }
 }
