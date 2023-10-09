@@ -193,8 +193,7 @@ where
                         ),
                     );
                 }
-                let new_internal_node =
-                    InternalNode::new_migration(children, self.leaf_count_migration);
+                let new_internal_node = InternalNode::new(children);
 
                 node_key.set_version(version);
 
@@ -300,8 +299,7 @@ where
                 tree_cache.put_node(existing_leaf_node_key, existing_leaf_node.into())?;
             }
 
-            let new_internal_node =
-                InternalNode::new_migration(children, self.leaf_count_migration);
+            let new_internal_node = InternalNode::new(children);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
             Ok((node_key, new_internal_node.into()))
@@ -343,8 +341,7 @@ where
                     ),
                 );
             }
-            let new_internal_node =
-                InternalNode::new_migration(children, self.leaf_count_migration);
+            let new_internal_node = InternalNode::new(children);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
             Ok((node_key, new_internal_node.into()))
@@ -910,7 +907,7 @@ where
                 Child::new(new_leaf_node.hash::<H>(), version, NodeType::Leaf),
             );
 
-            let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
+            let internal_node = InternalNode::new(children);
             let mut next_internal_node = internal_node.clone();
             tree_cache.put_node(node_key.clone(), internal_node.into())?;
 

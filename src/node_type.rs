@@ -14,7 +14,7 @@ use crate::SimpleHasher;
 use alloc::format;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
-use anyhow::{ensure, Context, Result};
+use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_derive::{FromPrimitive, ToPrimitive};
 #[cfg(any(test))]
@@ -318,8 +318,6 @@ pub struct InternalNode {
     children: Children,
     /// Total number of leaves under this internal node
     leaf_count: Option<usize>,
-    /// serialize leaf counts
-    leaf_count_migration: bool,
 }
 
 impl SparseMerkleInternalNode {
@@ -415,19 +413,11 @@ fn has_child(
 impl InternalNode {
     /// Creates a new Internal node.
     pub fn new(children: Children) -> Self {
-        Self::new_migration(children, true /* leaf_count_migration */)
-    }
-
-    pub fn new_migration(children: Children, leaf_count_migration: bool) -> Self {
-        Self::new_impl(children, leaf_count_migration).expect("Input children are logical.")
-    }
-
-    pub fn new_impl(children: Children, leaf_count_migration: bool) -> Result<Self> {
         // Assert the internal node must have >= 1 children. If it only has one child, it cannot be
         // a leaf node. Otherwise, the leaf node should be a child of this internal node's parent.
-        ensure!(!children.is_empty(), "Children must not be empty");
+        assert!(!children.is_empty(), "Children must not be empty");
         if children.num_children() == 1 {
-            ensure!(
+            assert!(
                 !children
                     .values()
                     .next()
@@ -438,11 +428,10 @@ impl InternalNode {
         }
 
         let leaf_count = Self::sum_leaf_count(&children);
-        Ok(Self {
+        Self {
             children,
             leaf_count,
-            leaf_count_migration,
-        })
+        }
     }
 
     fn sum_leaf_count(children: &Children) -> Option<usize> {
