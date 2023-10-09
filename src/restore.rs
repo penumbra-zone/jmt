@@ -39,7 +39,7 @@ enum ChildInfo {
     /// hash of an internal node after we see all the keys that share the same prefix.
     Internal {
         hash: Option<[u8; 32]>,
-        leaf_count: Option<usize>,
+        leaf_count: usize,
     },
 
     /// This child is a leaf node.
@@ -53,9 +53,7 @@ impl ChildInfo {
             Self::Internal { hash, leaf_count } => Child::new(
                 hash.expect("Must have been initialized."),
                 version,
-                leaf_count
-                    .map(|n| NodeType::Internal { leaf_count: n })
-                    .unwrap_or(NodeType::InternalLegacy),
+                NodeType::Internal { leaf_count },
             ),
             Self::Leaf { node } => Child::new(node.hash::<H>(), version, NodeType::Leaf),
         }
@@ -270,7 +268,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                     index,
                     ChildInfo::Internal {
                         hash: None,
-                        leaf_count: None,
+                        leaf_count: 0,
                     },
                 );
             }
@@ -394,7 +392,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
             child_index,
             ChildInfo::Internal {
                 hash: None,
-                leaf_count: None,
+                leaf_count: 0,
             },
         );
 
@@ -414,7 +412,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 u8::from(next_nibble) as usize,
                 ChildInfo::Internal {
                     hash: None,
-                    leaf_count: None,
+                    leaf_count: 0,
                 },
             );
             self.partial_nodes.push(internal_info);
@@ -522,8 +520,8 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                         ref mut leaf_count,
                     }) => {
                         assert_eq!(hash.replace(node_hash), None);
-                        assert!(leaf_count.is_none());
-                        node_leaf_count.map(|n| leaf_count.replace(n));
+                        assert_eq!(*leaf_count, 0);
+                        *leaf_count = node_leaf_count;
                     }
                     _ => panic!(
                         "Must have at least one child and the rightmost child must not be a leaf."

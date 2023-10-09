@@ -35,7 +35,6 @@ pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, sha2::Sha256>;
 /// and a [`SimpleHasher`] `H`. See [`crate`] for description.
 pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
     reader: &'a R,
-    leaf_count_migration: bool,
     _phantom_hasher: PhantomData<H>,
 }
 
@@ -51,15 +50,6 @@ where
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
-            leaf_count_migration: true,
-            _phantom_hasher: Default::default(),
-        }
-    }
-
-    pub fn new_migration(reader: &'a R, leaf_count_migration: bool) -> Self {
-        Self {
-            reader,
-            leaf_count_migration,
             _phantom_hasher: Default::default(),
         }
     }
@@ -1390,16 +1380,8 @@ where
     }
 
     // TODO: should this be public? seems coupled to tests?
-    pub fn get_leaf_count(&self, version: Version) -> Result<Option<usize>> {
-        if self.leaf_count_migration {
-            self.get_root_node(version).map(|n| n.leaf_count())
-        } else {
-            // When all children of an internal node are leaves, the leaf count is accessible
-            // even if the migration haven't started. In fact, in such a case, there's no difference
-            // in the old and new serialization format. Forcing it None here just to make the tests
-            // straightforward.
-            Ok(None)
-        }
+    pub fn get_leaf_count(&self, version: Version) -> Result<usize> {
+        self.get_root_node(version).map(|n| n.leaf_count())
     }
 }
 

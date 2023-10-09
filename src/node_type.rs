@@ -114,12 +114,7 @@ impl NodeKey {
 )]
 pub enum NodeType {
     Leaf,
-    /// A internal node that haven't been finished the leaf count migration, i.e. None or not all
-    /// of the children leaf counts are known.
-    InternalLegacy,
-    Internal {
-        leaf_count: usize,
-    },
+    Internal { leaf_count: usize },
 }
 
 #[cfg(any(test))]
@@ -130,7 +125,6 @@ impl Arbitrary for NodeType {
     fn arbitrary_with(_args: ()) -> Self::Strategy {
         prop_oneof![
             Just(NodeType::Leaf),
-            Just(NodeType::InternalLegacy),
             (2..100usize).prop_map(|leaf_count| NodeType::Internal { leaf_count })
         ]
         .boxed()
@@ -157,7 +151,7 @@ pub struct Child {
     /// from the storage. Used by `[`NodeKey::gen_child_node_key`].
     pub version: Version,
     /// Indicates if the child is a leaf, or if it's an internal node, the total number of leaves
-    /// under it (though it can be unknown during migration).
+    /// under it.
     pub node_type: NodeType,
 }
 
@@ -174,11 +168,10 @@ impl Child {
         matches!(self.node_type, NodeType::Leaf)
     }
 
-    pub fn leaf_count(&self) -> Option<usize> {
+    pub fn leaf_count(&self) -> usize {
         match self.node_type {
-            NodeType::Leaf => Some(1),
-            NodeType::InternalLegacy => None,
-            NodeType::Internal { leaf_count } => Some(leaf_count),
+            NodeType::Leaf => 1,
+            NodeType::Internal { leaf_count } => leaf_count,
         }
     }
 }
@@ -317,7 +310,7 @@ pub struct InternalNode {
     /// Up to 16 children.
     children: Children,
     /// Total number of leaves under this internal node
-    leaf_count: Option<usize>,
+    leaf_count: usize,
 }
 
 impl SparseMerkleInternalNode {
@@ -434,26 +427,22 @@ impl InternalNode {
         }
     }
 
-    fn sum_leaf_count(children: &Children) -> Option<usize> {
+    fn sum_leaf_count(children: &Children) -> usize {
         let mut leaf_count = 0;
         for child in children.values() {
-            if let Some(n) = child.leaf_count() {
-                leaf_count += n;
-            } else {
-                return None;
-            }
+            let n = child.leaf_count();
+            leaf_count += n;
         }
-        Some(leaf_count)
+        leaf_count
     }
 
-    pub fn leaf_count(&self) -> Option<usize> {
+    pub fn leaf_count(&self) -> usize {
         self.leaf_count
     }
 
     pub fn node_type(&self) -> NodeType {
-        match self.leaf_count {
-            Some(leaf_count) => NodeType::Internal { leaf_count },
-            None => NodeType::InternalLegacy,
+        NodeType::Internal {
+            leaf_count: self.leaf_count,
         }
     }
 
@@ -956,10 +945,10 @@ impl Node {
     }
 
     /// Returns leaf count if known
-    pub(crate) fn leaf_count(&self) -> Option<usize> {
+    pub(crate) fn leaf_count(&self) -> usize {
         match self {
-            Node::Null => Some(0),
-            Node::Leaf(_) => Some(1),
+            Node::Null => 0,
+            Node::Leaf(_) => 1,
             Node::Internal(internal_node) => internal_node.leaf_count,
         }
     }

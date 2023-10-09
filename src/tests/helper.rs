@@ -874,5 +874,5 @@ pub fn test_get_leaf_count<H: SimpleHasher>(keys: HashSet<KeyHash>) {
     let kvs = keys.into_iter().map(|k| (k, vec![])).collect();
     let (db, version) = init_mock_db::<H>(&kvs);
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
-    assert_eq!(tree.get_leaf_count(version).unwrap().unwrap(), kvs.len())
+    assert_eq!(tree.get_leaf_count(version).unwrap(), kvs.len())
 }
