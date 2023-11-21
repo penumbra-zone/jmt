@@ -57,7 +57,7 @@ pub struct NodeKey {
 
 impl NodeKey {
     /// Creates a new `NodeKey`.
-    pub(crate) fn new(version: Version, nibble_path: NibblePath) -> Self {
+    pub fn new(version: Version, nibble_path: NibblePath) -> Self {
         Self {
             version,
             nibble_path,
@@ -75,7 +75,7 @@ impl NodeKey {
     }
 
     /// Gets the nibble path.
-    pub(crate) fn nibble_path(&self) -> &NibblePath {
+    pub fn nibble_path(&self) -> &NibblePath {
         &self.nibble_path
     }
 
