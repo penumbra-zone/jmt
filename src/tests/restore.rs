@@ -25,13 +25,9 @@ fn test_restore_with_interruption<H: SimpleHasher>(
 
     let restore_db = Arc::new(MockTreeStore::default());
     {
-        let mut restore = JellyfishMerkleRestore::<H>::new(
-            Arc::clone(&restore_db),
-            version,
-            expected_root_hash,
-            true, /* leaf_count_migraion */
-        )
-        .unwrap();
+        let mut restore =
+            JellyfishMerkleRestore::<H>::new(Arc::clone(&restore_db), version, expected_root_hash)
+                .unwrap();
         let proof = tree
             .get_range_proof(batch1.last().map(|(key, _value)| *key).unwrap(), version)
             .unwrap();
@@ -55,13 +51,9 @@ fn test_restore_with_interruption<H: SimpleHasher>(
             .filter(|(k, _v)| *k > rightmost_key)
             .collect();
 
-        let mut restore = JellyfishMerkleRestore::<H>::new(
-            Arc::clone(&restore_db),
-            version,
-            expected_root_hash,
-            true, /* leaf_count_migration */
-        )
-        .unwrap();
+        let mut restore =
+            JellyfishMerkleRestore::<H>::new(Arc::clone(&restore_db), version, expected_root_hash)
+                .unwrap();
         let proof = tree
             .get_range_proof(
                 remaining_accounts.last().map(|(key, _value)| *key).unwrap(),
@@ -182,19 +174,13 @@ fn restore_without_interruption<H: SimpleHasher>(
     let expected_root_hash = tree.get_root_hash(source_version).unwrap();
 
     let mut restore = if try_resume {
-        JellyfishMerkleRestore::<H>::new(
-            Arc::clone(target_db),
-            target_version,
-            expected_root_hash,
-            true, /* account_count_migration */
-        )
-        .unwrap()
+        JellyfishMerkleRestore::<H>::new(Arc::clone(target_db), target_version, expected_root_hash)
+            .unwrap()
     } else {
         JellyfishMerkleRestore::new_overwrite(
             Arc::clone(target_db),
             target_version,
             expected_root_hash,
-            true, /* account_count_migration */
         )
         .unwrap()
     };
