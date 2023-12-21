@@ -741,7 +741,7 @@ mod serialization_tests {
 
     #[test]
     fn test_sparse_merkle_proof_roundtrip_borsh() {
-        use borsh::{BorshDeserialize};
+        use borsh::BorshDeserialize;
         let proof = get_test_proof();
         let serialized_proof = borsh::to_vec(&proof).expect("serialization is infallible");
         let deserialized =
@@ -763,7 +763,7 @@ mod serialization_tests {
 
     #[test]
     fn test_sparse_merkle_range_proof_roundtrip_borsh() {
-        use borsh::{BorshDeserialize};
+        use borsh::BorshDeserialize;
         let proof = get_test_range_proof();
         let serialized_proof = borsh::to_vec(&proof).expect("serialization is infallible");
         let deserialized =
