@@ -192,9 +192,8 @@ where
     pub fn new_overwrite(
         reader: &'a R,
         current_version: Version,
-        root_node_key: NodeKey,
     ) -> Result<Self> {
-        let mut node_cache = HashMap::new();
+        let node_cache = HashMap::new();
         let root_node_key = NodeKey::new_empty_path(current_version);
         Ok(Self {
             node_cache,
