@@ -188,6 +188,27 @@ where
         })
     }
 
+    #[cfg(feature = "migration")]
+    pub fn new_overwrite(
+        reader: &'a R,
+        current_version: Version,
+        root_node_key: NodeKey,
+    ) -> Result<Self> {
+        let mut node_cache = HashMap::new();
+        let root_node_key = NodeKey::new_empty_path(current_version);
+        Ok(Self {
+            node_cache,
+            stale_node_index_cache: HashSet::new(),
+            frozen_cache: FrozenTreeCache::new(),
+            root_node_key,
+            next_version: current_version + 1,
+            reader,
+            num_stale_leaves: 0,
+            num_new_leaves: 0,
+            value_cache: Default::default(),
+        })
+    }
+
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
     pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {

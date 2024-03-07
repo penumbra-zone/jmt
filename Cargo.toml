@@ -20,6 +20,7 @@ default = ["ics23", "std", "sha2"]
 mocks = ["dep:parking_lot"]
 blake3_tests = ["dep:blake3"]
 std = ["dep:thiserror"]
+migration = []
 
 [dependencies]
 anyhow = "1.0.38"
