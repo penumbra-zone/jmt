@@ -200,7 +200,7 @@ where
             stale_node_index_cache: HashSet::new(),
             frozen_cache: FrozenTreeCache::new(),
             root_node_key,
-            next_version: current_version + 1,
+            next_version: current_version,
             reader,
             num_stale_leaves: 0,
             num_new_leaves: 0,
