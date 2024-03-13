@@ -189,10 +189,7 @@ where
     }
 
     #[cfg(feature = "migration")]
-    pub fn new_overwrite(
-        reader: &'a R,
-        current_version: Version,
-    ) -> Result<Self> {
+    pub fn new_overwrite(reader: &'a R, current_version: Version) -> Result<Self> {
         let node_cache = HashMap::new();
         let root_node_key = NodeKey::new_empty_path(current_version);
         Ok(Self {
