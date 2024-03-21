@@ -72,7 +72,7 @@ use hashbrown::{hash_map::Entry, HashMap, HashSet};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, Result};
 
 use crate::{
     node_type::{Node, NodeKey},
@@ -201,7 +201,7 @@ where
             bail!("creating an overwrite cache for an empty tree is not supported")
         };
 
-        ensure!(
+        anyhow::ensure!(
             node_key.version() == current_version,
             "the supplied version is not the latest version of the tree"
         );
