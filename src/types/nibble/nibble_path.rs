@@ -98,14 +98,17 @@ prop_compose! {
 
 impl NibblePath {
     /// Creates a new `NibblePath` from a vector of bytes assuming each byte has 2 nibbles.
-    pub fn new(bytes: Vec<u8>) -> Self {
+    pub(crate) fn new(bytes: Vec<u8>) -> Self {
         checked_precondition!(bytes.len() <= ROOT_NIBBLE_HEIGHT / 2);
         let num_nibbles = bytes.len() * 2;
         NibblePath { num_nibbles, bytes }
     }
 
     /// Similar to `new()` but assumes that the bytes have one less nibble.
-    pub fn new_odd(bytes: Vec<u8>) -> Self {
+    // Unlike `new`, this function is not used under all feature combinations - so
+    // we #[allow(unused)] to silence the warnings
+    #[allow(unused)]
+    pub(crate) fn new_odd(bytes: Vec<u8>) -> Self {
         checked_precondition!(bytes.len() <= ROOT_NIBBLE_HEIGHT / 2);
         assert_eq!(
             bytes.last().expect("Should have odd number of nibbles.") & 0x0f,
@@ -117,7 +120,7 @@ impl NibblePath {
     }
 
     /// Adds a nibble to the end of the nibble path.
-    pub fn push(&mut self, nibble: Nibble) {
+    pub(crate) fn push(&mut self, nibble: Nibble) {
         assert!(ROOT_NIBBLE_HEIGHT > self.num_nibbles);
         if self.num_nibbles % 2 == 0 {
             self.bytes.push(u8::from(nibble) << 4);
@@ -128,7 +131,7 @@ impl NibblePath {
     }
 
     /// Pops a nibble from the end of the nibble path.
-    pub fn pop(&mut self) -> Option<Nibble> {
+    pub(crate) fn pop(&mut self) -> Option<Nibble> {
         let poped_nibble = if self.num_nibbles % 2 == 0 {
             self.bytes.last_mut().map(|last_byte| {
                 let nibble = *last_byte & 0x0f;
@@ -195,7 +198,7 @@ impl NibblePath {
     }
 
     /// Get the underlying bytes storing nibbles.
-    pub fn bytes(&self) -> &[u8] {
+    pub(crate) fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
