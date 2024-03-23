@@ -741,9 +741,9 @@ mod serialization_tests {
 
     #[test]
     fn test_sparse_merkle_proof_roundtrip_borsh() {
-        use borsh::{BorshDeserialize, BorshSerialize};
+        use borsh::BorshDeserialize;
         let proof = get_test_proof();
-        let serialized_proof = proof.try_to_vec().expect("serialization is infallible");
+        let serialized_proof = borsh::to_vec(&proof).expect("serialization is infallible");
         let deserialized =
             SparseMerkleProof::<Sha256>::deserialize(&mut serialized_proof.as_slice())
                 .expect("serialized proof is valid");
@@ -763,9 +763,9 @@ mod serialization_tests {
 
     #[test]
     fn test_sparse_merkle_range_proof_roundtrip_borsh() {
-        use borsh::{BorshDeserialize, BorshSerialize};
+        use borsh::BorshDeserialize;
         let proof = get_test_range_proof();
-        let serialized_proof = proof.try_to_vec().expect("serialization is infallible");
+        let serialized_proof = borsh::to_vec(&proof).expect("serialization is infallible");
         let deserialized =
             SparseMerkleRangeProof::<Sha256>::deserialize(&mut serialized_proof.as_slice())
                 .expect("serialized proof is valid");
