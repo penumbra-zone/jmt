@@ -188,6 +188,38 @@ where
         })
     }
 
+    #[cfg(feature = "migration")]
+    /// Instantiate a [`TreeCache`] over the a [`TreeReader`] that is defined
+    /// against a root node key at version `current_version`.
+    ///
+    /// # Usage
+    /// This method is used to perform incremental addition to a tree without
+    /// increasing the tree version's number.
+    pub fn new_overwrite(reader: &'a R, current_version: Version) -> Result<Self> {
+        let node_cache = HashMap::new();
+        let Some((node_key, _)) = reader.get_rightmost_leaf()? else {
+            bail!("creating an overwrite cache for an empty tree is not supported")
+        };
+
+        anyhow::ensure!(
+            node_key.version() == current_version,
+            "the supplied version is not the latest version of the tree"
+        );
+
+        let root_node_key = NodeKey::new_empty_path(current_version);
+        Ok(Self {
+            node_cache,
+            stale_node_index_cache: HashSet::new(),
+            frozen_cache: FrozenTreeCache::new(),
+            root_node_key,
+            next_version: current_version,
+            reader,
+            num_stale_leaves: 0,
+            num_new_leaves: 0,
+            value_cache: Default::default(),
+        })
+    }
+
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
     pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {

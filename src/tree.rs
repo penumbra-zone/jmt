@@ -445,6 +445,39 @@ where
         Ok(tree_cache.into())
     }
 
+    #[cfg(feature = "migration")]
+    /// Append value sets to the latest version of the tree, without incrementing its version.
+    pub fn append_value_set(
+        &self,
+        value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
+        latest_version: Version,
+    ) -> Result<(RootHash, TreeUpdateBatch)> {
+        let mut tree_cache = TreeCache::new_overwrite(self.reader, latest_version)?;
+        for (i, (key, value)) in value_set.into_iter().enumerate() {
+            let action = if value.is_some() { "insert" } else { "delete" };
+            let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+            tree_cache.put_value(latest_version, key, value);
+            self.put(key, value_hash, latest_version, &mut tree_cache, false)
+                .with_context(|| {
+                    format!(
+                        "failed to {} key {} for version {}, key = {:?}",
+                        action, i, latest_version, key
+                    )
+                })?;
+        }
+
+        // Freezes the current cache to make all contents in the current cache immutable.
+        tree_cache.freeze::<H>()?;
+        let (root_hash_vec, tree_batch) = tree_cache.into();
+        if root_hash_vec.len() != 1 {
+            bail!(
+                "appending a value set failed, we expected a single root hash, but got {}",
+                root_hash_vec.len()
+            );
+        }
+        Ok((root_hash_vec[0], tree_batch))
+    }
+
     /// Same as [`put_value_sets`], this method returns a Merkle proof for every update of the Merkle tree.
     /// The proofs can be verified using the [`verify_update`] method, which requires the old `root_hash`, the `merkle_proof` and the new `root_hash`
     /// The first argument contains all the root hashes that were stored in the tree cache so far. The last one is the new root hash of the tree.
