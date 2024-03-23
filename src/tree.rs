@@ -35,7 +35,6 @@ pub type Sha256Jmt<'a, R> = JellyfishMerkleTree<'a, R, sha2::Sha256>;
 /// and a [`SimpleHasher`] `H`. See [`crate`] for description.
 pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
     reader: &'a R,
-    leaf_count_migration: bool,
     _phantom_hasher: PhantomData<H>,
 }
 
@@ -51,15 +50,6 @@ where
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
-            leaf_count_migration: true,
-            _phantom_hasher: Default::default(),
-        }
-    }
-
-    pub fn new_migration(reader: &'a R, leaf_count_migration: bool) -> Self {
-        Self {
-            reader,
-            leaf_count_migration,
             _phantom_hasher: Default::default(),
         }
     }
@@ -193,8 +183,7 @@ where
                         ),
                     );
                 }
-                let new_internal_node =
-                    InternalNode::new_migration(children, self.leaf_count_migration);
+                let new_internal_node = InternalNode::new(children);
 
                 node_key.set_version(version);
 
@@ -300,8 +289,7 @@ where
                 tree_cache.put_node(existing_leaf_node_key, existing_leaf_node.into())?;
             }
 
-            let new_internal_node =
-                InternalNode::new_migration(children, self.leaf_count_migration);
+            let new_internal_node = InternalNode::new(children);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
             Ok((node_key, new_internal_node.into()))
@@ -343,8 +331,7 @@ where
                     ),
                 );
             }
-            let new_internal_node =
-                InternalNode::new_migration(children, self.leaf_count_migration);
+            let new_internal_node = InternalNode::new(children);
 
             tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
             Ok((node_key, new_internal_node.into()))
@@ -456,6 +443,39 @@ where
         }
 
         Ok(tree_cache.into())
+    }
+
+    #[cfg(feature = "migration")]
+    /// Append value sets to the latest version of the tree, without incrementing its version.
+    pub fn append_value_set(
+        &self,
+        value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
+        latest_version: Version,
+    ) -> Result<(RootHash, TreeUpdateBatch)> {
+        let mut tree_cache = TreeCache::new_overwrite(self.reader, latest_version)?;
+        for (i, (key, value)) in value_set.into_iter().enumerate() {
+            let action = if value.is_some() { "insert" } else { "delete" };
+            let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
+            tree_cache.put_value(latest_version, key, value);
+            self.put(key, value_hash, latest_version, &mut tree_cache, false)
+                .with_context(|| {
+                    format!(
+                        "failed to {} key {} for version {}, key = {:?}",
+                        action, i, latest_version, key
+                    )
+                })?;
+        }
+
+        // Freezes the current cache to make all contents in the current cache immutable.
+        tree_cache.freeze::<H>()?;
+        let (root_hash_vec, tree_batch) = tree_cache.into();
+        if root_hash_vec.len() != 1 {
+            bail!(
+                "appending a value set failed, we expected a single root hash, but got {}",
+                root_hash_vec.len()
+            );
+        }
+        Ok((root_hash_vec[0], tree_batch))
     }
 
     /// Same as [`put_value_sets`], this method returns a Merkle proof for every update of the Merkle tree.
@@ -910,7 +930,7 @@ where
                 Child::new(new_leaf_node.hash::<H>(), version, NodeType::Leaf),
             );
 
-            let internal_node = InternalNode::new_migration(children, self.leaf_count_migration);
+            let internal_node = InternalNode::new(children);
             let mut next_internal_node = internal_node.clone();
             tree_cache.put_node(node_key.clone(), internal_node.into())?;
 
@@ -1393,16 +1413,8 @@ where
     }
 
     // TODO: should this be public? seems coupled to tests?
-    pub fn get_leaf_count(&self, version: Version) -> Result<Option<usize>> {
-        if self.leaf_count_migration {
-            self.get_root_node(version).map(|n| n.leaf_count())
-        } else {
-            // When all children of an internal node are leaves, the leaf count is accessible
-            // even if the migration haven't started. In fact, in such a case, there's no difference
-            // in the old and new serialization format. Forcing it None here just to make the tests
-            // straightforward.
-            Ok(None)
-        }
+    pub fn get_leaf_count(&self, version: Version) -> Result<usize> {
+        self.get_root_node(version).map(|n| n.leaf_count())
     }
 }
 

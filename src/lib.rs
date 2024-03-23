@@ -256,7 +256,7 @@ impl KeyHash {
 impl core::fmt::Debug for KeyHash {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("KeyHash")
-            .field(&hex::encode(&self.0))
+            .field(&hex::encode(self.0))
             .finish()
     }
 }
@@ -264,7 +264,7 @@ impl core::fmt::Debug for KeyHash {
 impl core::fmt::Debug for ValueHash {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("ValueHash")
-            .field(&hex::encode(&self.0))
+            .field(&hex::encode(self.0))
             .finish()
     }
 }
@@ -272,7 +272,7 @@ impl core::fmt::Debug for ValueHash {
 impl core::fmt::Debug for RootHash {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("RootHash")
-            .field(&hex::encode(&self.0))
+            .field(&hex::encode(self.0))
             .finish()
     }
 }

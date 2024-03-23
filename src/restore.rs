@@ -39,7 +39,7 @@ enum ChildInfo {
     /// hash of an internal node after we see all the keys that share the same prefix.
     Internal {
         hash: Option<[u8; 32]>,
-        leaf_count: Option<usize>,
+        leaf_count: usize,
     },
 
     /// This child is a leaf node.
@@ -53,9 +53,7 @@ impl ChildInfo {
             Self::Internal { hash, leaf_count } => Child::new(
                 hash.expect("Must have been initialized."),
                 version,
-                leaf_count
-                    .map(|n| NodeType::Internal { leaf_count: n })
-                    .unwrap_or(NodeType::InternalLegacy),
+                NodeType::Internal { leaf_count },
             ),
             Self::Leaf { node } => Child::new(node.hash::<H>(), version, NodeType::Leaf),
         }
@@ -88,11 +86,7 @@ impl InternalInfo {
 
     /// Converts `self` to an internal node, assuming all of its children are already known and
     /// fully initialized.
-    fn into_internal_node<H: SimpleHasher>(
-        mut self,
-        version: Version,
-        leaf_count_migration: bool,
-    ) -> (NodeKey, InternalNode) {
+    fn into_internal_node<H: SimpleHasher>(mut self, version: Version) -> (NodeKey, InternalNode) {
         let mut children = Children::new();
 
         // Calling `into_iter` on an array is equivalent to calling `iter`:
@@ -103,10 +97,7 @@ impl InternalInfo {
             }
         }
 
-        (
-            self.node_key,
-            InternalNode::new_migration(children, leaf_count_migration),
-        )
+        (self.node_key, InternalNode::new(children))
     }
 }
 
@@ -165,9 +156,6 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher> {
     /// When the restoration process finishes, we expect the tree to have this root hash.
     expected_root_hash: RootHash,
 
-    /// Whether to use the new internal node format where leaf counts are written.
-    leaf_count_migration: bool,
-
     _phantom_hasher: PhantomData<H>,
 }
 
@@ -176,7 +164,6 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-        leaf_count_migration: bool,
     ) -> Result<Self> {
         let tree_reader = Arc::clone(&store);
         let (partial_nodes, previous_leaf) =
@@ -203,7 +190,6 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
             previous_leaf,
             num_keys_received: 0,
             expected_root_hash,
-            leaf_count_migration,
             _phantom_hasher: Default::default(),
         })
     }
@@ -212,7 +198,6 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-        leaf_count_migration: bool,
     ) -> Result<Self> {
         Ok(Self {
             store,
@@ -222,7 +207,6 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
             previous_leaf: None,
             num_keys_received: 0,
             expected_root_hash,
-            leaf_count_migration,
             _phantom_hasher: Default::default(),
         })
     }
@@ -284,7 +268,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                     index,
                     ChildInfo::Internal {
                         hash: None,
-                        leaf_count: None,
+                        leaf_count: 0,
                     },
                 );
             }
@@ -408,7 +392,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
             child_index,
             ChildInfo::Internal {
                 hash: None,
-                leaf_count: None,
+                leaf_count: 0,
             },
         );
 
@@ -428,7 +412,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                 u8::from(next_nibble) as usize,
                 ChildInfo::Internal {
                     hash: None,
-                    leaf_count: None,
+                    leaf_count: 0,
                 },
             );
             self.partial_nodes.push(internal_info);
@@ -512,8 +496,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
     fn freeze_internal_nodes(&mut self, num_remaining_nodes: usize) {
         while self.partial_nodes.len() > num_remaining_nodes {
             let last_node = self.partial_nodes.pop().expect("This node must exist.");
-            let (node_key, internal_node) =
-                last_node.into_internal_node::<H>(self.version, self.leaf_count_migration);
+            let (node_key, internal_node) = last_node.into_internal_node::<H>(self.version);
             // Keep the hash of this node before moving it into `frozen_nodes`, so we can update
             // its parent later.
             let node_hash = internal_node.hash::<H>();
@@ -537,8 +520,8 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
                         ref mut leaf_count,
                     }) => {
                         assert_eq!(hash.replace(node_hash), None);
-                        assert!(leaf_count.is_none());
-                        node_leaf_count.map(|n| leaf_count.replace(n));
+                        assert_eq!(*leaf_count, 0);
+                        *leaf_count = node_leaf_count;
                     }
                     _ => panic!(
                         "Must have at least one child and the rightmost child must not be a leaf."
