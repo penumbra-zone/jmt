@@ -24,7 +24,7 @@ migration = []
 
 [dependencies]
 anyhow = "1.0.38"
-borsh =  "0.10.0" 
+borsh = { version = "1.3.0" , features = ["derive", "de_strict_order"]}
 digest = "0.10" 
 hashbrown = "0.13.2"
 itertools = { version = "0.10.0", default-features = false }
