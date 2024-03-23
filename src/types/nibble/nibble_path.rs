@@ -105,7 +105,7 @@ impl NibblePath {
     }
 
     /// Similar to `new()` but assumes that the bytes have one less nibble.
-    // Unlike `new`, this function is not used under all feature combinations - so 
+    // Unlike `new`, this function is not used under all feature combinations - so
     // we #[allow(unused)] to silence the warnings
     #[allow(unused)]
     pub(crate) fn new_odd(bytes: Vec<u8>) -> Self {
