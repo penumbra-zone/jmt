@@ -595,11 +595,13 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         left_siblings.reverse();
 
         // Verify the proof now that we have all the siblings
-        proof.verify(
-            self.expected_root_hash,
-            SparseMerkleLeafNode::new(previous_key, previous_leaf.value_hash()),
-            left_siblings,
-        )
+        proof
+            .verify(
+                self.expected_root_hash,
+                SparseMerkleLeafNode::new(previous_key, previous_leaf.value_hash()),
+                left_siblings,
+            )
+            .map_err(Into::into)
     }
 
     /// Computes the sibling on the left for the `n`-th child.

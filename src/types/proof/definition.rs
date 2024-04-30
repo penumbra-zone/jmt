@@ -11,7 +11,7 @@ use crate::{
     Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 use alloc::vec::Vec;
-use anyhow::{ensure, format_err};
+use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
@@ -661,6 +661,25 @@ pub struct SparseMerkleRangeProof<H: SimpleHasher> {
     _phantom: PhantomData<H>,
 }
 
+/// Errors that can occur when [verifying] a [`SparseMerkleRangeProof`].
+///
+/// [verifying]: SparseMerkleRangeProof::verify
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RangeProofError {
+    #[error("Missing left sibling.")]
+    MissingLeftSibling,
+    #[error("Missing right sibling.")]
+    MissingRightSibling,
+    #[error(
+        "Root hashes do not match. Actual root hash: {actual:?}. Expected root hash: {expected:?}."
+    )]
+    RootHashMismatch {
+        actual: [u8; 32],
+        expected: [u8; 32],
+    },
+}
+
 // Manually implement PartialEq to circumvent [incorrect auto-bounds](https://github.com/rust-lang/rust/issues/26925)
 // TODO: Switch back to #[derive] once the perfect_derive feature lands
 impl<H: SimpleHasher> PartialEq for SparseMerkleRangeProof<H> {
@@ -712,7 +731,7 @@ impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
         expected_root_hash: RootHash,
         rightmost_known_leaf: SparseMerkleLeafNode,
         left_siblings: Vec<[u8; 32]>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), RangeProofError> {
         let num_siblings = left_siblings.len() + self.right_siblings.len();
         let mut left_sibling_iter = left_siblings.iter();
         let mut right_sibling_iter = self.right_siblings().iter();
@@ -729,7 +748,7 @@ impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
                 (
                     *left_sibling_iter
                         .next()
-                        .ok_or_else(|| format_err!("Missing left sibling."))?,
+                        .ok_or(RangeProofError::MissingLeftSibling)?,
                     current_hash,
                 )
             } else {
@@ -737,19 +756,19 @@ impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
                     current_hash,
                     right_sibling_iter
                         .next()
-                        .ok_or_else(|| format_err!("Missing right sibling."))?
+                        .ok_or(RangeProofError::MissingRightSibling)?
                         .hash::<H>(),
                 )
             };
             current_hash = SparseMerkleInternalNode::new(left_hash, right_hash).hash::<H>();
         }
 
-        ensure!(
-            current_hash == expected_root_hash.0,
-            "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
-            current_hash,
-            expected_root_hash,
-        );
+        if current_hash != expected_root_hash.0 {
+            return Err(RangeProofError::RootHashMismatch {
+                actual: current_hash,
+                expected: expected_root_hash.0,
+            });
+        }
 
         Ok(())
     }
