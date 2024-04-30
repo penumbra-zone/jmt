@@ -1,19 +1,7 @@
-use crate::storage::Node::Leaf;
-use alloc::{collections::BTreeMap, vec::Vec};
-use alloc::{format, vec};
-use anyhow::{bail, ensure, format_err, Context, Result};
-use core::marker::PhantomData;
-use core::{cmp::Ordering, convert::TryInto};
-#[cfg(not(feature = "std"))]
-use hashbrown::HashMap;
-#[cfg(feature = "std")]
-use std::collections::HashMap;
-
-use crate::proof::definition::UpdateMerkleProof;
-use crate::proof::{SparseMerkleLeafNode, SparseMerkleNode};
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
-    storage::{TreeReader, TreeUpdateBatch},
+    proof::{definition::UpdateMerkleProof, SparseMerkleLeafNode, SparseMerkleNode},
+    storage::{Node::Leaf, TreeReader, TreeUpdateBatch},
     tree_cache::TreeCache,
     types::{
         nibble::{
@@ -25,6 +13,14 @@ use crate::{
     },
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SimpleHasher, ValueHash,
 };
+use alloc::{collections::BTreeMap, format, vec, vec::Vec};
+use anyhow::{bail, ensure, format_err, Context, Result};
+use core::{cmp::Ordering, convert::TryInto, marker::PhantomData};
+
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 /// A [`JellyfishMerkleTree`] instantiated using the `sha2::Sha256` hasher.
 /// This is a sensible default choice for most applications.
