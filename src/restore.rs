@@ -7,9 +7,7 @@
 
 use core::marker::PhantomData;
 
-use alloc::boxed::Box;
-use alloc::vec;
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use anyhow::{bail, ensure, Result};
 use mirai_annotations::*;
