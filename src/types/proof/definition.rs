@@ -11,7 +11,6 @@ use crate::{
     Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 use alloc::vec::Vec;
-use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
@@ -78,6 +77,29 @@ pub enum VerifyError {
     RootHashMismatch {
         actual: [u8; 32],
         expected: [u8; 32],
+    },
+}
+
+/// Errors that may occur when a [`SparseMerkleProof<H>`] [computes] a new [`RootHash`].
+///
+/// [computes]: SparseMerkleProof::check_compute_new_root
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ComputeError {
+    #[error("Previous hash `{previous:?}` does not match proof's root hash `{proof_hash:?}`.")]
+    PreviousHashInvalid {
+        previous: RootHash,
+        proof_hash: RootHash,
+    },
+    #[error("Non-existence proof failed, key already exists.")]
+    KeyAlreadyExists,
+    #[error(
+        "Key {new_element_key:?} to remove doesn't match the leaf key {leaf_key:?} supplied with \
+         the proof"
+    )]
+    LeafKeyMismatch {
+        new_element_key: KeyHash,
+        leaf_key: KeyHash,
     },
 }
 
@@ -336,23 +358,35 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         )
     }
 
-    /// Checks the old value against the root hash and computes the new root hash based on
-    /// the new key value pair
+    /// Computes the new root hash, consuming this proof.
+    ///
+    /// This checks the old value against the root hash, and computes the new root hash based upon
+    /// the new key-value pair. The key-value pair consists of a [`KeyHash`] and a slice of bytes.
+    ///
+    /// This function returns an error if the provided root hash does not match this proof's own
+    /// root hash.
     fn check_compute_new_root<V: AsRef<[u8]>>(
         self,
         old_root_hash: RootHash,
         new_element_key: KeyHash,
         new_element_value: Option<V>,
-    ) -> Result<RootHash, anyhow::Error> {
+    ) -> Result<RootHash, ComputeError> {
         if let Some(new_element_value) = new_element_value {
-            // A value have been supplied, we need to prove that we inserted a given value at the new key
-
+            // A value have been supplied, we need to prove that we inserted a given value at the
+            // new key.
             match self.leaf {
-                // In the case there is a leaf in the Merkle path, we check that this leaf exists in the tree
-                // The inserted key is going to update an existing leaf
+                // In the case there is a leaf in the Merkle path, we check that this leaf exists
+                // in the tree. The inserted key is going to update an existing leaf.
                 Some(leaf_node) => {
-                    // First verify that the old merkle path is valid
-                    ensure!(self.root_hash() == old_root_hash);
+                    if self.root_hash() != old_root_hash {
+                        // Return an error if the "previous" hash provided does not match this
+                        // proof's own root hash.
+                        return Err(ComputeError::PreviousHashInvalid {
+                            previous: old_root_hash,
+                            proof_hash: self.root_hash(),
+                        });
+                    }
+
                     if new_element_key == leaf_node.key_hash {
                         // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
                         // In this case the siblings are left unchanged, only the leaf value is updated
@@ -380,9 +414,8 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 
                 // There is no leaf in the Merkle path, which means the key we are going to insert does not update an existing leaf
                 None => {
-                    ensure!(self
-                        .verify_nonexistence(old_root_hash, new_element_key)
-                        .is_ok());
+                    self.verify_nonexistence(old_root_hash, new_element_key)
+                        .map_err(|_| ComputeError::KeyAlreadyExists)?;
 
                     // Step 2: we compute the new Merkle path (we build a new [`SparseMerkleProof`] object)
                     // In that case, the leaf is none so we don't need to change the siblings
@@ -401,13 +434,22 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         } else {
             // No value supplied, we need to prove that the previous value was deleted
             if let Some(leaf_node) = self.leaf {
-                ensure!(self.root_hash() == old_root_hash);
-                ensure!(
-                    new_element_key == leaf_node.key_hash,
-                    "Key {:?} to remove doesn't match the leaf key {:?} supplied with the proof",
-                    new_element_key,
-                    leaf_node.key_hash
-                );
+                if self.root_hash() != old_root_hash {
+                    // Return an error if the "previous" hash provided does not match this
+                    // proof's own root hash.
+                    return Err(ComputeError::PreviousHashInvalid {
+                        previous: old_root_hash,
+                        proof_hash: self.root_hash(),
+                    });
+                }
+                if new_element_key != leaf_node.key_hash {
+                    // Return an error if the leaf key to be removed does not match the proof's
+                    // own key hash.
+                    return Err(ComputeError::LeafKeyMismatch {
+                        new_element_key,
+                        leaf_key: leaf_node.key_hash,
+                    });
+                }
 
                 // Step 2: we compute the new Merkle tree path.
                 // In case of deletion, we need to rewind the nibble until we reach the first non-default hash
@@ -567,9 +609,8 @@ pub enum UpdateError {
         actual: RootHash,
         expected: RootHash,
     },
-    // TODO(kate): this variant is left as a boxed error for now.
     #[error(transparent)]
-    NewRoot(anyhow::Error),
+    FailedToComputeNewRoot(ComputeError),
 }
 
 impl<H: SimpleHasher> UpdateMerkleProof<H> {
@@ -615,7 +656,7 @@ impl<H: SimpleHasher> UpdateMerkleProof<H> {
                     *new_element_key,
                     new_element_value.as_ref(),
                 )
-                .map_err(UpdateError::NewRoot)?;
+                .map_err(UpdateError::FailedToComputeNewRoot)?;
         }
 
         // (3). Return an error if the new Merkle path does not match the expected `new_root_hash`.
