@@ -1,13 +1,30 @@
+//! Facilities related for converting `jmt` Merkle proofs into ICS23 (non)existence proofs.
+
 use alloc::{self, vec::Vec};
 
 use crate::{
     proof::{SparseMerkleProof, INTERNAL_DOMAIN_SEPARATOR, LEAF_DOMAIN_SEPARATOR},
-    storage::HasPreimage,
-    storage::TreeReader,
+    storage::{HasPreimage, TreeReader},
     tree::ExclusionProof,
     JellyfishMerkleTree, KeyHash, OwnedValue, SimpleHasher, Version,
     SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
+
+/// Errors that may occur when converting merkle proofs into ICS23 proofs.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Ics23ProofError {
+    #[error("missing preimage for key hash")]
+    PreImageMissing,
+    // TODO(kate): this is kept as a boxed error for now.
+    #[error("preimage lookup failed: {0:?}")]
+    PreImageLookupFailed(anyhow::Error),
+    #[error("missing value for key hash")]
+    ValueMissing,
+    // TODO(kate): this is kept as a boxed error for now.
+    #[error("value lookup failed: {0:?}")]
+    ValueLookupFailed(anyhow::Error),
+}
 
 fn sparse_merkle_proof_to_ics23_existence_proof<H: SimpleHasher>(
     key: Vec<u8>,
@@ -81,7 +98,7 @@ where
         key: Vec<u8>,
         version: Version,
         proof: &ExclusionProof<H>,
-    ) -> Result<ics23::NonExistenceProof, anyhow::Error> {
+    ) -> Result<ics23::NonExistenceProof, Ics23ProofError> {
         match proof {
             ExclusionProof::Leftmost {
                 leftmost_right_proof,
@@ -92,12 +109,14 @@ where
                     .key_hash();
                 let key_left_proof = self
                     .reader
-                    .preimage(key_hash)?
-                    .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+                    .preimage(key_hash)
+                    .map_err(Ics23ProofError::PreImageLookupFailed)?
+                    .ok_or(Ics23ProofError::PreImageMissing)?;
 
                 let value = self
-                    .get(key_hash, version)?
-                    .ok_or(anyhow::anyhow!("missing value for key hash"))?;
+                    .get(key_hash, version)
+                    .map_err(Ics23ProofError::ValueLookupFailed)?
+                    .ok_or(Ics23ProofError::ValueMissing)?;
 
                 let leftmost_right_proof = sparse_merkle_proof_to_ics23_existence_proof(
                     key_left_proof.clone(),
@@ -120,12 +139,14 @@ where
                     .expect("must have leaf")
                     .key_hash();
                 let value_leftmost = self
-                    .get(leftmost_key_hash, version)?
-                    .ok_or(anyhow::anyhow!("missing value for key hash"))?;
+                    .get(leftmost_key_hash, version)
+                    .map_err(Ics23ProofError::ValueLookupFailed)?
+                    .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_leftmost = self
                     .reader
-                    .preimage(leftmost_key_hash)?
-                    .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+                    .preimage(leftmost_key_hash)
+                    .map_err(Ics23ProofError::PreImageLookupFailed)?
+                    .ok_or(Ics23ProofError::PreImageMissing)?;
                 let leftmost_right_proof = sparse_merkle_proof_to_ics23_existence_proof(
                     key_leftmost.clone(),
                     value_leftmost.clone(),
@@ -137,12 +158,14 @@ where
                     .expect("must have leaf")
                     .key_hash();
                 let value_rightmost = self
-                    .get(rightmost_key_hash, version)?
-                    .ok_or(anyhow::anyhow!("missing value for key hash"))?;
+                    .get(rightmost_key_hash, version)
+                    .map_err(Ics23ProofError::ValueLookupFailed)?
+                    .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_rightmost = self
                     .reader
-                    .preimage(rightmost_key_hash)?
-                    .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+                    .preimage(rightmost_key_hash)
+                    .map_err(Ics23ProofError::PreImageLookupFailed)?
+                    .ok_or(Ics23ProofError::PreImageMissing)?;
                 let rightmost_left_proof = sparse_merkle_proof_to_ics23_existence_proof(
                     key_rightmost.clone(),
                     value_rightmost.clone(),
@@ -163,12 +186,14 @@ where
                     .expect("must have leaf")
                     .key_hash();
                 let value_rightmost = self
-                    .get(rightmost_key_hash, version)?
-                    .ok_or(anyhow::anyhow!("missing value for key hash"))?;
+                    .get(rightmost_key_hash, version)
+                    .map_err(Ics23ProofError::ValueLookupFailed)?
+                    .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_rightmost = self
                     .reader
-                    .preimage(rightmost_key_hash)?
-                    .ok_or(anyhow::anyhow!("missing preimage for key hash"))?;
+                    .preimage(rightmost_key_hash)
+                    .map_err(Ics23ProofError::PreImageLookupFailed)?
+                    .ok_or(Ics23ProofError::PreImageMissing)?;
                 let rightmost_left_proof = sparse_merkle_proof_to_ics23_existence_proof(
                     key_rightmost.clone(),
                     value_rightmost.clone(),
@@ -191,9 +216,12 @@ where
         &self,
         key: Vec<u8>,
         version: Version,
-    ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof), anyhow::Error> {
+    ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof), Ics23ProofError> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
-        let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
+        let proof_or_exclusion = self
+            .get_with_exclusion_proof(key_hash, version)
+            .map_err(anyhow::Error::from)
+            .map_err(Ics23ProofError::ValueLookupFailed)?;
 
         match proof_or_exclusion {
             Ok((value, proof)) => {
