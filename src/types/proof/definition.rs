@@ -513,6 +513,28 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 #[derive(Debug, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct UpdateMerkleProof<H: SimpleHasher>(Vec<SparseMerkleProof<H>>);
 
+/// Errors that can occur when [updating] the [`JellyfishMerkleTree`].
+///
+/// [updating]: UpdateMerkleProof::verify_update
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum UpdateError {
+    #[error(
+        "Mismatched number of updates and proofs. Received {proofs} proofs for {updates} updates"
+    )]
+    ProofMismatch { proofs: usize, updates: usize },
+    #[error(
+        "Root hashes do not match. Actual root hash: {actual:?}. Expected root hash: {expected:?}."
+    )]
+    RootHashMismatch {
+        actual: RootHash,
+        expected: RootHash,
+    },
+    // TODO(kate): this variant is left as a boxed error for now.
+    #[error(transparent)]
+    NewRoot(anyhow::Error),
+}
+
 impl<H: SimpleHasher> UpdateMerkleProof<H> {
     pub fn new(merkle_proofs: Vec<SparseMerkleProof<H>>) -> Self {
         UpdateMerkleProof(merkle_proofs)
@@ -535,33 +557,37 @@ impl<H: SimpleHasher> UpdateMerkleProof<H> {
         old_root_hash: RootHash,
         new_root_hash: RootHash,
         updates: impl AsRef<[(KeyHash, Option<V>)]>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), UpdateError> {
         let updates = updates.as_ref();
-        ensure!(
-            updates.len() == self.0.len(),
-            "Mismatched number of updates and proofs. Received {} proofs for {} updates",
-            self.0.len(),
-            updates.len()
-        );
-        let mut curr_root_hash = old_root_hash;
 
+        if updates.len() != self.0.len() {
+            return Err(UpdateError::ProofMismatch {
+                proofs: self.0.len(),
+                updates: updates.len(),
+            });
+        }
+
+        let mut curr_root_hash = old_root_hash;
         for (merkle_proof, (new_element_key, new_element_value)) in
             self.0.into_iter().zip(updates.iter())
         {
             // Checks the old root hash and computes the new root
-            curr_root_hash = merkle_proof.check_compute_new_root(
-                curr_root_hash,
-                *new_element_key,
-                new_element_value.as_ref(),
-            )?;
+            curr_root_hash = merkle_proof
+                .check_compute_new_root(
+                    curr_root_hash,
+                    *new_element_key,
+                    new_element_value.as_ref(),
+                )
+                .map_err(UpdateError::NewRoot)?;
         }
 
-        ensure!(
-            curr_root_hash == new_root_hash,
-            "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
-            curr_root_hash,
-            new_root_hash,
-        );
+        // (3). Return an error if the new Merkle path does not match the expected `new_root_hash`.
+        if curr_root_hash != new_root_hash {
+            return Err(UpdateError::RootHashMismatch {
+                actual: curr_root_hash,
+                expected: new_root_hash,
+            });
+        }
 
         Ok(())
     }
