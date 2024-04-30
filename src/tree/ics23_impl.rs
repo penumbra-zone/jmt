@@ -1,6 +1,4 @@
-use alloc::vec;
-use alloc::vec::Vec;
-use anyhow::Result;
+use alloc::{self, vec::Vec};
 
 use crate::{
     proof::{SparseMerkleProof, INTERNAL_DOMAIN_SEPARATOR, LEAF_DOMAIN_SEPARATOR},
@@ -83,7 +81,7 @@ where
         key: Vec<u8>,
         version: Version,
         proof: &ExclusionProof<H>,
-    ) -> Result<ics23::NonExistenceProof> {
+    ) -> Result<ics23::NonExistenceProof, anyhow::Error> {
         match proof {
             ExclusionProof::Leftmost {
                 leftmost_right_proof,
@@ -193,7 +191,7 @@ where
         &self,
         key: Vec<u8>,
         version: Version,
-    ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof)> {
+    ) -> Result<(Option<OwnedValue>, ics23::CommitmentProof), anyhow::Error> {
         let key_hash: KeyHash = KeyHash::with::<H>(key.as_slice());
         let proof_or_exclusion = self.get_with_exclusion_proof(key_hash, version)?;
 
