@@ -8,30 +8,28 @@
 //! [`JellyfishMerkleTree`](crate::JellyfishMerkleTree). [`InternalNode`] represents a 4-level
 //! binary tree to optimize for IOPS: it compresses a tree with 31 nodes into one node with 16
 //! chidren at the lowest level. [`LeafNode`] stores the full key and the value associated.
-use crate::storage::TreeReader;
 
-use crate::SimpleHasher;
-use alloc::format;
-use alloc::vec::Vec;
-use alloc::{boxed::Box, vec};
+use alloc::{boxed::Box, format, vec::Vec};
+
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_derive::{FromPrimitive, ToPrimitive};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    storage::TreeReader,
+    types::{
+        nibble::{nibble_path::NibblePath, Nibble},
+        proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleNode},
+        Version,
+    },
+    KeyHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
+};
+
 #[cfg(any(test))]
 use proptest::prelude::*;
 #[cfg(any(test))]
 use proptest_derive::Arbitrary;
-use serde::{Deserialize, Serialize};
-
-use crate::proof::SparseMerkleNode;
-use crate::{
-    types::{
-        nibble::{nibble_path::NibblePath, Nibble},
-        proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
-        Version,
-    },
-    KeyHash, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
-};
 
 /// The unique key of each node.
 #[derive(
