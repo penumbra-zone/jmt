@@ -11,7 +11,7 @@ use crate::{
     Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 use alloc::vec::Vec;
-use anyhow::{bail, ensure, format_err, Result};
+use anyhow::{bail, ensure, format_err};
 use serde::{Deserialize, Serialize};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
@@ -103,7 +103,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         expected_root_hash: RootHash,
         element_key: KeyHash,
         element_value: V,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         self.verify(expected_root_hash, element_key, Some(element_value))
     }
 
@@ -113,7 +113,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         &self,
         expected_root_hash: RootHash,
         element_key: KeyHash,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         self.verify(expected_root_hash, element_key, None::<&[u8]>)
     }
 
@@ -126,7 +126,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         expected_root_hash: RootHash,
         element_key: KeyHash,
         element_value: Option<V>,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         ensure!(
             self.siblings.len() <= 256,
             "Sparse Merkle Tree proof has more than {} ({}) siblings.",
@@ -306,7 +306,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         old_root_hash: RootHash,
         new_element_key: KeyHash,
         new_element_value: Option<V>,
-    ) -> Result<RootHash> {
+    ) -> Result<RootHash, anyhow::Error> {
         if let Some(new_element_value) = new_element_value {
             // A value have been supplied, we need to prove that we inserted a given value at the new key
 
@@ -535,7 +535,7 @@ impl<H: SimpleHasher> UpdateMerkleProof<H> {
         old_root_hash: RootHash,
         new_root_hash: RootHash,
         updates: impl AsRef<[(KeyHash, Option<V>)]>,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         let updates = updates.as_ref();
         ensure!(
             updates.len() == self.0.len(),
@@ -649,7 +649,7 @@ impl<H: SimpleHasher> SparseMerkleRangeProof<H> {
         expected_root_hash: RootHash,
         rightmost_known_leaf: SparseMerkleLeafNode,
         left_siblings: Vec<[u8; 32]>,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         let num_siblings = left_siblings.len() + self.right_siblings.len();
         let mut left_sibling_iter = left_siblings.iter();
         let mut right_sibling_iter = self.right_siblings().iter();
