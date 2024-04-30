@@ -11,7 +11,7 @@ use crate::{
     Bytes32Ext, KeyHash, RootHash, SimpleHasher, ValueHash, SPARSE_MERKLE_PLACEHOLDER_HASH,
 };
 use alloc::vec::Vec;
-use anyhow::{bail, ensure, format_err};
+use anyhow::{ensure, format_err};
 use serde::{Deserialize, Serialize};
 
 /// A proof that can be used to authenticate an element in a Sparse Merkle Tree given trusted root
@@ -38,6 +38,47 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
 
     /// A marker type showing which hash function is used in this proof.
     phantom_hasher: PhantomData<H>,
+}
+
+/// Errors that occur when verifying a [`SparseMerkleProof`].
+///
+/// This is returned by [`SparseMerkleProof::verify()`], [`SparseMerkleProof::verify_existence()`],
+/// and [`SparseMerkleProof::verify_nonexistence()`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum VerifyError {
+    #[error("Sparse Merkle Tree proof has more than {max} ({siblings}) siblings.")]
+    TooManySiblings { max: usize, siblings: usize },
+    #[error("Keys do not match. Key in proof: {proof_key:?}. Expected key: {expected:?}.")]
+    InclusionProofInvalidKey {
+        proof_key: KeyHash,
+        expected: KeyHash,
+    },
+    #[error(
+        "Value hashes do not match. Value hash in proof: {proof_hash:?}. \
+        Expected value hash: {expected:?}"
+    )]
+    InclusionProofValueHashInvalid {
+        proof_hash: ValueHash,
+        expected: ValueHash,
+    },
+    #[error("Expected inclusion proof. Found non-inclusion proof.")]
+    ProofMismatch,
+    #[error("Expected non-inclusion proof, but key exists in proof.")]
+    NonInclusionKeyExists,
+    #[error(
+        "Key would not have ended up in the subtree where the provided key in proof \
+         is the only existing key, if it existed. So this is not a valid \
+         non-inclusion proof."
+    )]
+    NonInclusionProofInvalid,
+    #[error(
+        "Root hashes do not match. Actual root hash: {actual:?}. Expected root hash: {expected:?}."
+    )]
+    RootHashMismatch {
+        actual: [u8; 32],
+        expected: [u8; 32],
+    },
 }
 
 // Deriving Debug fails since H is not Debug though phantom_hasher implements it
@@ -103,7 +144,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         expected_root_hash: RootHash,
         element_key: KeyHash,
         element_value: V,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), VerifyError> {
         self.verify(expected_root_hash, element_key, Some(element_value))
     }
 
@@ -113,7 +154,7 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         &self,
         expected_root_hash: RootHash,
         element_key: KeyHash,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), VerifyError> {
         self.verify(expected_root_hash, element_key, None::<&[u8]>)
     }
 
@@ -126,50 +167,46 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
         expected_root_hash: RootHash,
         element_key: KeyHash,
         element_value: Option<V>,
-    ) -> Result<(), anyhow::Error> {
-        ensure!(
-            self.siblings.len() <= 256,
-            "Sparse Merkle Tree proof has more than {} ({}) siblings.",
-            256,
-            self.siblings.len(),
-        );
+    ) -> Result<(), VerifyError> {
+        const MAX_SIBLINGS: usize = 256;
+        if self.siblings.len() > MAX_SIBLINGS {
+            return Err(VerifyError::TooManySiblings {
+                max: MAX_SIBLINGS,
+                siblings: self.siblings.len(),
+            });
+        }
 
         match (element_value, self.leaf.clone()) {
             (Some(value), Some(leaf)) => {
                 // This is an inclusion proof, so the key and value hash provided in the proof
                 // should match element_key and element_value_hash. `siblings` should prove the
                 // route from the leaf node to the root.
-                ensure!(
-                    element_key == leaf.key_hash,
-                    "Keys do not match. Key in proof: {:?}. Expected key: {:?}.",
-                    leaf.key_hash,
-                    element_key
-                );
+                if element_key != leaf.key_hash {
+                    return Err(VerifyError::InclusionProofInvalidKey {
+                        proof_key: leaf.key_hash,
+                        expected: element_key,
+                    });
+                }
                 let hash: ValueHash = ValueHash::with::<H>(value);
-                ensure!(
-                    hash == leaf.value_hash,
-                    "Value hashes do not match. Value hash in proof: {:?}. \
-                     Expected value hash: {:?}",
-                    leaf.value_hash,
-                    hash,
-                );
+                if hash != leaf.value_hash {
+                    return Err(VerifyError::InclusionProofValueHashInvalid {
+                        proof_hash: leaf.value_hash,
+                        expected: hash,
+                    });
+                }
             }
-            (Some(_value), None) => bail!("Expected inclusion proof. Found non-inclusion proof."),
+            (Some(_value), None) => return Err(VerifyError::ProofMismatch),
             (None, Some(leaf)) => {
                 // This is a non-inclusion proof. The proof intends to show that if a leaf node
                 // representing `element_key` is inserted, it will break a currently existing leaf
                 // node represented by `proof_key` into a branch. `siblings` should prove the
                 // route from that leaf node to the root.
-                ensure!(
-                    element_key != leaf.key_hash,
-                    "Expected non-inclusion proof, but key exists in proof.",
-                );
-                ensure!(
-                    element_key.0.common_prefix_bits_len(&leaf.key_hash.0) >= self.siblings.len(),
-                    "Key would not have ended up in the subtree where the provided key in proof \
-                     is the only existing key, if it existed. So this is not a valid \
-                     non-inclusion proof.",
-                );
+                if element_key == leaf.key_hash {
+                    return Err(VerifyError::NonInclusionKeyExists);
+                }
+                if element_key.0.common_prefix_bits_len(&leaf.key_hash.0) < self.siblings.len() {
+                    return Err(VerifyError::NonInclusionProofInvalid);
+                }
             }
             (None, None) => {
                 // This is a non-inclusion proof. The proof intends to show that if a leaf node
@@ -200,12 +237,12 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
                 }
             });
 
-        ensure!(
-            actual_root_hash == expected_root_hash.0,
-            "Root hashes do not match. Actual root hash: {:?}. Expected root hash: {:?}.",
-            actual_root_hash,
-            expected_root_hash.0,
-        );
+        if actual_root_hash != expected_root_hash.0 {
+            return Err(VerifyError::RootHashMismatch {
+                actual: actual_root_hash,
+                expected: expected_root_hash.0,
+            });
+        }
 
         Ok(())
     }
