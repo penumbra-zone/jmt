@@ -110,7 +110,7 @@ pub use types::Version;
 pub mod storage {
     pub use node_type::{LeafNode, Node, NodeKey};
     pub use reader::HasPreimage;
-    pub use reader::TreeReader;
+    pub use reader::{TreeReader, TreeReaderExt};
     pub use types::nibble::nibble_path::NibblePath;
     pub use writer::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeUpdateBatch, TreeWriter,

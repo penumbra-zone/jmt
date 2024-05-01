@@ -149,6 +149,7 @@ pub struct TreeCache<'a, R> {
 impl<'a, R> TreeCache<'a, R>
 where
     R: 'a + TreeReader,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     /// Constructs a new `TreeCache` instance.
     pub fn new(reader: &'a R, next_version: Version) -> Result<Self, anyhow::Error> {
@@ -221,19 +222,21 @@ where
     }
 
     /// Gets a node with given node key. If it doesn't exist in node cache, read from `reader`.
-    pub fn get_node(&self, node_key: &NodeKey) -> Result<Node> {
+    //  TODO(kate): this interface is left as a boxed error, for now.
+    pub fn get_node(&self, node_key: &NodeKey) -> Result<Node, anyhow::Error> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             node.clone()
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
             node.clone()
         } else {
+            use crate::storage::TreeReaderExt;
             self.reader.get_node(node_key)?
         })
     }
 
     /// Gets a node with the given node key. If it doesn't exist in node cache, read from `reader`
     /// If it doesn't exist anywhere, return `None`.
-    pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+    pub fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>, R::Error> {
         Ok(if let Some(node) = self.node_cache.get(node_key) {
             Some(node.clone())
         } else if let Some(node) = self.frozen_cache.node_cache.nodes().get(node_key) {
@@ -360,8 +363,11 @@ where
 impl<'a, R> TreeReader for TreeCache<'a, R>
 where
     R: 'a + TreeReader,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
-    fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+    type Error = <R as TreeReader>::Error;
+
+    fn get_node_option(&self, node_key: &NodeKey) -> Result<Option<Node>, Self::Error> {
         self.get_node_option(node_key)
     }
 
@@ -369,7 +375,7 @@ where
         &self,
         max_version: Version,
         key_hash: KeyHash,
-    ) -> Result<Option<OwnedValue>> {
+    ) -> Result<Option<OwnedValue>, Self::Error> {
         for ((version, _hash), value) in self
             .value_cache
             .iter()
@@ -383,7 +389,9 @@ where
         self.reader.get_value_option(max_version, key_hash)
     }
 
-    fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, crate::storage::LeafNode)>> {
+    fn get_rightmost_leaf(
+        &self,
+    ) -> Result<Option<(NodeKey, crate::storage::LeafNode)>, Self::Error> {
         unimplemented!("get_rightmost_leaf should not be used with a tree cache")
     }
 }

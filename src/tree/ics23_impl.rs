@@ -92,6 +92,7 @@ impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader + HasPreimage,
     H: SimpleHasher,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     fn exclusion_proof_to_ics23_nonexistence_proof(
         &self,
@@ -115,6 +116,7 @@ where
 
                 let value = self
                     .get(key_hash, version)
+                    .map_err(anyhow::Error::from)
                     .map_err(Ics23ProofError::ValueLookupFailed)?
                     .ok_or(Ics23ProofError::ValueMissing)?;
 
@@ -140,6 +142,7 @@ where
                     .key_hash();
                 let value_leftmost = self
                     .get(leftmost_key_hash, version)
+                    .map_err(anyhow::Error::from)
                     .map_err(Ics23ProofError::ValueLookupFailed)?
                     .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_leftmost = self
@@ -159,6 +162,7 @@ where
                     .key_hash();
                 let value_rightmost = self
                     .get(rightmost_key_hash, version)
+                    .map_err(anyhow::Error::from)
                     .map_err(Ics23ProofError::ValueLookupFailed)?
                     .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_rightmost = self
@@ -187,6 +191,7 @@ where
                     .key_hash();
                 let value_rightmost = self
                     .get(rightmost_key_hash, version)
+                    .map_err(anyhow::Error::from)
                     .map_err(Ics23ProofError::ValueLookupFailed)?
                     .ok_or(Ics23ProofError::ValueMissing)?;
                 let key_rightmost = self

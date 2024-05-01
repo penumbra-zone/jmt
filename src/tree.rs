@@ -1,7 +1,7 @@
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     proof::{definition::UpdateMerkleProof, SparseMerkleLeafNode, SparseMerkleNode},
-    storage::{Node::Leaf, TreeReader, TreeUpdateBatch},
+    storage::{Node::Leaf, TreeReader, TreeReaderExt, TreeUpdateBatch},
     tree_cache::TreeCache,
     types::{
         nibble::{
@@ -41,6 +41,7 @@ impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader,
     H: SimpleHasher,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`].
     pub fn new(reader: &'a R) -> Self {
@@ -664,7 +665,7 @@ where
         let (put_result, merkle_proof) = match internal_node.child(child_index) {
             Some(child) => {
                 let (child_node_key, mut siblings) = if with_proof {
-                    let (child_key, siblings) = internal_node.get_child_with_siblings::<H>(
+                    let (child_key, siblings) = internal_node.get_child_with_siblings::<H, _>(
                         tree_cache,
                         &node_key,
                         child_index,
@@ -705,7 +706,7 @@ where
                 // we are looking for.
                 let merkle_proof = if with_proof {
                     let (child_key_opt, mut siblings) = internal_node
-                        .get_only_child_with_siblings::<H>(tree_cache, &node_key, child_index);
+                        .get_only_child_with_siblings::<H, _>(tree_cache, &node_key, child_index);
 
                     let leaf: Option<SparseMerkleLeafNode> = child_key_opt.map(|child_key|
                     {
@@ -1027,7 +1028,7 @@ where
                         .ok_or_else(|| format_err!("ran out of nibbles"))?;
 
                     let (child_node_key, mut siblings_in_internal) = internal_node
-                        .get_only_child_with_siblings::<H>(
+                        .get_only_child_with_siblings::<H, _>(
                             self.reader,
                             &next_node_key,
                             queried_child_index,
@@ -1355,7 +1356,7 @@ where
         &self,
         key: KeyHash,
         version: Version,
-    ) -> Result<Option<OwnedValue>, anyhow::Error> {
+    ) -> Result<Option<OwnedValue>, <R as TreeReader>::Error> {
         self.reader.get_value_option(version, key)
     }
 
@@ -1390,7 +1391,11 @@ where
     ///
     /// Equivalent to [`get_with_proof`](JellyfishMerkleTree::get_with_proof) and dropping the
     /// proof, but more efficient.
-    pub fn get(&self, key: KeyHash, version: Version) -> Result<Option<OwnedValue>, anyhow::Error> {
+    pub fn get(
+        &self,
+        key: KeyHash,
+        version: Version,
+    ) -> Result<Option<OwnedValue>, <R as TreeReader>::Error> {
         self.get_without_proof(key, version)
     }
 
@@ -1402,7 +1407,7 @@ where
     pub(crate) fn get_root_node_option(
         &self,
         version: Version,
-    ) -> Result<Option<Node>, anyhow::Error> {
+    ) -> Result<Option<Node>, <R as TreeReader>::Error> {
         let root_node_key = NodeKey::new_empty_path(version);
         self.reader.get_node_option(&root_node_key)
     }
@@ -1414,15 +1419,21 @@ where
     pub fn get_root_hash_option(
         &self,
         version: Version,
-    ) -> Result<Option<RootHash>, anyhow::Error> {
+    ) -> Result<Option<RootHash>, <R as TreeReader>::Error> {
         Ok(self
             .get_root_node_option(version)?
             .map(|n| RootHash(n.hash::<H>())))
     }
 
     // TODO: should this be public? seems coupled to tests?
-    pub fn get_leaf_count(&self, version: Version) -> Result<usize, anyhow::Error> {
-        self.get_root_node(version).map(|n| n.leaf_count())
+    pub fn get_leaf_count(
+        &self,
+        version: Version,
+    ) -> Result<Option<usize>, <R as TreeReader>::Error> {
+        Ok(self
+            .get_root_node_option(version)?
+            .as_ref()
+            .map(Node::leaf_count))
     }
 }
 

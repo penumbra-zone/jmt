@@ -12,7 +12,7 @@ use anyhow::{bail, ensure, format_err};
 
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
-    storage::TreeReader,
+    storage::{TreeReader, TreeReaderExt},
     types::{
         nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
         Version,
@@ -117,6 +117,7 @@ pub struct JellyfishMerkleIterator<R> {
 impl<R> JellyfishMerkleIterator<R>
 where
     R: TreeReader,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the smallest key that is greater or equal to
@@ -282,6 +283,7 @@ where
 impl<R> Iterator for JellyfishMerkleIterator<R>
 where
     R: TreeReader,
+    <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     type Item = Result<(KeyHash, OwnedValue), anyhow::Error>;
 

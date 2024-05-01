@@ -158,11 +158,15 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher, WriteError> {
 }
 
 impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
-    pub fn new<D: 'static + TreeReader + TreeWriter<Error = E>>(
+    pub fn new<D>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, anyhow::Error>
+    where
+        D: 'static + TreeReader + TreeWriter<Error = E>,
+        <D as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let tree_reader = Arc::clone(&store);
         let (partial_nodes, previous_leaf) =
             if let Some((node_key, leaf_node)) = tree_reader.get_rightmost_leaf()? {
@@ -211,11 +215,14 @@ impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
 
     /// Recovers partial nodes from storage. We do this by looking at all the ancestors of the
     /// rightmost leaf. The ones do not exist in storage are the partial nodes.
-    fn recover_partial_nodes(
-        store: &dyn TreeReader,
+    fn recover_partial_nodes<RE>(
+        store: &dyn TreeReader<Error = RE>,
         version: Version,
         rightmost_leaf_node_key: NodeKey,
-    ) -> Result<Vec<InternalInfo>, anyhow::Error> {
+    ) -> Result<Vec<InternalInfo>, anyhow::Error>
+    where
+        RE: std::error::Error + Send + Sync + 'static,
+    {
         ensure!(
             !rightmost_leaf_node_key.nibble_path().is_empty(),
             "Root node would not be written until entire restoration process has completed \

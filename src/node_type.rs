@@ -17,7 +17,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    storage::TreeReader,
+    storage::{TreeReader, TreeReaderExt},
     types::{
         nibble::{nibble_path::NibblePath, Nibble},
         proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleNode},
@@ -497,16 +497,21 @@ impl InternalNode {
     }
 
     /// [`build_sibling`] builds the sibling contained in the merkle tree between
-    /// [start; start+width) under the internal node (`self`) using the `TreeReader` as
-    /// a node reader to get the leaves/internal nodes at the bottom level of this internal node
-    fn build_sibling<H: SimpleHasher>(
+    /// [start; start+width) under the internal node (`self`) using the [`TreeReader`] as
+    /// a node reader to get the leaves/internal nodes at the bottom level of this internal node.
+    fn build_sibling<H, R>(
         &self,
-        tree_reader: &impl TreeReader,
+        tree_reader: &R,
         node_key: &NodeKey,
         start: u8,
         width: u8,
         (existence_bitmap, leaf_bitmap): (u16, u16),
-    ) -> SparseMerkleNode {
+    ) -> SparseMerkleNode
+    where
+        H: SimpleHasher,
+        R: TreeReader,
+        <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
+    {
         // Given a bit [start, 1 << nibble_height], return the value of that range.
         let (range_existence_bitmap, range_leaf_bitmap) =
             Self::range_bitmaps(start, width, (existence_bitmap, leaf_bitmap));
@@ -671,13 +676,18 @@ impl InternalNode {
     ///     |   MSB|<---------------------- uint 16 ---------------------------->|LSB
     ///  height    chs: `child_half_start`         shs: `sibling_half_start`
     /// ```
-    fn get_child_with_siblings_helper<H: SimpleHasher>(
+    fn get_child_with_siblings_helper<H, R>(
         &self,
-        tree_reader: &impl TreeReader,
+        tree_reader: &R,
         node_key: &NodeKey,
         n: Nibble,
         get_only_child: bool,
-    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>)
+    where
+        H: SimpleHasher,
+        R: TreeReader,
+        <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let mut siblings: Vec<SparseMerkleNode> = vec![];
         let (existence_bitmap, leaf_bitmap) = self.generate_bitmaps();
 
@@ -690,7 +700,7 @@ impl InternalNode {
             let width = 1 << h;
             let (child_half_start, sibling_half_start) = get_child_and_sibling_half_start(n, h);
             // Compute the root hash of the subtree rooted at the sibling of `r`.
-            siblings.push(self.build_sibling::<H>(
+            siblings.push(self.build_sibling::<H, R>(
                 tree_reader,
                 node_key,
                 sibling_half_start,
@@ -760,13 +770,18 @@ impl InternalNode {
 
     /// [`get_child_with_siblings`] will return the child from this subtree that matches the nibble n in addition
     /// to building the list of its sibblings. This function has the same behavior as [`child`].
-    pub(crate) fn get_child_with_siblings<H: SimpleHasher>(
+    pub(crate) fn get_child_with_siblings<H, R>(
         &self,
-        tree_cache: &impl TreeReader,
+        tree_cache: &R,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
-        self.get_child_with_siblings_helper::<H>(tree_cache, node_key, n, false)
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>)
+    where
+        H: SimpleHasher,
+        R: TreeReader,
+        <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
+    {
+        self.get_child_with_siblings_helper::<H, R>(tree_cache, node_key, n, false)
     }
 
     /// [`get_only_child_with_siblings`] will **either** return the child that matches the nibble n or the only
@@ -775,13 +790,18 @@ impl InternalNode {
     /// Even this leaf child is not the n-th child, it should be returned instead of
     /// `None` because it's existence indirectly proves the n-th child doesn't exist.
     /// Please read proof format for details.
-    pub(crate) fn get_only_child_with_siblings<H: SimpleHasher>(
+    pub(crate) fn get_only_child_with_siblings<H: SimpleHasher, R>(
         &self,
-        tree_reader: &impl TreeReader,
+        tree_reader: &R,
         node_key: &NodeKey,
         n: Nibble,
-    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>) {
-        self.get_child_with_siblings_helper::<H>(tree_reader, node_key, n, true)
+    ) -> (Option<NodeKey>, Vec<SparseMerkleNode>)
+    where
+        H: SimpleHasher,
+        R: TreeReader,
+        <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
+    {
+        self.get_child_with_siblings_helper::<H, R>(tree_reader, node_key, n, true)
     }
 
     #[cfg(test)]
