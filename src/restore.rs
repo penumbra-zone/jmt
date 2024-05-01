@@ -9,7 +9,7 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, ensure};
 use mirai_annotations::*;
 
 use crate::{
@@ -162,7 +162,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-    ) -> Result<Self> {
+    ) -> Result<Self, anyhow::Error> {
         let tree_reader = Arc::clone(&store);
         let (partial_nodes, previous_leaf) =
             if let Some((node_key, leaf_node)) = tree_reader.get_rightmost_leaf()? {
@@ -196,7 +196,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-    ) -> Result<Self> {
+    ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             store,
             version,
@@ -215,7 +215,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         store: &dyn TreeReader,
         version: Version,
         rightmost_leaf_node_key: NodeKey,
-    ) -> Result<Vec<InternalInfo>> {
+    ) -> Result<Vec<InternalInfo>, anyhow::Error> {
         ensure!(
             !rightmost_leaf_node_key.nibble_path().is_empty(),
             "Root node would not be written until entire restoration process has completed \
@@ -290,7 +290,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         ensure!(!chunk.is_empty(), "Should not add empty chunks.");
 
         for (key, value) in chunk {
@@ -533,7 +533,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
     /// `self.previous_leaf`) are correct, i.e., we are able to construct `self.expected_root_hash`
     /// by combining all existing accounts and `proof`.
     #[allow(clippy::collapsible_if)]
-    fn verify(&self, proof: SparseMerkleRangeProof<H>) -> Result<()> {
+    fn verify(&self, proof: SparseMerkleRangeProof<H>) -> Result<(), anyhow::Error> {
         let previous_leaf = self
             .previous_leaf
             .as_ref()
@@ -682,7 +682,7 @@ pub trait StateSnapshotReceiver<H: SimpleHasher> {
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<()>;
+    ) -> Result<(), anyhow::Error>;
 
     fn finish(self) -> Result<()>;
 
@@ -694,7 +694,7 @@ impl<H: SimpleHasher> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H> {
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         self.add_chunk_impl(chunk, proof)
     }
 
