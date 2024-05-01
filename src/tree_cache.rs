@@ -72,8 +72,6 @@ use hashbrown::{hash_map::Entry, HashMap, HashSet};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
-use anyhow::bail;
-
 use crate::{
     node_type::{Node, NodeKey},
     storage::{
@@ -144,6 +142,19 @@ pub struct TreeCache<'a, R> {
 
     /// The underlying persistent storage.
     reader: &'a R,
+}
+
+/// An error returned when a [`Node`] could not be [put] into the [`TreeCache<'a, R>`].
+///
+/// [put]: TreeCache::put_node
+#[derive(Debug, thiserror::Error)]
+#[error("node with key {key:?} already exists")]
+#[non_exhaustive]
+pub struct NodeAlreadyExists {
+    /// The key that already corresponded to a [`Node`] in the cache.
+    key: NodeKey,
+    /// The [`Node`] that could not be inserted into the cache.
+    node: Node,
 }
 
 impl<'a, R> TreeCache<'a, R>
@@ -256,8 +267,11 @@ where
         self.root_node_key = root_node_key;
     }
 
-    /// Puts the node with given hash as key into node_cache.
-    pub fn put_node(&mut self, node_key: NodeKey, new_node: Node) -> Result<(), anyhow::Error> {
+    /// Puts the node with given hash as key into the inner `node_cache`.
+    ///
+    /// This function returns an `Err(())` to signal that a node with the provided [`NodeKey`]
+    /// already existed in the node cache.
+    pub fn put_node(&mut self, node_key: NodeKey, new_node: Node) -> Result<(), NodeAlreadyExists> {
         match self.node_cache.entry(node_key) {
             Entry::Vacant(o) => {
                 if new_node.is_leaf() {
@@ -265,8 +279,14 @@ where
                 }
                 o.insert(new_node);
             }
-            Entry::Occupied(o) => bail!("Node with key {:?} already exists in NodeBatch", o.key()),
+            Entry::Occupied(o) => {
+                return Err(NodeAlreadyExists {
+                    key: o.key().to_owned(),
+                    node: new_node,
+                })
+            }
         };
+
         Ok(())
     }
 
