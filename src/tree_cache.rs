@@ -157,6 +157,18 @@ pub struct NodeAlreadyExists {
     node: Node,
 }
 
+/// An error returned when [`TreeCache::freeze()`] fails.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FreezeError<E> {
+    #[error(transparent)]
+    GetNodeFailed(E),
+    #[error(transparent)]
+    PutNodeFailed(NodeAlreadyExists),
+    #[error("root node could not be found")]
+    RootNodeMissing,
+}
+
 impl<'a, R> TreeCache<'a, R>
 where
     R: 'a + TreeReader,
@@ -310,17 +322,21 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze<H: SimpleHasher>(&mut self) -> Result<(), anyhow::Error> {
+    pub fn freeze<H: SimpleHasher>(&mut self) -> Result<(), FreezeError<R::Error>> {
         let mut root_node_key = self.get_root_node_key().clone();
 
-        let root_node = if let Some(root_node) = self.get_node_option(&root_node_key)? {
+        let root_node = if let Some(root_node) = self
+            .get_node_option(&root_node_key)
+            .map_err(FreezeError::GetNodeFailed)?
+        {
             root_node
         } else {
             // If the root node does not exist, then we need to set it to the null node and record
             // that node hash as the root hash of this version. This will happen if you delete as
             // the first operation on an empty tree, but also if you manage to delete every single
             // key-value mapping in the tree.
-            self.put_node(root_node_key.clone(), Node::new_null())?;
+            self.put_node(root_node_key.clone(), Node::new_null())
+                .map_err(FreezeError::PutNodeFailed)?;
             Node::Null
         };
 
@@ -340,9 +356,13 @@ where
             && self.node_cache.is_empty()
             && self.stale_node_index_cache.is_empty()
         {
-            let root_node = self.get_node(&self.root_node_key)?;
+            let root_node = self
+                .get_node_option(&self.root_node_key)
+                .map_err(FreezeError::GetNodeFailed)?
+                .ok_or(FreezeError::RootNodeMissing)?;
             root_node_key.set_version(self.next_version);
-            self.put_node(root_node_key, root_node)?;
+            self.put_node(root_node_key, root_node)
+                .map_err(FreezeError::PutNodeFailed)?;
         }
 
         // Transfer all the state from this version of the cache into the immutable version of the
