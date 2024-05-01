@@ -72,7 +72,7 @@ use hashbrown::{hash_map::Entry, HashMap, HashSet};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
-use anyhow::{bail, Result};
+use anyhow::bail;
 
 use crate::{
     node_type::{Node, NodeKey},
@@ -151,7 +151,7 @@ where
     R: 'a + TreeReader,
 {
     /// Constructs a new `TreeCache` instance.
-    pub fn new(reader: &'a R, next_version: Version) -> Result<Self> {
+    pub fn new(reader: &'a R, next_version: Version) -> Result<Self, anyhow::Error> {
         let mut node_cache = HashMap::new();
         let root_node_key = if next_version == 0 {
             let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
@@ -195,7 +195,7 @@ where
     /// # Usage
     /// This method is used to perform incremental addition to a tree without
     /// increasing the tree version's number.
-    pub fn new_overwrite(reader: &'a R, current_version: Version) -> Result<Self> {
+    pub fn new_overwrite(reader: &'a R, current_version: Version) -> Result<Self, anyhow::Error> {
         let node_cache = HashMap::new();
         let Some((node_key, _)) = reader.get_rightmost_leaf()? else {
             bail!("creating an overwrite cache for an empty tree is not supported")
@@ -254,7 +254,7 @@ where
     }
 
     /// Puts the node with given hash as key into node_cache.
-    pub fn put_node(&mut self, node_key: NodeKey, new_node: Node) -> Result<()> {
+    pub fn put_node(&mut self, node_key: NodeKey, new_node: Node) -> Result<(), anyhow::Error> {
         match self.node_cache.entry(node_key) {
             Entry::Vacant(o) => {
                 if new_node.is_leaf() {
@@ -287,7 +287,7 @@ where
     }
 
     /// Freezes all the contents in cache to be immutable and clear `node_cache`.
-    pub fn freeze<H: SimpleHasher>(&mut self) -> Result<()> {
+    pub fn freeze<H: SimpleHasher>(&mut self) -> Result<(), anyhow::Error> {
         let mut root_node_key = self.get_root_node_key().clone();
 
         let root_node = if let Some(root_node) = self.get_node_option(&root_node_key)? {
