@@ -175,7 +175,7 @@ where
     <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
     /// Constructs a new `TreeCache` instance.
-    pub fn new(reader: &'a R, next_version: Version) -> Result<Self, anyhow::Error> {
+    pub fn new(reader: &'a R, next_version: Version) -> Result<Self, R::Error> {
         let mut node_cache = HashMap::new();
         let root_node_key = if next_version == 0 {
             let pre_genesis_root_key = NodeKey::new_empty_path(PRE_GENESIS_VERSION);
