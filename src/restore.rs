@@ -102,9 +102,9 @@ impl InternalInfo {
 /// Implements the functionality to restore a
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree) from small chunks of
 /// key-value pairs.
-pub struct JellyfishMerkleRestore<H: SimpleHasher> {
+pub struct JellyfishMerkleRestore<H: SimpleHasher, WriteError> {
     /// The underlying storage.
-    store: Arc<dyn TreeWriter>,
+    store: Arc<dyn TreeWriter<Error = WriteError>>,
 
     /// The version of the tree we are restoring.
     version: Version,
@@ -157,8 +157,8 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher> {
     _phantom_hasher: PhantomData<H>,
 }
 
-impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
-    pub fn new<D: 'static + TreeReader + TreeWriter>(
+impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
+    pub fn new<D: 'static + TreeReader + TreeWriter<Error = E>>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
@@ -192,7 +192,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         })
     }
 
-    pub fn new_overwrite<D: 'static + TreeWriter>(
+    pub fn new_overwrite<D: 'static + TreeWriter<Error = E>>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
@@ -282,7 +282,12 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
         partial_nodes.reverse();
         Ok(partial_nodes)
     }
+}
 
+impl<H: SimpleHasher, WriteError> JellyfishMerkleRestore<H, WriteError>
+where
+    WriteError: std::error::Error + Send + Sync + 'static,
+{
     /// Restores a chunk of accounts. This function will verify that the given chunk is correct
     /// using the proof and root hash, then write things to storage. If the chunk is invalid, an
     /// error will be returned and nothing will be written to storage.
@@ -648,7 +653,7 @@ impl<H: SimpleHasher> JellyfishMerkleRestore<H> {
 
     /// Finishes the restoration process. This tells the code that there is no more account,
     /// otherwise we can not freeze the rightmost leaf and its ancestors.
-    fn finish_impl(mut self) -> Result<()> {
+    fn finish_impl(mut self) -> Result<(), WriteError> {
         // Deal with the special case when the entire tree has a single leaf.
         if self.partial_nodes.len() == 1 {
             let mut num_children = 0;
@@ -686,12 +691,18 @@ pub trait StateSnapshotReceiver<H: SimpleHasher> {
         proof: SparseMerkleRangeProof<H>,
     ) -> Result<(), anyhow::Error>;
 
-    fn finish(self) -> Result<()>;
+    /// The kind of error that may be returned by [`StateSnapshotReceiver::finish()`].
+    type FinishError;
 
-    fn finish_box(self: Box<Self>) -> Result<()>;
+    fn finish(self) -> Result<(), Self::FinishError>;
+
+    fn finish_box(self: Box<Self>) -> Result<(), Self::FinishError>;
 }
 
-impl<H: SimpleHasher> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H> {
+impl<H: SimpleHasher, E> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H, E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
@@ -700,11 +711,13 @@ impl<H: SimpleHasher> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H> {
         self.add_chunk_impl(chunk, proof)
     }
 
-    fn finish(self) -> Result<()> {
+    type FinishError = E;
+
+    fn finish(self) -> Result<(), E> {
         self.finish_impl()
     }
 
-    fn finish_box(self: Box<Self>) -> Result<()> {
+    fn finish_box(self: Box<Self>) -> Result<(), E> {
         self.finish_impl()
     }
 }

@@ -16,8 +16,10 @@ use crate::{
 /// [`JellyfishMerkleTree`](crate::JellyfishMerkleTree)
 /// to the underlying storage holding nodes.
 pub trait TreeWriter {
+    /// The kind of error that may be returned by [`TreeWriter::write_node_batch()`].
+    type Error;
     /// Writes a node batch into storage.
-    fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<()>;
+    fn write_node_batch(&self, node_batch: &NodeBatch) -> Result<(), Self::Error>;
 }
 
 /// Node batch that will be written into db atomically with other batches.
