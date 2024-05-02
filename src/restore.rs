@@ -291,6 +291,21 @@ impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
     }
 }
 
+/// Errors that can occur when a [`JellyfishMerkleRestore<H, E>`] adds a chunk.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RestoreError<E> {
+    #[error("Should not add empty chunks.")]
+    EmptyChunk,
+    #[error("Account keys must come in increasing order.")]
+    OutOfOrder,
+    // TODO(kate): this is left as a boxed error for now.
+    #[error(transparent)]
+    VerificationFailed(anyhow::Error),
+    #[error(transparent)]
+    WriteFailed(E),
+}
+
 impl<H: SimpleHasher, WriteError> JellyfishMerkleRestore<H, WriteError>
 where
     WriteError: std::error::Error + Send + Sync + 'static,
@@ -302,15 +317,16 @@ where
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<(), anyhow::Error> {
-        ensure!(!chunk.is_empty(), "Should not add empty chunks.");
+    ) -> Result<(), RestoreError<WriteError>> {
+        if chunk.is_empty() {
+            return Err(RestoreError::EmptyChunk);
+        }
 
         for (key, value) in chunk {
             if let Some(ref prev_leaf) = self.previous_leaf {
-                ensure!(
-                    key > prev_leaf.key_hash(),
-                    "Account keys must come in increasing order.",
-                );
+                if key <= prev_leaf.key_hash() {
+                    return Err(RestoreError::OutOfOrder);
+                }
             }
             let value_hash = ValueHash::with::<H>(value.as_slice());
             self.frozen_nodes.insert_value(self.version, key, value);
@@ -321,10 +337,13 @@ where
         }
 
         // Verify what we have added so far is all correct.
-        self.verify(proof)?;
+        self.verify(proof)
+            .map_err(RestoreError::VerificationFailed)?;
 
         // Write the frozen nodes to storage.
-        self.store.write_node_batch(&self.frozen_nodes)?;
+        self.store
+            .write_node_batch(&self.frozen_nodes)
+            .map_err(RestoreError::WriteFailed)?;
         self.frozen_nodes.clear();
 
         Ok(())
@@ -692,11 +711,14 @@ where
 
 /// The interface used with [`JellyfishMerkleRestore`], taken from the Diem `storage-interface` crate.
 pub trait StateSnapshotReceiver<H: SimpleHasher> {
+    /// The kind of error that may be returned by [`StateSnapshotReceiver::add_chunk()`].
+    type AddChunkError;
+
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<(), anyhow::Error>;
+    ) -> Result<(), Self::AddChunkError>;
 
     /// The kind of error that may be returned by [`StateSnapshotReceiver::finish()`].
     type FinishError;
@@ -710,11 +732,14 @@ impl<H: SimpleHasher, E> StateSnapshotReceiver<H> for JellyfishMerkleRestore<H, 
 where
     E: std::error::Error + Send + Sync + 'static,
 {
+    /// Errors that may be returned by [`StateSnapshotReceiver::add_chunk()`].
+    type AddChunkError = RestoreError<E>;
+
     fn add_chunk(
         &mut self,
         chunk: Vec<(KeyHash, OwnedValue)>,
         proof: SparseMerkleRangeProof<H>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), Self::AddChunkError> {
         self.add_chunk_impl(chunk, proof)
     }
 
