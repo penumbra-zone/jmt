@@ -2,7 +2,7 @@ use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     proof::{definition::UpdateMerkleProof, SparseMerkleLeafNode, SparseMerkleNode},
     storage::{Node::Leaf, TreeReader, TreeReaderExt, TreeUpdateBatch},
-    tree_cache::TreeCache,
+    tree_cache::{NodeAlreadyExists, TreeCache},
     types::{
         nibble::{
             nibble_path::{skip_common_prefix, NibbleIterator, NibblePath},
@@ -1005,7 +1005,7 @@ where
         nibble_iter: &NibbleIterator,
         value_hash: ValueHash,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node), anyhow::Error> {
+    ) -> Result<(NodeKey, Node), NodeAlreadyExists> {
         // Get the underlying bytes of nibble_iter which must be a key, i.e., hashed account address
         // with `HashValue::LENGTH` bytes.
         let new_leaf_node = Node::new_leaf(
