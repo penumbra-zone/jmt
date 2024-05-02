@@ -1,7 +1,7 @@
 use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     proof::{definition::UpdateMerkleProof, SparseMerkleLeafNode, SparseMerkleNode},
-    storage::{Node::Leaf, TreeReader, TreeReaderExt, TreeUpdateBatch},
+    storage::{Node::Leaf, TreeReader, TreeUpdateBatch},
     tree_cache::{FreezeError, NodeAlreadyExists, TreeCache},
     types::{
         nibble::{
@@ -14,7 +14,7 @@ use crate::{
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SimpleHasher, ValueHash,
 };
 use alloc::{collections::BTreeMap, vec, vec::Vec};
-use anyhow::{bail, format_err};
+use anyhow::format_err;
 use core::{cmp::Ordering, convert::TryInto, marker::PhantomData};
 
 #[cfg(not(feature = "std"))]
@@ -57,8 +57,17 @@ pub enum LookupError<E> {
     ValueNotFound { version: u64, key_hash: KeyHash },
     #[error("Non-root null node exists with node key {key:?}")]
     NonRootNullNodeExists { key: NodeKey },
+    #[error("Internal node has no children")]
+    InternalNodeHasNoChildren,
     #[error("Jellyfish Merkle tree has cyclic graph inside.")]
     CyclicGraphDetected,
+    #[error("Found exact key when searching for bounding path for nonexistence proof")]
+    FoundKeyInBoundingPath,
+    #[error("Invalid exclusion proof")]
+    ExclusionProofIsNotValid,
+    // Some actions might fail because the tree is empty.
+    #[error("{msg}")]
+    TreeIsEmpty { msg: &'static str },
 }
 
 /// Errors that can occur when a value set is [applied] to a [`JellyfishMerkleTree<'a, R, H>`].
@@ -1145,7 +1154,7 @@ where
         extreme: Extreme,
         to: NibblePath,
         parents: Vec<InternalNode>,
-    ) -> Result<Option<KeyHash>, anyhow::Error> {
+    ) -> Result<Option<KeyHash>, LookupError<R::Error>> {
         fn neighbor_nibble(
             node: &InternalNode,
             child_index: Nibble,
@@ -1190,27 +1199,35 @@ where
         &self,
         version: Version,
         search_key: KeyHash,
-    ) -> Result<SearchResult, anyhow::Error> {
+    ) -> Result<SearchResult, LookupError<R::Error>> {
         let search_path = NibblePath::new(search_key.0.to_vec());
         let mut search_nibbles = search_path.nibbles();
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut internal_nodes = vec![];
 
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
-                if nibble_depth == 0 {
-                    anyhow::anyhow!(MissingRootError { version })
-                } else {
-                    err
-                }
-            })?;
+            let next_node = self
+                .reader
+                .get_node_option(&next_node_key)
+                .map_err(LookupError::Read)?
+                .ok_or_else(|| {
+                    if nibble_depth == 0 {
+                        // If this is the first loop iteration, we are missing our root.
+                        LookupError::RootMissing(MissingRootError { version })
+                    } else {
+                        // Otherwise, we are missing some other node.
+                        LookupError::NodeMissing {
+                            nibble_depth,
+                            key: next_node_key.clone(),
+                        }
+                    }
+                })?;
 
             match next_node {
                 Node::Internal(node) => {
                     internal_nodes.push(node.clone());
-                    let queried_child_index = search_nibbles
-                        .next()
-                        .ok_or_else(|| format_err!("ran out of nibbles"))?;
+                    let queried_child_index =
+                        search_nibbles.next().ok_or(LookupError::RanOutOfNibbles)?;
 
                     let child_node_key =
                         node.get_only_child_without_siblings(&next_node_key, queried_child_index);
@@ -1240,27 +1257,25 @@ where
                 }
                 Node::Null => {
                     if nibble_depth == 0 {
-                        bail!(
-                            "Cannot manufacture nonexistence proof by exclusion for the empty tree"
-                        );
+                        return Err(LookupError::TreeIsEmpty {
+                            msg: "Cannot manufacture nonexistence proof by exclusion for the \
+                                  empty tree",
+                        });
                     } else {
-                        bail!(
-                            "Non-root null node exists with node key {:?}",
-                            next_node_key
-                        );
+                        return Err(LookupError::NonRootNullNodeExists { key: next_node_key });
                     }
                 }
             }
         }
 
-        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+        return Err(LookupError::CyclicGraphDetected);
     }
 
     fn get_bounding_path(
         &self,
         search_key: KeyHash,
         version: Version,
-    ) -> Result<(Option<KeyHash>, Option<KeyHash>), anyhow::Error> {
+    ) -> Result<(Option<KeyHash>, Option<KeyHash>), LookupError<R::Error>> {
         let search_result = self.search_for_closest_node(version, search_key)?;
 
         match search_result {
@@ -1295,7 +1310,7 @@ where
                         Ok((rightmost_left_keyhash, Some(leaf_hash)))
                     }
                     Ordering::Equal => {
-                        bail!("found exact key when searching for bounding path for nonexistence proof")
+                        return Err(LookupError::FoundKeyInBoundingPath);
                     }
                 }
             }
@@ -1321,12 +1336,21 @@ where
         }
     }
 
-    /// Returns the value (if applicable) and the corresponding merkle proof.
+    /// Returns the [value] (if applicable) and the corresponding [merkle proof].
+    ///
+    /// - Returns a tuple `Ok(Ok((value, proof)))` if a value associated with the given key exists.
+    /// - Returns an [`ExclusionProof<H>`] as `Ok(Err(exclusion_proof))` if no value associated
+    ///   with the given key exists.
+    /// - Returns `Err(e)` if an unexpected error was encountered while retrieving the value.
+    ///
+    /// [value]: OwnedValue
+    /// [merkle proof]: SparseMerkleProof
     pub fn get_with_exclusion_proof(
         &self,
         key_hash: KeyHash,
         version: Version,
-    ) -> Result<Result<(OwnedValue, SparseMerkleProof<H>), ExclusionProof<H>>, anyhow::Error> {
+    ) -> Result<Result<(OwnedValue, SparseMerkleProof<H>), ExclusionProof<H>>, LookupError<R::Error>>
+    {
         // Optimistically attempt get_with_proof, if that succeeds, we're done.
         if let (Some(value), proof) = self.get_with_proof(key_hash, version)? {
             return Ok(Ok((value, proof)));
@@ -1361,7 +1385,7 @@ where
                     leftmost_right_proof: right_proof,
                 }))
             }
-            _ => bail!("Invalid exclusion proof"),
+            _ => return Err(LookupError::ExclusionProofIsNotValid),
         }
     }
 
@@ -1371,7 +1395,7 @@ where
         mut node_key: NodeKey,
         nibble_depth: usize,
         extreme: Extreme,
-    ) -> Result<KeyHash, anyhow::Error> {
+    ) -> Result<KeyHash, LookupError<R::Error>> {
         // Depending on the extreme specified, get either the least nibble or the most nibble
         let min_or_max = |internal_node: &InternalNode| {
             match extreme {
@@ -1384,13 +1408,22 @@ where
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
-            let node = self.reader.get_node(&node_key).map_err(|err| {
-                if nibble_depth == 0 {
-                    anyhow::anyhow!(MissingRootError { version })
-                } else {
-                    err
-                }
-            })?;
+            let node = self
+                .reader
+                .get_node_option(&node_key)
+                .map_err(LookupError::Read)?
+                .ok_or_else(|| {
+                    if nibble_depth == 0 {
+                        // If this is the first loop iteration, we are missing our root.
+                        LookupError::RootMissing(MissingRootError { version })
+                    } else {
+                        // Otherwise, we are missing some other node.
+                        LookupError::NodeMissing {
+                            nibble_depth,
+                            key: node_key.clone(),
+                        }
+                    }
+                })?;
             match node {
                 Node::Internal(internal_node) => {
                     // Find the leftmost nibble in the children
@@ -1401,18 +1434,23 @@ where
                     // Proceed downwards
                     node_key = match child_node_key {
                         Some(node_key) => node_key,
-                        None => {
-                            bail!("Internal node has no children");
-                        }
+                        None => return Err(LookupError::InternalNodeHasNoChildren),
                     };
                 }
-                Node::Leaf(leaf_node) => {
-                    return Ok(leaf_node.key_hash());
+                Node::Leaf(leaf_node) => return Ok(leaf_node.key_hash()),
+                Node::Null => {
+                    if nibble_depth == 0 {
+                        return Err(LookupError::TreeIsEmpty {
+                            msg: "Null node cannot have children",
+                        });
+                    } else {
+                        return Err(LookupError::NonRootNullNodeExists { key: node_key });
+                    }
                 }
-                Node::Null => bail!("Null node cannot have children"),
             }
         }
-        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+
+        return Err(LookupError::CyclicGraphDetected);
     }
 
     fn get_without_proof(
