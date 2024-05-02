@@ -1321,6 +1321,8 @@ where
             .map(|(nibble, _)| nibble)
         };
 
+        // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
+        // in the tree structure.
         for nibble_depth in nibble_depth..=ROOT_NIBBLE_HEIGHT {
             let node = self.reader.get_node(&node_key).map_err(|err| {
                 if nibble_depth == 0 {
