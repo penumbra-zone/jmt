@@ -9,7 +9,7 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
-use anyhow::{bail, ensure};
+use anyhow::ensure;
 use mirai_annotations::*;
 
 use crate::{
@@ -157,32 +157,49 @@ pub struct JellyfishMerkleRestore<H: SimpleHasher, WriteError> {
     _phantom_hasher: PhantomData<H>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RecoveryError<E> {
+    /// The rightmost leaf node's nibble path must not be empty when recovering partial nodes.
+    #[error(
+        "Root node would not be written until entire restoration process has completed \
+         successfully."
+    )]
+    RootWouldNotBeWritten,
+    #[error(transparent)]
+    Read(E),
+    #[error("Null node should not appear in storage.")]
+    NullNodeFound,
+}
+
 impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
     pub fn new<D>(
         store: Arc<D>,
         version: Version,
         expected_root_hash: RootHash,
-    ) -> Result<Self, anyhow::Error>
+    ) -> Result<Self, RecoveryError<<D as TreeReader>::Error>>
     where
         D: 'static + TreeReader + TreeWriter<Error = E>,
         <D as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
     {
         let tree_reader = Arc::clone(&store);
-        let (partial_nodes, previous_leaf) =
-            if let Some((node_key, leaf_node)) = tree_reader.get_rightmost_leaf()? {
-                // TODO: confirm rightmost leaf is at the desired version
-                // If the system crashed in the middle of the previous restoration attempt, we need
-                // to recover the partial nodes to the state right before the crash.
-                (
-                    Self::recover_partial_nodes(tree_reader.as_ref(), version, node_key)?,
-                    Some(leaf_node),
-                )
-            } else {
-                (
-                    vec![InternalInfo::new_empty(NodeKey::new_empty_path(version))],
-                    None,
-                )
-            };
+        let (partial_nodes, previous_leaf) = if let Some((node_key, leaf_node)) = tree_reader
+            .get_rightmost_leaf()
+            .map_err(RecoveryError::Read)?
+        {
+            // TODO: confirm rightmost leaf is at the desired version
+            // If the system crashed in the middle of the previous restoration attempt, we need
+            // to recover the partial nodes to the state right before the crash.
+            (
+                Self::recover_partial_nodes(tree_reader.as_ref(), version, node_key)?,
+                Some(leaf_node),
+            )
+        } else {
+            (
+                vec![InternalInfo::new_empty(NodeKey::new_empty_path(version))],
+                None,
+            )
+        };
 
         Ok(Self {
             store,
@@ -219,21 +236,23 @@ impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
         store: &dyn TreeReader<Error = RE>,
         version: Version,
         rightmost_leaf_node_key: NodeKey,
-    ) -> Result<Vec<InternalInfo>, anyhow::Error>
+    ) -> Result<Vec<InternalInfo>, RecoveryError<RE>>
     where
         RE: std::error::Error + Send + Sync + 'static,
     {
-        ensure!(
-            !rightmost_leaf_node_key.nibble_path().is_empty(),
-            "Root node would not be written until entire restoration process has completed \
-             successfully.",
-        );
+        if rightmost_leaf_node_key.nibble_path().is_empty() {
+            return Err(RecoveryError::RootWouldNotBeWritten);
+        }
 
         // Start from the parent of the rightmost leaf. If this internal node exists in storage, it
         // is not a partial node. Go to the parent node and repeat until we see a node that does
         // not exist. This node and all its ancestors will be the partial nodes.
         let mut node_key = rightmost_leaf_node_key.gen_parent_node_key();
-        while store.get_node_option(&node_key)?.is_some() {
+        while store
+            .get_node_option(&node_key)
+            .map_err(RecoveryError::Read)?
+            .is_some()
+        {
             node_key = node_key.gen_parent_node_key();
         }
 
@@ -251,14 +270,17 @@ impl<H: SimpleHasher, E> JellyfishMerkleRestore<H, E> {
 
             for i in 0..previous_child_index.unwrap_or(16) {
                 let child_node_key = node_key.gen_child_node_key(version, (i as u8).into());
-                if let Some(node) = store.get_node_option(&child_node_key)? {
+                if let Some(node) = store
+                    .get_node_option(&child_node_key)
+                    .map_err(RecoveryError::Read)?
+                {
                     let child_info = match node {
                         Node::Internal(internal_node) => ChildInfo::Internal {
                             hash: Some(internal_node.hash::<H>()),
                             leaf_count: internal_node.leaf_count(),
                         },
                         Node::Leaf(leaf_node) => ChildInfo::Leaf { node: leaf_node },
-                        Node::Null => bail!("Null node should not appear in storage."),
+                        Node::Null => return Err(RecoveryError::NullNodeFound),
                     };
                     internal_info.set_child(i, child_info);
                 }
