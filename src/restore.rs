@@ -9,7 +9,6 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
-use anyhow::ensure;
 use mirai_annotations::*;
 
 use crate::{
@@ -321,11 +320,20 @@ pub enum RestoreError<E> {
     EmptyChunk,
     #[error("Account keys must come in increasing order.")]
     OutOfOrder,
-    // TODO(kate): this is left as a boxed error for now.
     #[error(transparent)]
-    VerificationFailed(anyhow::Error),
+    VerificationFailed(VerifyError),
     #[error(transparent)]
     WriteFailed(E),
+}
+
+/// Errors that can occur when a [`JellyfishMerkleRestore<H, E>`] verifies a proof.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum VerifyError {
+    #[error("Too many right siblings in the proof.")]
+    TooManyRightSiblings,
+    #[error(transparent)]
+    ProofFailed(crate::proof::definition::RangeProofError),
 }
 
 impl<H: SimpleHasher, WriteError> JellyfishMerkleRestore<H, WriteError>
@@ -586,7 +594,7 @@ where
     /// `self.previous_leaf`) are correct, i.e., we are able to construct `self.expected_root_hash`
     /// by combining all existing accounts and `proof`.
     #[allow(clippy::collapsible_if)]
-    fn verify(&self, proof: SparseMerkleRangeProof<H>) -> Result<(), anyhow::Error> {
+    fn verify(&self, proof: SparseMerkleRangeProof<H>) -> Result<(), VerifyError> {
         let previous_leaf = self
             .previous_leaf
             .as_ref()
@@ -621,10 +629,9 @@ where
                 num_visited_right_siblings += 1;
             }
         }
-        ensure!(
-            num_visited_right_siblings >= proof.right_siblings().len(),
-            "Too many right siblings in the proof.",
-        );
+        if num_visited_right_siblings < proof.right_siblings().len() {
+            return Err(VerifyError::TooManyRightSiblings);
+        }
 
         // Now we remove any extra placeholder siblings at the bottom. We keep removing the last
         // sibling if 1) it's a placeholder 2) it's a sibling on the left.
@@ -654,7 +661,7 @@ where
                 SparseMerkleLeafNode::new(previous_key, previous_leaf.value_hash()),
                 left_siblings,
             )
-            .map_err(Into::into)
+            .map_err(VerifyError::ProofFailed)
     }
 
     /// Computes the sibling on the left for the `n`-th child.
