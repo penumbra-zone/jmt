@@ -37,6 +37,30 @@ pub struct JellyfishMerkleTree<'a, R, H: SimpleHasher> {
 #[cfg(feature = "ics23")]
 pub mod ics23_impl;
 
+/// Errors that can occur when a value is [retrieved] from a [`JellyfishMerkleTree<'a, R, H>`].
+///
+/// [retrieved]: JellyfishMerkleTree::get_with_proof
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum LookupError<E> {
+    #[error(transparent)]
+    Read(E),
+    #[error(transparent)]
+    RootMissing(MissingRootError),
+    #[error("node with key `{key:?}` and depth `{nibble_depth}` was missing")]
+    NodeMissing { nibble_depth: usize, key: NodeKey },
+    #[error("ran out of nibbles")]
+    RanOutOfNibbles,
+    #[error(
+        "could not find a value at version `{version}` associated with key hash `{key_hash:?}`"
+    )]
+    ValueNotFound { version: u64, key_hash: KeyHash },
+    #[error("Non-root null node exists with node key {key:?}")]
+    NonRootNullNodeExists { key: NodeKey },
+    #[error("Jellyfish Merkle tree has cyclic graph inside.")]
+    CyclicGraphDetected,
+}
+
 impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader,
@@ -1004,7 +1028,7 @@ where
         &self,
         key: KeyHash,
         version: Version,
-    ) -> Result<(Option<OwnedValue>, SparseMerkleProof<H>), anyhow::Error> {
+    ) -> Result<(Option<OwnedValue>, SparseMerkleProof<H>), LookupError<R::Error>> {
         // Empty tree just returns proof with no sibling hash.
         let mut next_node_key = NodeKey::new_empty_path(version);
         let mut siblings: Vec<SparseMerkleNode> = vec![];
@@ -1014,18 +1038,26 @@ where
         // We limit the number of loops here deliberately to avoid potential cyclic graph bugs
         // in the tree structure.
         for nibble_depth in 0..=ROOT_NIBBLE_HEIGHT {
-            let next_node = self.reader.get_node(&next_node_key).map_err(|err| {
-                if nibble_depth == 0 {
-                    anyhow::anyhow!(MissingRootError { version })
-                } else {
-                    err
-                }
-            })?;
+            let next_node = self
+                .reader
+                .get_node_option(&next_node_key)
+                .map_err(LookupError::Read)?
+                .ok_or_else(|| {
+                    if nibble_depth == 0 {
+                        // If this is the first loop iteration, we are missing our root.
+                        LookupError::RootMissing(MissingRootError { version })
+                    } else {
+                        // Otherwise, we are missing some other node.
+                        LookupError::NodeMissing {
+                            nibble_depth,
+                            key: next_node_key.clone(),
+                        }
+                    }
+                })?;
             match next_node {
                 Node::Internal(internal_node) => {
-                    let queried_child_index = nibble_iter
-                        .next()
-                        .ok_or_else(|| format_err!("ran out of nibbles"))?;
+                    let queried_child_index =
+                        nibble_iter.next().ok_or(LookupError::RanOutOfNibbles)?;
 
                     let (child_node_key, mut siblings_in_internal) = internal_node
                         .get_only_child_with_siblings::<H, _>(
@@ -1051,7 +1083,15 @@ where
                 Node::Leaf(leaf_node) => {
                     return Ok((
                         if leaf_node.key_hash() == key {
-                            Some(self.reader.get_value(version, leaf_node.key_hash())?)
+                            Some(
+                                self.reader
+                                    .get_value_option(version, leaf_node.key_hash())
+                                    .map_err(LookupError::Read)?
+                                    .ok_or(LookupError::ValueNotFound {
+                                        version,
+                                        key_hash: leaf_node.key_hash(),
+                                    })?,
+                            )
                         } else {
                             None
                         },
@@ -1065,15 +1105,13 @@ where
                     if nibble_depth == 0 {
                         return Ok((None, SparseMerkleProof::new(None, vec![])));
                     } else {
-                        bail!(
-                            "Non-root null node exists with node key {:?}",
-                            next_node_key
-                        );
+                        return Err(LookupError::NonRootNullNodeExists { key: next_node_key });
                     }
                 }
             }
         }
-        bail!("Jellyfish Merkle tree has cyclic graph inside.");
+
+        return Err(LookupError::CyclicGraphDetected);
     }
 
     fn search_closest_extreme_node(
