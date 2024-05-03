@@ -8,7 +8,7 @@
 
 use alloc::{sync::Arc, vec::Vec};
 
-use anyhow::{bail, ensure, format_err, Result};
+use anyhow::{bail, ensure, format_err};
 
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
@@ -121,7 +121,11 @@ where
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the smallest key that is greater or equal to
     /// `starting_key`.
-    pub fn new(reader: Arc<R>, version: Version, starting_key: KeyHash) -> Result<Self> {
+    pub fn new(
+        reader: Arc<R>,
+        version: Version,
+        starting_key: KeyHash,
+    ) -> Result<Self, anyhow::Error> {
         let mut parent_stack = Vec::new();
         let mut done = false;
 
@@ -201,7 +205,11 @@ where
 
     /// Constructs a new iterator. This puts the internal state in the correct position, so the
     /// following `next` call will yield the leaf at `start_idx`.
-    pub fn new_by_index(reader: Arc<R>, version: Version, start_idx: usize) -> Result<Self> {
+    pub fn new_by_index(
+        reader: Arc<R>,
+        version: Version,
+        start_idx: usize,
+    ) -> Result<Self, anyhow::Error> {
         let mut parent_stack = Vec::new();
 
         let mut current_node_key = NodeKey::new_empty_path(version);
@@ -256,7 +264,7 @@ where
         internal_node: &'a InternalNode,
         leaves_skipped: &mut usize,
         target_leaf_idx: usize,
-    ) -> Result<(Nibble, &'a Child)> {
+    ) -> Result<(Nibble, &'a Child), anyhow::Error> {
         for (nibble, child) in internal_node.children_sorted() {
             let child_leaf_count = child.leaf_count();
             // n.b. The index is 0-based, so to reach leaf at N, N previous ones need to be skipped.
@@ -275,7 +283,7 @@ impl<R> Iterator for JellyfishMerkleIterator<R>
 where
     R: TreeReader,
 {
-    type Item = Result<(KeyHash, OwnedValue)>;
+    type Item = Result<(KeyHash, OwnedValue), anyhow::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
