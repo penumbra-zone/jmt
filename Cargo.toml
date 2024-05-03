@@ -42,9 +42,9 @@ tracing = "0.1"
 
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }
-rand = { version = "0.8.3" }
 parking_lot = { version = "0.12.1" } 
-serde_json = { version  = "1.0.95" }
 proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.3.0" }
+rand = { version = "0.8.3" }
+serde_json = { version  = "1.0.95" }
 sha2 = "0.10"
