@@ -2,7 +2,7 @@ use crate::{
     node_type::{Child, Children, InternalNode, LeafNode, Node, NodeKey, NodeType},
     proof::{definition::UpdateMerkleProof, SparseMerkleLeafNode, SparseMerkleNode},
     storage::{Node::Leaf, TreeReader, TreeReaderExt, TreeUpdateBatch},
-    tree_cache::{NodeAlreadyExists, TreeCache},
+    tree_cache::{FreezeError, NodeAlreadyExists, TreeCache},
     types::{
         nibble::{
             nibble_path::{skip_common_prefix, NibbleIterator, NibblePath},
@@ -13,8 +13,8 @@ use crate::{
     },
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SimpleHasher, ValueHash,
 };
-use alloc::{collections::BTreeMap, format, vec, vec::Vec};
-use anyhow::{bail, format_err, Context};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
+use anyhow::{bail, format_err};
 use core::{cmp::Ordering, convert::TryInto, marker::PhantomData};
 
 #[cfg(not(feature = "std"))]
@@ -61,6 +61,24 @@ pub enum LookupError<E> {
     CyclicGraphDetected,
 }
 
+/// Errors that can occur when a value set is [applied] to a [`JellyfishMerkleTree<'a, R, H>`].
+///
+/// [applied]: JellyfishMerkleTree::put_value_sets
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum PutValueSetError<E> {
+    #[error(transparent)]
+    Read(E),
+    #[error(transparent)]
+    NodeAlreadyExists(#[from] NodeAlreadyExists),
+    #[error("Non-root null node exists with node key {key:?}")]
+    NonRootNullNodeExists { key: NodeKey },
+    #[error("could not find a node associated with the key `{key:?}`")]
+    NodeNotFound { key: NodeKey },
+    #[error(transparent)]
+    FreezeError(#[from] FreezeError<E>),
+}
+
 impl<'a, R, H> JellyfishMerkleTree<'a, R, H>
 where
     R: 'a + TreeReader,
@@ -97,8 +115,9 @@ where
         value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
         node_hashes: Option<Vec<&HashMap<NibblePath, [u8; 32]>>>,
         first_version: Version,
-    ) -> Result<(Vec<RootHash>, TreeUpdateBatch), anyhow::Error> {
-        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+    ) -> Result<(Vec<RootHash>, TreeUpdateBatch), PutValueSetError<R::Error>> {
+        let mut tree_cache =
+            TreeCache::new(self.reader, first_version).map_err(PutValueSetError::Read)?;
         let hash_sets: Vec<_> = match node_hashes {
             Some(hashes) => hashes.into_iter().map(Some).collect(),
             None => (0..value_sets.len()).map(|_| None).collect(),
@@ -148,10 +167,15 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node), anyhow::Error> {
+    ) -> Result<(NodeKey, Node), PutValueSetError<R::Error>> {
         assert!(!kvs.is_empty());
 
-        let node = tree_cache.get_node(&node_key)?;
+        let node = tree_cache
+            .get_node_option(&node_key)
+            .map_err(PutValueSetError::Read)?
+            .ok_or_else(|| PutValueSetError::NodeNotFound {
+                key: node_key.clone(),
+            })?;
         Ok(match node {
             Node::Internal(internal_node) => {
                 // We always delete the existing internal node here because it will not be referenced anyway
@@ -224,10 +248,9 @@ where
             }
             Node::Null => {
                 if !node_key.nibble_path().is_empty() {
-                    bail!(
-                        "Null node exists for non-root node with node_key {:?}",
-                        node_key
-                    );
+                    return Err(PutValueSetError::NonRootNullNodeExists {
+                        key: node_key.clone(),
+                    });
                 }
 
                 if node_key.version() == version {
@@ -255,7 +278,7 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node), anyhow::Error> {
+    ) -> Result<(NodeKey, Node), NodeAlreadyExists> {
         let existing_leaf_key = existing_leaf_node.key_hash();
 
         if kvs.len() == 1 && kvs[0].0 == existing_leaf_key {
@@ -325,7 +348,7 @@ where
         depth: usize,
         hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
         tree_cache: &mut TreeCache<R>,
-    ) -> Result<(NodeKey, Node), anyhow::Error> {
+    ) -> Result<(NodeKey, Node), NodeAlreadyExists> {
         if kvs.len() == 1 {
             let new_leaf_node = Node::Leaf(LeafNode::new(kvs[0].0, kvs[0].1));
             tree_cache.put_node(node_key.clone(), new_leaf_node.clone())?;
@@ -366,7 +389,7 @@ where
         &self,
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
-    ) -> Result<(RootHash, TreeUpdateBatch), anyhow::Error> {
+    ) -> Result<(RootHash, TreeUpdateBatch), PutValueSetError<R::Error>> {
         let (root_hashes, tree_update_batch) = self.put_value_sets(vec![value_set], version)?;
         assert_eq!(
             root_hashes.len(),
@@ -383,7 +406,7 @@ where
         &self,
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
         version: Version,
-    ) -> Result<(RootHash, UpdateMerkleProof<H>, TreeUpdateBatch), anyhow::Error> {
+    ) -> Result<(RootHash, UpdateMerkleProof<H>, TreeUpdateBatch), PutValueSetError<R::Error>> {
         let (mut hash_and_proof, batch_update) =
             self.put_value_sets_with_proof(vec![value_set], version)?;
         assert_eq!(
@@ -442,21 +465,15 @@ where
         &self,
         value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
-    ) -> Result<(Vec<RootHash>, TreeUpdateBatch), anyhow::Error> {
-        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+    ) -> Result<(Vec<RootHash>, TreeUpdateBatch), PutValueSetError<R::Error>> {
+        let mut tree_cache =
+            TreeCache::new(self.reader, first_version).map_err(PutValueSetError::Read)?;
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
-            for (i, (key, value)) in value_set.into_iter().enumerate() {
-                let action = if value.is_some() { "insert" } else { "delete" };
+            for (key, value) in value_set {
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
                 tree_cache.put_value(version, key, value);
-                self.put(key, value_hash, version, &mut tree_cache, false)
-                    .with_context(|| {
-                        format!(
-                            "failed to {} key {} for version {}, key = {:?}",
-                            action, i, version, key
-                        )
-                    })?;
+                self.put(key, value_hash, version, &mut tree_cache, false)?;
             }
 
             // Freezes the current cache to make all contents in the current cache immutable.
@@ -506,24 +523,19 @@ where
         &self,
         value_sets: impl IntoIterator<Item = impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>>,
         first_version: Version,
-    ) -> Result<(Vec<(RootHash, UpdateMerkleProof<H>)>, TreeUpdateBatch), anyhow::Error> {
-        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+    ) -> Result<(Vec<(RootHash, UpdateMerkleProof<H>)>, TreeUpdateBatch), PutValueSetError<R::Error>>
+    {
+        let mut tree_cache =
+            TreeCache::new(self.reader, first_version).map_err(PutValueSetError::Read)?;
         let mut batch_proofs = Vec::new();
         for (idx, value_set) in value_sets.into_iter().enumerate() {
             let version = first_version + idx as u64;
             let mut proofs = Vec::new();
-            for (i, (key, value)) in value_set.into_iter().enumerate() {
-                let action = if value.is_some() { "insert" } else { "delete" };
+            for (key, value) in value_set {
                 let value_hash = value.as_ref().map(|v| ValueHash::with::<H>(v));
                 tree_cache.put_value(version, key, value.clone());
                 let merkle_proof = self
-                    .put(key, value_hash, version, &mut tree_cache, true)
-                    .with_context(|| {
-                        format!(
-                            "failed to {} key {} for version {}, key = {:?}",
-                            action, i, version, key
-                        )
-                    })?
+                    .put(key, value_hash, version, &mut tree_cache, true)?
                     .unwrap();
 
                 proofs.push(merkle_proof);
@@ -552,7 +564,7 @@ where
         version: Version,
         tree_cache: &mut TreeCache<R>,
         with_proof: bool,
-    ) -> Result<Option<SparseMerkleProof<H>>, anyhow::Error> {
+    ) -> Result<Option<SparseMerkleProof<H>>, PutValueSetError<R::Error>> {
         // tree_cache.ensure_initialized()?;
 
         let nibble_path = NibblePath::new(key.0.to_vec());
@@ -602,35 +614,43 @@ where
         value: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
         with_proof: bool,
-    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>), anyhow::Error> {
+    ) -> Result<
+        (PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>),
+        PutValueSetError<R::Error>,
+    > {
         // Because deletions could cause the root node not to exist, we try to get the root node,
         // and if it doesn't exist, we synthesize a `Null` node, noting that it hasn't yet been
         // committed anywhere (we need to track this because the tree cache will panic if we try to
         // delete a node that it doesn't know about).
         let (node, node_already_exists) = tree_cache
-            .get_node_option(&root_node_key)?
+            .get_node_option(&root_node_key)
+            .map_err(PutValueSetError::Read)?
             .map(|node| (node, true))
             .unwrap_or((Node::Null, false));
 
         match node {
-            Node::Internal(internal_node) => self.insert_at_internal_node(
-                root_node_key,
-                internal_node,
-                version,
-                nibble_iter,
-                value,
-                tree_cache,
-                with_proof,
-            ),
-            Node::Leaf(leaf_node) => self.insert_at_leaf_node(
-                root_node_key,
-                leaf_node,
-                version,
-                nibble_iter,
-                value,
-                tree_cache,
-                with_proof,
-            ),
+            Node::Internal(internal_node) => self
+                .insert_at_internal_node(
+                    root_node_key,
+                    internal_node,
+                    version,
+                    nibble_iter,
+                    value,
+                    tree_cache,
+                    with_proof,
+                )
+                .map_err(PutValueSetError::from),
+            Node::Leaf(leaf_node) => self
+                .insert_at_leaf_node(
+                    root_node_key,
+                    leaf_node,
+                    version,
+                    nibble_iter,
+                    value,
+                    tree_cache,
+                    with_proof,
+                )
+                .map_err(PutValueSetError::from),
             Node::Null => {
                 let merkle_proof_null = if with_proof {
                     Some(SparseMerkleProof::new(None, vec![]))
@@ -639,10 +659,7 @@ where
                 };
 
                 if !root_node_key.nibble_path().is_empty() {
-                    bail!(
-                        "Null node exists for non-root node with node_key {:?}",
-                        root_node_key
-                    );
+                    return Err(PutValueSetError::NonRootNullNodeExists { key: root_node_key });
                 }
                 // Delete the old null node if the at the same version
                 if root_node_key.version() == version && node_already_exists {
@@ -680,7 +697,10 @@ where
         value: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
         with_proof: bool,
-    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>), anyhow::Error> {
+    ) -> Result<
+        (PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>),
+        PutValueSetError<R::Error>,
+    > {
         // Find the next node to visit following the next nibble as index.
         let child_index = nibble_iter.next().expect("Ran out of nibbles");
 
@@ -813,7 +833,12 @@ where
             if it.next().is_none() && child.is_leaf() {
                 // internal node has only one child left and it's leaf node, replace it with the leaf node
                 let child_key = node_key.gen_child_node_key(child.version, child_nibble);
-                let child_node = tree_cache.get_node(&child_key)?;
+                let child_node = tree_cache
+                    .get_node_option(&child_key)
+                    .map_err(PutValueSetError::Read)?
+                    .ok_or_else(|| PutValueSetError::NodeNotFound {
+                        key: child_key.clone(),
+                    })?;
                 tree_cache.delete_node(&child_key, true /* is_leaf */);
 
                 node_key.set_version(version);
@@ -853,7 +878,7 @@ where
         value_hash: Option<ValueHash>,
         tree_cache: &mut TreeCache<R>,
         with_proof: bool,
-    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>), anyhow::Error> {
+    ) -> Result<(PutResult<(NodeKey, Node)>, Option<SparseMerkleProof<H>>), NodeAlreadyExists> {
         // We are inserting a new key that shares a common prefix with the existing leaf node.
         // This check is to make sure that the visited nibble path of the inserted key is a
         // subpath of the existing leaf node's nibble path.
