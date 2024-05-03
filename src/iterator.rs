@@ -8,7 +8,7 @@
 
 use alloc::{sync::Arc, vec::Vec};
 
-use anyhow::{bail, ensure, format_err};
+use anyhow::{bail, ensure};
 
 use crate::{
     node_type::{Child, InternalNode, Node, NodeKey},
@@ -112,6 +112,22 @@ pub struct JellyfishMerkleIterator<R> {
     /// `self.parent_stack` is empty. But in case of a tree with a single leaf, we need this
     /// additional bit.
     done: bool,
+}
+
+/// Errors that can occur when iterating across a [`JellyfishMerkleIterator<R>`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum IteratorError<E> {
+    #[error(transparent)]
+    Read(E),
+    #[error("node with key `{key:?}` was missing")]
+    NodeMissing { key: NodeKey },
+    #[error(
+        "could not find a value at version `{version}` associated with key hash `{key_hash:?}`"
+    )]
+    ValueNotFound { version: u64, key_hash: KeyHash },
+    #[error("Should not reach a null node.")]
+    NullNodeReached,
 }
 
 impl<R> JellyfishMerkleIterator<R>
@@ -285,7 +301,7 @@ where
     R: TreeReader,
     <R as TreeReader>::Error: std::error::Error + Send + Sync + 'static,
 {
-    type Item = Result<(KeyHash, OwnedValue), anyhow::Error>;
+    type Item = Result<(KeyHash, OwnedValue), IteratorError<R::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -294,8 +310,12 @@ where
 
         if self.parent_stack.is_empty() {
             let root_node_key = NodeKey::new_empty_path(self.version);
-            match self.reader.get_node(&root_node_key) {
-                Ok(Node::Leaf(leaf_node)) => {
+            match self
+                .reader
+                .get_node_option(&root_node_key)
+                .map_err(IteratorError::Read)
+            {
+                Ok(Some(Node::Leaf(leaf_node))) => {
                     // This means the entire tree has a single leaf node. The key of this leaf node
                     // is greater or equal to `starting_key` (otherwise we would have set `done` to
                     // true in `new`). Return the node and mark `self.done` so next time we return
@@ -303,18 +323,24 @@ where
                     self.done = true;
                     return match self
                         .reader
-                        .get_value(root_node_key.version(), leaf_node.key_hash())
+                        .get_value_option(root_node_key.version(), leaf_node.key_hash())
+                        .map_err(IteratorError::Read)
                     {
-                        Ok(value) => Some(Ok((leaf_node.key_hash(), value))),
+                        Ok(Some(value)) => Some(Ok((leaf_node.key_hash(), value))),
+                        Ok(None) => Some(Err(IteratorError::ValueNotFound {
+                            version: root_node_key.version(),
+                            key_hash: leaf_node.key_hash(),
+                        })),
                         Err(e) => Some(Err(e)),
                     };
                 }
-                Ok(Node::Internal(_)) => {
+                Ok(Some(Node::Internal(_))) => {
                     // This means `starting_key` is bigger than every key in this tree, or we have
                     // iterated past the last key.
                     return None;
                 }
-                Ok(Node::Null) => unreachable!("We would have set done to true in new."),
+                Ok(Some(Node::Null)) => unreachable!("We would have set done to true in new."),
+                Ok(None) => return Some(Err(IteratorError::NodeMissing { key: root_node_key })),
                 Err(err) => return Some(Err(err)),
             }
         }
@@ -334,25 +360,35 @@ where
                     .version,
                 child_index,
             );
-            match self.reader.get_node(&node_key) {
-                Ok(Node::Internal(internal_node)) => {
+            match self
+                .reader
+                .get_node_option(&node_key)
+                .map_err(IteratorError::Read)
+            {
+                Ok(Some(Node::Internal(internal_node))) => {
                     let visit_info = NodeVisitInfo::new(node_key, internal_node);
                     self.parent_stack.push(visit_info);
                 }
-                Ok(Node::Leaf(leaf_node)) => {
+                Ok(Some(Node::Leaf(leaf_node))) => {
                     return match self
                         .reader
-                        .get_value(node_key.version(), leaf_node.key_hash())
+                        .get_value_option(node_key.version(), leaf_node.key_hash())
+                        .map_err(IteratorError::Read)
                     {
-                        Ok(value) => {
+                        Ok(Some(value)) => {
                             let ret = (leaf_node.key_hash(), value);
                             Self::cleanup_stack(&mut self.parent_stack);
                             Some(Ok(ret))
                         }
+                        Ok(None) => Some(Err(IteratorError::ValueNotFound {
+                            version: node_key.version(),
+                            key_hash: leaf_node.key_hash(),
+                        })),
                         Err(e) => Some(Err(e)),
                     }
                 }
-                Ok(Node::Null) => return Some(Err(format_err!("Should not reach a null node."))),
+                Ok(Some(Node::Null)) => return Some(Err(IteratorError::NullNodeReached)),
+                Ok(None) => return Some(Err(IteratorError::NodeMissing { key: node_key })),
                 Err(err) => return Some(Err(err)),
             }
         }
