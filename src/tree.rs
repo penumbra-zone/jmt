@@ -14,7 +14,7 @@ use crate::{
     Bytes32Ext, KeyHash, MissingRootError, OwnedValue, RootHash, SimpleHasher, ValueHash,
 };
 use alloc::{collections::BTreeMap, format, vec, vec::Vec};
-use anyhow::{bail, ensure, format_err, Context};
+use anyhow::{bail, format_err, Context};
 use core::{cmp::Ordering, convert::TryInto, marker::PhantomData};
 
 #[cfg(not(feature = "std"))]
@@ -1403,9 +1403,14 @@ where
         &self,
         rightmost_key_to_prove: KeyHash,
         version: Version,
-    ) -> Result<SparseMerkleRangeProof<H>, anyhow::Error> {
-        let (account, proof) = self.get_with_proof(rightmost_key_to_prove, version)?;
-        ensure!(account.is_some(), "rightmost_key_to_prove must exist.");
+    ) -> Result<SparseMerkleRangeProof<H>, LookupError<R::Error>> {
+        let (Some(_), proof) = self.get_with_proof(rightmost_key_to_prove, version)? else {
+            // No value was found for the key we are attempting to get a range proof for.
+            return Err(LookupError::ValueNotFound {
+                version,
+                key_hash: rightmost_key_to_prove,
+            });
+        };
 
         let siblings = proof
             .siblings()
