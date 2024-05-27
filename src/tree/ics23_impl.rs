@@ -253,24 +253,131 @@ pub fn ics23_spec() -> ics23::ProofSpec {
 #[cfg(test)]
 mod tests {
     use alloc::format;
-    use ics23::HostFunctionsManager;
+    use ics23::{commitment_proof::Proof, HostFunctionsManager, NonExistenceProof};
     use proptest::prelude::*;
+    use proptest::strategy::Strategy;
     use sha2::Sha256;
 
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash, TransparentHasher, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
-    #[test]
-    #[should_panic]
-    fn test_jmt_ics23_nonexistence_single_empty_key() {
-        test_jmt_ics23_nonexistence_with_keys(vec![vec![]].into_iter());
-    }
-
     proptest! {
+         #![proptest_config(ProptestConfig {
+             cases: 1000, .. ProptestConfig::default()
+         })]
+
         #[test]
-        fn test_jmt_ics23_nonexistence(keys: Vec<Vec<u8>>) {
-            test_jmt_ics23_nonexistence_with_keys(keys.into_iter().filter(|k| k.len() != 0));
-        }
+        /// Assert that the Ics23 bonding path calculations are correct.
+        /// To achieve this, the uses a strategy that consists in:
+        /// 1. generating a sorted vector of key preimages
+        /// 2. instantiating a JMT over a `TransparentHasher`
+        ///
+        /// The last point allow us to easily test that for a given key
+        /// that is *in* the JMT, we can generate two non-existent keys
+        /// that are "neighbor" to `k`: (k-1, k+1).
+        ///
+        /// To recap, we generate a vector of sorted key <k_1, ... k_n>;
+        /// then, we iterate over each existing key `k_i` and compute a
+        ///     tuple of neighbors (`k_i - 1`, `k_i + 1`) which are *not*
+        ///     in the tree.
+        /// Equipped with those nonexisting neighbors, we check for exclusion
+        /// in the tree, and specifically assert that the generated proof contains:
+        /// 1. the initial key we requested (i.e. `k_i + 1` or `k_i - 1`)
+        /// 2. the correct left neighbor (i.e. `k_{i-1}`, or `k_{i+1}`, or none`)
+        /// 2. the correct right neighbor (i.e. `k_{i-1}`, or `k_{i+1}`, or none`)
+        /// across configurations e.g. bounding path for a leftmost or rightmost subtree.
+        /// More context available in #104.
+         fn test_ics23_bounding_path_simple(key_seeds in key_strategy()) {
+             let mut preimages: Vec<String> = key_seeds.into_iter().filter(|k| *k!=0).map(|k| format!("{k:032x}")).collect();
+             preimages.sort();
+             preimages.dedup();
+
+           assert!(preimages.len() > 0);
+
+           let store = MockTreeStore::default();
+           let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&store);
+
+           // Our key preimages and key hashes are identical, but we still need to populate
+           // the mock store so that ics23 internal queries can resolve.
+           for preimage in preimages.iter() {
+             store.put_key_preimage(KeyHash::with::<TransparentHasher>(preimage.clone()), preimage.clone().as_bytes().to_vec().as_ref());
+           }
+
+           let (_, write_batch) = tree.put_value_set(
+               preimages.iter().enumerate().map(|(i,k)| (KeyHash::with::<TransparentHasher>(k.as_bytes()), Some(i.to_be_bytes().to_vec()))),
+               1
+           ).unwrap();
+
+           store.write_tree_update_batch(write_batch).expect("can write to mock storage");
+
+           let len_preimages = preimages.len();
+
+           for (idx, existing_key) in preimages.iter().enumerate() {
+            // For each existing key, we generate two alternative keys that are not
+            // in the tree. One that is one bit "ahead" and one that is one bit after.
+            // e.g.  0x5 -> 0x4 and 0x6
+            let (smaller_key, bigger_key) = generate_adjacent_keys(existing_key);
+
+            let (v, proof) = tree.get_with_ics23_proof(smaller_key.as_bytes().to_vec(), 1).expect("can query tree");
+            assert!(v.is_none(), "the key should not exist!");
+            let proof = proof.proof.expect("a proof is present");
+            if let Proof::Nonexist(NonExistenceProof { key, left, right }) = proof {
+              // Basic check that we are getting back the key that we queried.
+              assert_eq!(key, smaller_key.as_bytes().to_vec());
+
+             // The expected predecessor to the nonexistent key `k_i - 1` is `k_{i-1}`, unless `i=0`.
+             let expected_left_neighbor = if idx == 0 { None } else { preimages.get(idx-1) };
+             // The expected successor to the nonexistent key `k_i - 1` is `k_{i+1}`.
+             let expected_right_neighbor = Some(existing_key);
+
+             let reported_left_neighbor = left.clone().map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned());
+             let reported_right_neighbor = right.clone().map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned());
+
+             assert_eq!(expected_left_neighbor.cloned(), reported_left_neighbor);
+             assert_eq!(expected_right_neighbor.cloned(), reported_right_neighbor);
+           } else {
+                unreachable!("we have assessed that the value is `None`")
+            }
+
+            let (v, proof) = tree.get_with_ics23_proof(bigger_key.as_bytes().to_vec(), 1).expect("can query tree");
+            assert!(v.is_none(), "the key should not exist!");
+            let proof = proof.proof.expect("a proof is present");
+            if let Proof::Nonexist(NonExistenceProof { key, left, right }) = proof {
+                    // Basic check that we are getting back the key that we queried.
+                    assert_eq!(key, bigger_key.as_bytes().to_vec());
+                    let reported_left_neighbor = left.clone().map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned());
+                    let reported_right_neighbor = right.clone().map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned());
+
+                    // The expected predecessor to the nonexistent key `k_i + 1` is `k_{i}`.
+                    let expected_left_neighbor = Some(existing_key);
+                    // The expected successor to the nonexistent key `k_i + 1` is `k_{i+1}`.
+                    let expected_right_neighbor = if idx == len_preimages - 1 { None }  else { preimages.get(idx+1) };
+
+                   assert_eq!(expected_left_neighbor.cloned(), reported_left_neighbor);
+                   assert_eq!(expected_right_neighbor.cloned(), reported_right_neighbor);
+             } else {
+                 unreachable!("we have assessed that the value is `None`")
+             }
+         }
+     }
+
+     #[test]
+    fn test_jmt_ics23_nonexistence(keys: Vec<Vec<u8>>) {
+     test_jmt_ics23_nonexistence_with_keys(keys.into_iter().filter(|k| k.len() != 0));
+     }
+     }
+
+    fn key_strategy() -> impl Strategy<Value = Vec<u128>> {
+        proptest::collection::btree_set(u64::MAX as u128..=u128::MAX, 200)
+            .prop_map(|set| set.into_iter().collect())
+    }
+    fn generate_adjacent_keys(hex: &String) -> (String, String) {
+        let value = u128::from_str_radix(hex.as_str(), 16).expect("valid hexstring");
+        let prev = value - 1;
+        let next = value + 1;
+        let p = format!("{prev:032x}");
+        let n = format!("{next:032x}");
+        (p, n)
     }
 
     fn test_jmt_ics23_nonexistence_with_keys(keys: impl Iterator<Item = Vec<u8>>) {
@@ -385,6 +492,12 @@ mod tests {
             &new_root_hash.0.to_vec(),
             b"key",
         ));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_jmt_ics23_nonexistence_single_empty_key() {
+        test_jmt_ics23_nonexistence_with_keys(vec![vec![]].into_iter());
     }
 
     #[test]
