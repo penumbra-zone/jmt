@@ -288,7 +288,7 @@ mod tests {
                     ),
                     (
                         right_key_hash.clone(),
-                        Some(right_key_preimage.clone().as_bytes().to_vec()),
+                        None, // <- empty value
                     ),
                 ],
                 1,
