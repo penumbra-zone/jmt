@@ -261,6 +261,94 @@ mod tests {
     use super::*;
     use crate::{mock::MockTreeStore, KeyHash, TransparentHasher, SPARSE_MERKLE_PLACEHOLDER_HASH};
 
+    #[test]
+    fn reproduction_nex_bug_osmosis() {
+        let left_key_preimage =
+            "1801566691cc4f6e326b618a584733000d161e4953039b0d835cb61640ecfb66".to_string();
+        let left_key_hash = KeyHash::with::<TransparentHasher>(left_key_preimage.clone());
+        let queried_key_preimage =
+            "18316fa5a754b8c821b4a7bc7dc41d0d302c6ad8687cf01bdb4da0dc0e2f9a78".to_string();
+        let queried_key_hash = KeyHash::with::<TransparentHasher>(queried_key_preimage.clone());
+        let right_key_preimage =
+            "18dedf46f6397cfc443bf9d65a79603b5a58a135e7d0394238a1029830f47c09".to_string();
+        let right_key_hash = KeyHash::with::<TransparentHasher>(right_key_preimage.clone());
+
+        let store = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::<_, TransparentHasher>::new(&store);
+
+        store.put_key_preimage(left_key_hash, &left_key_preimage.as_bytes().to_vec());
+        store.put_key_preimage(right_key_hash, &right_key_preimage.as_bytes().to_vec());
+
+        let (_, write_batch) = tree
+            .put_value_set(
+                vec![
+                    (
+                        left_key_hash.clone(),
+                        Some(left_key_preimage.clone().as_bytes().to_vec()),
+                    ),
+                    (
+                        right_key_hash.clone(),
+                        Some(right_key_preimage.clone().as_bytes().to_vec()),
+                    ),
+                ],
+                1,
+            )
+            .expect("no errors");
+
+        store
+            .write_tree_update_batch(write_batch)
+            .expect("can write batch");
+
+        let (v, commitment_proof) = tree
+            .get_with_ics23_proof(queried_key_preimage.as_bytes().to_vec(), 1)
+            .expect("can query tree");
+
+        assert!(v.is_none(), "the queried key shouldn't exist");
+
+        let inner_proof = commitment_proof.clone().proof.expect("a proof is present");
+
+        let Proof::Nonexist(NonExistenceProof { key, left, right }) = inner_proof.clone() else {
+            panic!("we asserted that this was a non-existent key");
+        };
+
+        // Sanity check that the key in the proof is the one we queried.
+        assert_eq!(
+            key,
+            queried_key_preimage.as_bytes().to_vec(),
+            "proof is for a different query"
+        );
+
+        // We pull the left/right neighbors into utf8 strings, we can do that because of `TransparentHasher`.
+        let left_n = left
+            .clone()
+            .map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned())
+            .expect("we know there should be a left neighbor");
+        let right_n = right
+            .clone()
+            .map(|existence_proof| String::from_utf8_lossy(&existence_proof.key).into_owned())
+            .expect("we know there should be a right neighbor");
+
+        // In principle, those should be key hashes and we should be comparing bytes.
+        // However, using the `TransparentHasher` we can dispense with that and have human-readable key hashes.
+        assert_eq!(
+            left_n, left_key_preimage,
+            "left neighbor should match expected key hash"
+        );
+        assert_eq!(
+            right_n, right_key_preimage,
+            "right neighbor should match expected key hash"
+        );
+
+        // Now we verify the NEX proof:
+        let root = tree.get_root_hash(1).expect("can get root hash");
+        ics23::verify_non_membership::<HostFunctionsManager>(
+            &commitment_proof,
+            &ics23_spec(),
+            &root.0.to_vec(),
+            b"18316fa5a754b8c821b4a7bc7dc41d0d302c6ad8687cf01bdb4da0dc0e2f9a78",
+        );
+    }
+
     proptest! {
          #![proptest_config(ProptestConfig {
              cases: 1000, .. ProptestConfig::default()
