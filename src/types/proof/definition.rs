@@ -37,6 +37,7 @@ pub struct SparseMerkleProof<H: SimpleHasher> {
     siblings: Vec<SparseMerkleNode>,
 
     /// A marker type showing which hash function is used in this proof.
+    #[borsh(bound(serialize = "", deserialize = ""))]
     phantom_hasher: PhantomData<H>,
 }
 
@@ -511,7 +512,9 @@ impl<H: SimpleHasher> SparseMerkleProof<H> {
 }
 
 #[derive(Debug, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct UpdateMerkleProof<H: SimpleHasher>(Vec<SparseMerkleProof<H>>);
+pub struct UpdateMerkleProof<H: SimpleHasher>(
+    #[borsh(bound(serialize = "", deserialize = ""))] Vec<SparseMerkleProof<H>>,
+);
 
 impl<H: SimpleHasher> UpdateMerkleProof<H> {
     pub fn new(merkle_proofs: Vec<SparseMerkleProof<H>>) -> Self {
