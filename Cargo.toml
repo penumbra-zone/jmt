@@ -2,7 +2,7 @@
 name = "jmt"
 version = "0.10.0"
 authors = [
-    "Penumbra Labs <team@penumbra.zone>",
+    "Penumbra Labs <team@penumbralabs.xyz>",
     "Diem Association <opensource@diem.com>",
 ]
 description = "Jellyfish Merkle Tree"
