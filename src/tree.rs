@@ -1,4 +1,5 @@
 use crate::storage::Node::Leaf;
+use crate::SPARSE_MERKLE_PLACEHOLDER_HASH;
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloc::{format, vec};
 use anyhow::{bail, ensure, format_err, Context, Result};
@@ -46,6 +47,9 @@ where
     R: 'a + TreeReader,
     H: SimpleHasher,
 {
+    /// The root of this tree when empty.
+    pub const EMPTY_ROOT: RootHash = RootHash(SPARSE_MERKLE_PLACEHOLDER_HASH);
+
     /// Creates a `JellyfishMerkleTree` backed by the given [`TreeReader`].
     pub fn new(reader: &'a R) -> Self {
         Self {
