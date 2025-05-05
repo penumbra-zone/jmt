@@ -1,6 +1,6 @@
 [package]
 name = "jmt"
-version = "0.11.0"
+version = "0.12.0"
 authors = [
     "Penumbra Labs <team@penumbralabs.xyz>",
     "Diem Association <opensource@diem.com>",
