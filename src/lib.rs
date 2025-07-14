@@ -125,25 +125,10 @@ pub mod storage {
 mod tests;
 
 /// An error that occurs when the state root for a requested version is missing (e.g., because it was pruned).
-#[derive(Debug)]
-#[cfg_attr(feature = "std", derive(Error))]
-#[cfg_attr(
-    feature = "std",
-    error("Missing state root node at version {version}, probably pruned.")
-)]
+#[derive(Debug, Error)]
+#[error("Missing state root node at version {version}, probably pruned.")]
 pub struct MissingRootError {
     pub version: Version,
-}
-
-#[cfg(not(feature = "std"))]
-impl core::fmt::Display for MissingRootError {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "Missing state root node at version {}, probably pruned.",
-            self.version
-        )
-    }
 }
 
 // TODO: reorg
