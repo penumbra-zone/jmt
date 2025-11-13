@@ -16,7 +16,6 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
-use num_derive::{FromPrimitive, ToPrimitive};
 #[cfg(any(test))]
 use proptest::prelude::*;
 #[cfg(any(test))]
@@ -863,15 +862,6 @@ impl From<LeafNode> for SparseMerkleLeafNode {
     fn from(leaf_node: LeafNode) -> Self {
         Self::new(leaf_node.key_hash, leaf_node.value_hash)
     }
-}
-
-#[repr(u8)]
-#[derive(FromPrimitive, ToPrimitive, BorshDeserialize, BorshSerialize)]
-#[borsh(use_discriminant = false)]
-enum NodeTag {
-    Null = 0,
-    Leaf = 1,
-    Internal = 2,
 }
 
 /// The concrete node type of [`JellyfishMerkleTree`](crate::JellyfishMerkleTree).
