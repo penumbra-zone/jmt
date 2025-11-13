@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
+#![allow(non_local_definitions)]
 
 //! This module implements [`JellyfishMerkleTree`] backed by storage module. The tree itself doesn't
 //! persist anything, but realizes the logic of R/W only. The write path will produce all the
@@ -211,6 +212,7 @@ impl AsRef<[u8]> for RootHash {
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
+#[allow(non_local_definitions)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct KeyHash(pub [u8; 32]);
 
@@ -227,6 +229,7 @@ pub struct KeyHash(pub [u8; 32]);
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
+#[allow(non_local_definitions)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 // This needs to be public for the fuzzing/Arbitrary feature, but we don't
 // really want it to be, so #[doc(hidden)] is the next best thing.

@@ -46,6 +46,7 @@ use crate::{
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
 )]
+#[allow(non_local_definitions)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct NodeKey {
     // The version at which the node is created.
@@ -141,6 +142,7 @@ impl Arbitrary for NodeType {
     Serialize,
     Deserialize,
 )]
+#[allow(non_local_definitions)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct Child {
     /// The hash value of this child node.

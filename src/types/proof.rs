@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 pub const LEAF_DOMAIN_SEPARATOR: &[u8] = b"JMT::LeafNode";
 pub const INTERNAL_DOMAIN_SEPARATOR: &[u8] = b"JMT::IntrnalNode";
 
+#[allow(non_local_definitions)]
 #[cfg_attr(all(test, feature = "std"), derive(Arbitrary))]
 #[derive(
     Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
@@ -57,6 +58,7 @@ impl SparseMerkleNode {
 #[derive(
     Serialize, Deserialize, Clone, Copy, Eq, PartialEq, BorshSerialize, BorshDeserialize, Debug,
 )]
+#[allow(non_local_definitions)]
 #[cfg_attr(all(test, feature = "std"), derive(Arbitrary))]
 pub(crate) struct SparseMerkleInternalNode {
     left_child: [u8; 32],
