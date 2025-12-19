@@ -112,6 +112,7 @@ pub mod storage {
     pub use reader::HasPreimage;
     pub use reader::TreeReader;
     pub use types::nibble::nibble_path::NibblePath;
+    pub use types::nibble::Nibble;
     pub use writer::{
         NodeBatch, NodeStats, StaleNodeIndex, StaleNodeIndexBatch, TreeUpdateBatch, TreeWriter,
     };
