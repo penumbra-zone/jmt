@@ -16,8 +16,8 @@ pub trait Bytes32Ext: Index<usize> + Sized {
         self.common_prefix_bits_len(other) / 4
     }
 
+    #[allow(dead_code)]
     /// Constructs a `HashValue` from an iterator of bits.
-    #[cfg(test)]
     fn from_bit_iter(iter: impl ExactSizeIterator<Item = bool>) -> Option<Self>;
 }
 
@@ -48,7 +48,6 @@ impl Bytes32Ext for [u8; 32] {
         (self[pos] >> shift) & 0x0f
     }
 
-    #[cfg(test)]
     /// Constructs a `HashValue` from an iterator of bits.
     fn from_bit_iter(iter: impl ExactSizeIterator<Item = bool>) -> Option<Self> {
         if iter.len() != 256 {
