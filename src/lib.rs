@@ -78,7 +78,6 @@ use digest::generic_array::GenericArray;
 use digest::Digest;
 use digest::OutputSizeUser;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
 use thiserror::Error;
 
 mod bytes32ext;
