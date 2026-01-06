@@ -86,6 +86,16 @@ impl NodeBatch {
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty() && self.values.is_empty()
     }
+
+    /// Decomposes the NodeBatch into node and value maps.
+    pub fn into_parts(
+        self,
+    ) -> (
+        BTreeMap<NodeKey, Node>,
+        BTreeMap<(Version, KeyHash), Option<OwnedValue>>,
+    ) {
+        (self.nodes, self.values)
+    }
 }
 /// [`StaleNodeIndex`](struct.StaleNodeIndex.html) batch that will be written into db atomically
 /// with other batches.
