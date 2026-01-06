@@ -3,11 +3,13 @@
 use crate::{mock::MockTreeStore, JellyfishMerkleTree, OwnedValue, SimpleHasher};
 use alloc::{rc::Rc, vec::Vec};
 use borsh::{BorshDeserialize, BorshSerialize};
-use core::{convert::TryInto, panic};
+use core::convert::TryInto;
 
-use alloc::{format, vec};
+use alloc::vec;
 use proptest::prelude::*;
 use rand::rngs::OsRng;
+use rand::Rng;
+use rand::RngCore;
 use sha2::Sha256;
 
 use crate::{

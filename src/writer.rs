@@ -111,6 +111,7 @@ pub struct NodeStats {
 
 /// Indicates a node becomes stale since `stale_since_version`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, BorshDeserialize, BorshSerialize)]
+#[allow(non_local_definitions)]
 #[cfg_attr(any(test), derive(Arbitrary))]
 pub struct StaleNodeIndex {
     /// The version since when the node is overwritten and becomes stale.

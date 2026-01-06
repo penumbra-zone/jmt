@@ -15,6 +15,8 @@ pub trait Bytes32Ext: Index<usize> + Sized {
     fn common_prefix_nibbles_len(&self, other: &[u8; 32]) -> usize {
         self.common_prefix_bits_len(other) / 4
     }
+
+    #[allow(dead_code)]
     /// Constructs a `HashValue` from an iterator of bits.
     fn from_bit_iter(iter: impl ExactSizeIterator<Item = bool>) -> Option<Self>;
 }
