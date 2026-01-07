@@ -19,7 +19,16 @@ publish = true
 default = ["ics23", "std", "sha2"]
 mocks = ["dep:parking_lot"]
 blake3_tests = ["dep:blake3"]
-std = ["dep:thiserror", "hex/std", "ics23/std"]
+std = [
+    "dep:thiserror",
+    "hex/std",
+    "ics23/std",
+    "anyhow/std",
+    "borsh/std",
+    "digest/std",
+    "serde/std",
+    "tracing/std"
+]
 migration = []
 
 [dependencies]
