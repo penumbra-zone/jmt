@@ -19,7 +19,7 @@ publish = true
 default = ["ics23", "std", "sha2"]
 mocks = ["dep:parking_lot"]
 blake3_tests = ["dep:blake3"]
-std = ["dep:thiserror"]
+std = ["thiserror/std"]
 migration = []
 
 [dependencies]
@@ -33,7 +33,7 @@ num-derive = "0.4.2"
 num-traits = "0.2.14"
 parking_lot = { version = "0.12.1", optional = true } 
 serde = { version = "1.0.124", features = ["derive"] }
-thiserror = { version = "1.0.24", optional = true } 
+thiserror = { version = "2.0", default-features = false }
 sha2 = { version = "0.10", optional = true } 
 blake3 = { version = "1.4.0", optional = true, features = ["traits-preview"] } 
 hex = "0.4"
