@@ -6,9 +6,9 @@ use anyhow::{bail, ensure, format_err, Context, Result};
 use core::marker::PhantomData;
 use core::{cmp::Ordering, convert::TryInto};
 #[cfg(not(feature = "std"))]
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::proof::definition::UpdateMerkleProof;
 use crate::proof::{SparseMerkleLeafNode, SparseMerkleNode};
@@ -54,7 +54,7 @@ where
     pub fn new(reader: &'a R) -> Self {
         Self {
             reader,
-            _phantom_hasher: Default::default(),
+            _phantom_hasher: PhantomData,
         }
     }
 
@@ -75,6 +75,7 @@ where
     }
 
     /// The batch version of `put_value_sets`.
+    #[cfg(not(feature = "parallel"))]
     pub fn batch_put_value_sets(
         &self,
         value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
@@ -106,6 +107,7 @@ where
                 })
                 .collect::<Vec<_>>();
             let root_node_key = tree_cache.get_root_node_key().clone();
+
             let (new_root_node_key, _) = self.batch_insert_at(
                 root_node_key,
                 version,
@@ -114,6 +116,7 @@ where
                 &hash_set,
                 &mut tree_cache,
             )?;
+
             tree_cache.set_root_node_key(new_root_node_key);
 
             // Freezes the current cache to make all contents in the current cache immutable.
@@ -121,6 +124,232 @@ where
         }
 
         Ok(tree_cache.into())
+    }
+
+    /// The batch version of `put_value_sets` with parallel optimization.
+    #[cfg(feature = "parallel")]
+    pub fn batch_put_value_sets(
+        &self,
+        value_sets: Vec<Vec<(KeyHash, OwnedValue)>>,
+        node_hashes: Option<Vec<&HashMap<NibblePath, [u8; 32]>>>,
+        first_version: Version,
+    ) -> Result<(Vec<RootHash>, TreeUpdateBatch)>
+    where
+        R: Sync,
+        H: Sync,
+    {
+        let mut tree_cache = TreeCache::new(self.reader, first_version)?;
+        let hash_sets: Vec<_> = match node_hashes {
+            Some(hashes) => hashes.into_iter().map(Some).collect(),
+            None => (0..value_sets.len()).map(|_| None).collect(),
+        };
+
+        for (idx, (value_set, hash_set)) in
+            itertools::zip_eq(value_sets.into_iter(), hash_sets.into_iter()).enumerate()
+        {
+            assert!(
+                !value_set.is_empty(),
+                "Transactions that output empty write set should not be included.",
+            );
+            let version = first_version + idx as u64;
+            let deduped_and_sorted_kvs = value_set
+                .into_iter()
+                .collect::<BTreeMap<_, _>>()
+                .into_iter()
+                .map(|(key, value)| {
+                    let value_hash = ValueHash::with::<H>(value.as_slice());
+                    tree_cache.put_value(version, key, Some(value));
+                    (key, value_hash)
+                })
+                .collect::<Vec<_>>();
+            let root_node_key = tree_cache.get_root_node_key().clone();
+
+            let (new_root_node_key, _) = self.batch_insert_at_parallel(
+                root_node_key,
+                version,
+                deduped_and_sorted_kvs.as_slice(),
+                0,
+                &hash_set,
+                &mut tree_cache,
+            )?;
+
+            tree_cache.set_root_node_key(new_root_node_key);
+
+            // Freezes the current cache to make all contents in the current cache immutable.
+            tree_cache.freeze::<H>()?;
+        }
+
+        Ok(tree_cache.into())
+    }
+
+    #[cfg(feature = "parallel")]
+    fn batch_insert_at_parallel(
+        &self,
+        node_key: NodeKey,
+        version: Version,
+        kvs: &[(KeyHash, ValueHash)],
+        depth: usize,
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
+        tree_cache: &mut TreeCache<R>,
+    ) -> Result<(NodeKey, Node)>
+    where
+        R: Sync,
+        H: Sync,
+    {
+        const PARALLEL_THRESHOLD: usize = 100;
+
+        // 只在 depth=1 且数据量足够大时使用并行
+        if depth != 1 || kvs.len() < PARALLEL_THRESHOLD {
+            return self.batch_insert_at(node_key, version, kvs, depth, hash_cache, tree_cache);
+        }
+
+        // 获取当前节点
+        let node = tree_cache.get_node(&node_key)?;
+
+        match node {
+            Node::Internal(internal_node) => {
+                // 删除旧的内部节点
+                tree_cache.delete_node(&node_key, false);
+
+                // 使用并行处理子树
+                self.process_children_parallel(
+                    node_key,
+                    version,
+                    kvs,
+                    depth,
+                    hash_cache,
+                    tree_cache,
+                    internal_node,
+                )
+            }
+            _ => {
+                // 对于叶子节点和空节点，使用串行处理
+                self.batch_insert_at(node_key, version, kvs, depth, hash_cache, tree_cache)
+            }
+        }
+    }
+
+    #[cfg(feature = "parallel")]
+    fn process_children_parallel(
+        &self,
+        node_key: NodeKey,
+        version: Version,
+        kvs: &[(KeyHash, ValueHash)],
+        depth: usize,
+        hash_cache: &Option<&HashMap<NibblePath, [u8; 32]>>,
+        tree_cache: &mut TreeCache<R>,
+        internal_node: InternalNode,
+    ) -> Result<(NodeKey, Node)>
+    where
+        R: Sync,
+        H: Sync,
+    {
+        // 第一步：按 depth=1 子树分组（键的前 4 bits -> 0..15）
+        let mut subtrees: Vec<Vec<(KeyHash, ValueHash)>> = vec![vec![]; 16];
+        for (key, value) in kvs.iter() {
+            let nibble = key.0.get_nibble(depth);
+            subtrees[nibble.as_usize()].push((*key, *value));
+        }
+
+        // 第二步：并行更新 16 个子树（使用 rayon）
+        use rayon::prelude::*;
+        let subtree_results: Vec<Option<(NodeKey, Node, HashMap<NodeKey, Node>, HashMap<(Version, KeyHash), Option<OwnedValue>>, HashSet<NodeKey>)>> = (0..16)
+            .into_par_iter()
+            .map(|i| {
+                if subtrees[i].is_empty() {
+                    return None;
+                }
+
+                // 创建子树实例或递归更新
+                let child_index = Nibble::from(i as u8);
+                let child_node_key = node_key.gen_child_node_key(version, child_index);
+
+                // 创建新的 JellyfishMerkleTree 实例处理子树
+                let sub_tree: JellyfishMerkleTree<'_, R, H> = JellyfishMerkleTree::new(self.reader);
+
+                // 检查是否存在子节点
+                let (new_child_node_key, new_child_node, nodes, values, stale_nodes) = match internal_node.child(child_index) {
+                    Some(child) => {
+                        // 存在子节点，递归更新
+                        let existing_child_node_key =
+                            node_key.gen_child_node_key(child.version, child_index);
+                        let mut sub_tree_cache = TreeCache::new(self.reader, version).unwrap();
+
+                        let (new_child_node_key, new_child_node) = sub_tree
+                            .batch_insert_at(
+                                existing_child_node_key,
+                                version,
+                                &subtrees[i],
+                                depth + 1,
+                                hash_cache,
+                                &mut sub_tree_cache,
+                            )
+                            .unwrap();
+                        
+                        // 收集节点数据
+                        let (nodes, values, stale_nodes) = sub_tree_cache.drain();
+                        
+                        (new_child_node_key, new_child_node, nodes, values, stale_nodes)
+                    }
+                    None => {
+                        // 不存在子节点，创建新子树
+                        let mut sub_tree_cache = TreeCache::new(self.reader, version).unwrap();
+
+                        let (new_child_node_key, new_child_node) = sub_tree
+                            .batch_create_subtree(
+                                child_node_key,
+                                version,
+                                &subtrees[i],
+                                depth + 1,
+                                hash_cache,
+                                &mut sub_tree_cache,
+                            )
+                            .unwrap();
+                        
+                        // 收集节点数据
+                        let (nodes, values, stale_nodes) = sub_tree_cache.drain();
+                        
+                        (new_child_node_key, new_child_node, nodes, values, stale_nodes)
+                    }
+                };
+
+                Some((new_child_node_key, new_child_node, nodes, values, stale_nodes))
+            })
+            .collect();
+
+        // 第三步：合成新 root（在主线程中）
+        let mut children: Children = internal_node.into();
+        for (i, result) in subtree_results.into_iter().enumerate() {
+            if let Some((new_child_node_key, new_child_node, nodes, values, stale_nodes)) = result {
+                let child_index = Nibble::from(i as u8);
+                children.insert(
+                    child_index,
+                    Child::new(
+                        Self::get_hash(&new_child_node_key, &new_child_node, hash_cache),
+                        version,
+                        new_child_node.node_type(),
+                    ),
+                );
+
+                // 合并子树的节点数据到主 TreeCache
+                for (node_key, node) in nodes {
+                    tree_cache.put_node(node_key, node)?;
+                }
+                for ((v, k), val) in values {
+                    tree_cache.put_value(v, k, val);
+                }
+                for stale_node in stale_nodes {
+                    tree_cache.delete_node(&stale_node, false);
+                }
+            }
+        }
+
+        let new_internal_node = InternalNode::new(children);
+        let mut node_key = node_key;
+        node_key.set_version(version);
+        tree_cache.put_node(node_key.clone(), new_internal_node.clone().into())?;
+
+        Ok((node_key, new_internal_node.into()))
     }
 
     fn batch_insert_at(
