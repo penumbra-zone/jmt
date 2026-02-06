@@ -31,6 +31,21 @@ fn bench_random_distribution(c: &mut Criterion) {
                 )
             })
         });
+        
+        group.bench_with_input(BenchmarkId::new("parallel", size), size, |b, &_size| {
+            b.iter(|| {
+                let reader = MockTreeStore::default();
+                let tree = JellyfishMerkleTree::<_, Sha256>::new(&reader);
+                let value_set_clone = value_set.clone();
+                black_box(
+                    tree.batch_put_value_sets(
+                        vec![value_set_clone],
+                        None,
+                        1,
+                    )
+                )
+            })
+        });
     }
     
     group.finish();
@@ -59,6 +74,21 @@ fn bench_concentrated_distribution(c: &mut Criterion) {
                 )
             })
         });
+        
+        group.bench_with_input(BenchmarkId::new("parallel", size), size, |b, &_size| {
+            b.iter(|| {
+                let reader = MockTreeStore::default();
+                let tree = JellyfishMerkleTree::<_, Sha256>::new(&reader);
+                let value_set_clone = value_set.clone();
+                black_box(
+                    tree.batch_put_value_sets(
+                        vec![value_set_clone],
+                        None,
+                        1,
+                    )
+                )
+            })
+        });
     }
     
     group.finish();
@@ -74,6 +104,21 @@ fn bench_sparse_distribution(c: &mut Criterion) {
         println!("Sparse distribution for size {}: {:?}", size, distribution);
         
         group.bench_with_input(BenchmarkId::new("sequential", size), size, |b, &_size| {
+            b.iter(|| {
+                let reader = MockTreeStore::default();
+                let tree = JellyfishMerkleTree::<_, Sha256>::new(&reader);
+                let value_set_clone = value_set.clone();
+                black_box(
+                    tree.batch_put_value_sets(
+                        vec![value_set_clone],
+                        None,
+                        1,
+                    )
+                )
+            })
+        });
+        
+        group.bench_with_input(BenchmarkId::new("parallel", size), size, |b, &_size| {
             b.iter(|| {
                 let reader = MockTreeStore::default();
                 let tree = JellyfishMerkleTree::<_, Sha256>::new(&reader);
