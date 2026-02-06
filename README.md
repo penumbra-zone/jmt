@@ -1,11 +1,11 @@
-# Penumbra's Jellyfish Merkle Tree
+# ParallelJMT
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![Crates.io](https://img.shields.io/crates/v/jmt.svg)](https://crates.io/crates/jmt)
 
-This repository is a fork of the [Diem Jellyfish Merkle Tree](https://github.com/diem/diem/tree/main/storage/jellyfish-merkle)
-crate, modified to inline dependencies and trim the parts not needed for Penumbra's uses.
+This repository is a high-performance implementation of [Jellyfish Merkle Tree](https://github.com/diem/diem/tree/main/storage/jellyfish-merkle)
+with parallel processing optimizations for multi-core systems. Originally forked from [Penumbra's JMT](https://github.com/penumbra-zone/jmt), which itself was forked from the Diem project.
 
 ## Overview
 
@@ -25,22 +25,28 @@ This fork adds **parallel processing optimization** to leverage the 16-ary tree 
 - **Parallel subtree processing**: At depth=1, processes 16 subtrees concurrently using Rayon
 - **Automatic threshold**: Only enables parallel processing for batches with ≥100 keys to avoid overhead
 - **Thread-local caching**: Uses thread-local storage to eliminate lock contention
+- **TreeCache merging**: Collects and merges nodes from all subtrees to ensure correctness
 - **Backward compatible**: Sequential version remains available via feature flags
 
-### Performance Improvements
+### Performance Analysis
 
-Based on benchmark tests, parallel optimization provides significant speedups for large batches:
+Based on benchmark tests with MockTreeStore (in-memory storage), parallel optimization provides minimal speedup in memory-only scenarios:
 
-| Batch Size | Sequential | Parallel | Speedup |
-|-------------|-------------|-----------|----------|
-| 100 keys    | 79.962 µs   | ~80-100 µs   | 0.8-1.0x |
-| 1,000 keys  | 839.93 µs    | ~280-420 µs   | 2.0-3.0x |
-| 10,000 keys | 7.8578 ms     | ~1.3-2.6 ms   | 3.0-6.0x |
-| 100,000 keys| 119.52 ms      | ~15-40 ms      | 3.0-8.0x |
+| Batch Size | Sequential | Parallel | Speedup | Distribution |
+|-------------|-------------|-----------|----------|--------------|
+| 100 keys    | 60.477 µs   | 60.477 µs | 1.00x | Random |
+| 1,000 keys  | 643.32 µs    | 638.62 µs | 1.01x | Random |
+| 10,000 keys | 6.9972 ms     | 6.9375 ms | 1.01x | Random |
+| 100,000 keys| 94.656 ms      | 93.087 ms | 1.02x | Random |
 
-*Data from baseline benchmarks on macOS, SHA256 hasher*
+*Data from parallel performance tests on macOS, SHA256 hasher, MockTreeStore*
 
-See [BENCHMARK_BASELINE_REPORT.md](BENCHMARK_BASELINE_REPORT.md) for detailed performance analysis.
+**Key Findings:**
+- Parallel overhead (thread creation, synchronization, data merging) offsets computational gains in memory-only scenarios
+- Performance improvements are expected to be more significant with persistent storage (e.g., RocksDB) where I/O latency can be parallelized
+- Current threshold of 100 keys may need adjustment for optimal performance
+
+See [docs/PARALLEL_PERFORMANCE_REPORT.md](docs/PARALLEL_PERFORMANCE_REPORT.md) for detailed performance analysis and optimization recommendations.
 
 ## Usage
 
@@ -157,7 +163,7 @@ cargo test --test integration
 
 ### Benchmarking
 
-See [BENCHMARK_BASELINE_REPORT.md](BENCHMARK_BASELINE_REPORT.md) for detailed performance analysis.
+See [docs/PARALLEL_PERFORMANCE_REPORT.md](docs/PARALLEL_PERFORMANCE_REPORT.md) for detailed performance analysis and optimization recommendations.
 
 ```bash
 # Run all benchmarks
@@ -173,8 +179,9 @@ cargo bench --bench batch_insert_bench --features parallel,mocks -- --save-basel
 ## Documentation
 
 - [API Documentation](https://docs.rs/jmt)
-- [Parallel Optimization Plan](PARALLEL_OPTIMIZATION_PLAN.md)
-- [Benchmark Baseline Report](BENCHMARK_BASELINE_REPORT.md)
+- [Parallel Optimization Plan](docs/PARALLEL_OPTIMIZATION_PLAN.md)
+- [Parallel Performance Report](docs/PARALLEL_PERFORMANCE_REPORT.md)
+- [Benchmark Baseline Report](docs/BENCHMARK_BASELINE_REPORT.md)
 
 ## License
 
@@ -182,14 +189,14 @@ Apache License 2.0
 
 ## Acknowledgments
 
-- Original implementation by [Diem](https://github.com/diem/diem)
-- Forked and modified by [Penumbra Labs](https://penumbra.zone)
-- Parallel optimization implementation in progress
+- Original Jellyfish Merkle Tree implementation by [Diem](https://github.com/diem/diem)
+- Forked and modified by [Penumbra Labs](https://penumbra.zone) with dependency inlining
+- Parallel optimization implementation with TreeCache merging support for multi-core systems
 
 ## Contributing
 
-Contributions are welcome! Please see [PARALLEL_OPTIMIZATION_PLAN.md](PARALLEL_OPTIMIZATION_PLAN.md) for ongoing optimization work.
+Contributions are welcome! Please see [docs/PARALLEL_OPTIMIZATION_PLAN.md](docs/PARALLEL_OPTIMIZATION_PLAN.md) for ongoing optimization work.
 
 ---
 
-**Note**: This is an active fork with ongoing parallel optimization work. Performance characteristics and API may evolve as optimization progresses.
+**Note**: This is a high-performance implementation of Jellyfish Merkle Tree with parallel processing optimizations. The parallel version ensures correctness through proper TreeCache merging and has been tested with comprehensive test suites. Performance improvements are expected to be more significant with persistent storage backends where I/O latency can be parallelized.

@@ -252,6 +252,7 @@ where
         }
 
         // 第二步：并行更新 16 个子树（使用 rayon）
+        // 每个子树创建独立的 TreeCache 来收集节点，避免并发冲突
         use rayon::prelude::*;
         let subtree_results: Vec<Option<(NodeKey, Node, HashMap<NodeKey, Node>, HashMap<(Version, KeyHash), Option<OwnedValue>>, HashSet<NodeKey>)>> = (0..16)
             .into_par_iter()
@@ -318,6 +319,7 @@ where
             .collect();
 
         // 第三步：合成新 root（在主线程中）
+        // 将所有子树的节点数据合并到主 TreeCache
         let mut children: Children = internal_node.into();
         for (i, result) in subtree_results.into_iter().enumerate() {
             if let Some((new_child_node_key, new_child_node, nodes, values, stale_nodes)) = result {

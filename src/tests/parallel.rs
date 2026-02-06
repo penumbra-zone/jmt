@@ -101,7 +101,7 @@ fn test_parallel_edge_cases_empty_subtrees() {
     let reader = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader);
     let (root_hashes, _batch) = tree
-        .batch_put_value_sets(vec![value_set], None, 1)
+        .batch_put_value_sets(vec![value_set], None, 0)
         .unwrap();
 
     assert_ne!(root_hashes[0], RootHash([0u8; 32]), "Root hash should not be default");
@@ -118,7 +118,7 @@ fn test_parallel_edge_cases_single_subtree() {
     let reader = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader);
     let (root_hashes, _batch) = tree
-        .batch_put_value_sets(vec![value_set], None, 1)
+        .batch_put_value_sets(vec![value_set], None, 0)
         .unwrap();
 
     assert_ne!(root_hashes[0], RootHash([0u8; 32]), "Root hash should not be default");
@@ -132,7 +132,7 @@ fn test_parallel_edge_cases_all_subtrees() {
     let reader = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader);
     let (root_hashes, _batch) = tree
-        .batch_put_value_sets(vec![value_set], None, 1)
+        .batch_put_value_sets(vec![value_set], None, 0)
         .unwrap();
 
     assert_ne!(root_hashes[0], RootHash([0u8; 32]), "Root hash should not be default");
@@ -148,19 +148,19 @@ fn test_parallel_edge_cases_threshold_boundary() {
     let reader_99 = MockTreeStore::default();
     let tree_99 = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader_99);
     let (root_hashes_99, _) = tree_99
-        .batch_put_value_sets(vec![value_set_99], None, 1)
+        .batch_put_value_sets(vec![value_set_99], None, 0)
         .unwrap();
 
     let reader_100 = MockTreeStore::default();
     let tree_100 = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader_100);
     let (root_hashes_100, _) = tree_100
-        .batch_put_value_sets(vec![value_set_100], None, 1)
+        .batch_put_value_sets(vec![value_set_100], None, 0)
         .unwrap();
 
     let reader_101 = MockTreeStore::default();
     let tree_101 = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader_101);
     let (root_hashes_101, _) = tree_101
-        .batch_put_value_sets(vec![value_set_101], None, 1)
+        .batch_put_value_sets(vec![value_set_101], None, 0)
         .unwrap();
 
     assert_ne!(root_hashes_99[0], RootHash([0u8; 32]));
@@ -176,7 +176,7 @@ fn test_parallel_stress_large_dataset() {
     let reader = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader);
     let (root_hashes, batch) = tree
-        .batch_put_value_sets(vec![value_set], None, 1)
+        .batch_put_value_sets(vec![value_set], None, 0)
         .unwrap();
 
     assert_ne!(root_hashes[0], RootHash([0u8; 32]), "Root hash should not be default");
@@ -196,7 +196,7 @@ fn test_parallel_multiple_versions() {
     let reader = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, sha2::Sha256>::new(&reader);
     let (root_hashes, _) = tree
-        .batch_put_value_sets(vec![value_set_1, value_set_2, value_set_3], None, 1)
+        .batch_put_value_sets(vec![value_set_1, value_set_2, value_set_3], None, 0)
         .unwrap();
 
     assert_eq!(root_hashes.len(), 3, "Should have 3 root hashes");
