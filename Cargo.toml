@@ -22,6 +22,7 @@ blake3_tests = ["dep:blake3"]
 std = ["dep:thiserror"]
 migration = []
 parallel = ["rayon"]
+rocksdb = ["dep:rocksdb"]
 
 [dependencies]
 anyhow = "1.0.38"
@@ -41,6 +42,7 @@ blake3 = { version = "1.4.0", optional = true, features = ["traits-preview"] }
 hex = "0.4"
 tracing = "0.1"
 ics23 = { version = "0.12.0", optional = true}
+rocksdb = { version = "0.21.0", optional = true }
 
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }

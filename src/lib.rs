@@ -90,6 +90,20 @@ mod tree_cache;
 mod types;
 mod writer;
 
+#[cfg(feature = "rocksdb")]
+mod rocksdb_shard;
+#[cfg(feature = "rocksdb")]
+pub use rocksdb_shard::RocksDBShard;
+
+mod sharded_storage;
+pub use sharded_storage::{ShardedTreeReader, ShardedTreeWriter};
+
+mod sharded_tree_store;
+pub use sharded_tree_store::{InMemoryShardedTreeStore, MockShardedTreeStore};
+
+mod sharded_adapter;
+pub use sharded_adapter::{ShardedTreeReaderAdapter, ShardedTreeWriterAdapter};
+
 #[cfg(any(test, feature = "mocks"))]
 pub mod mock;
 pub mod restore;
