@@ -21,8 +21,9 @@ mocks = ["dep:parking_lot"]
 blake3_tests = ["dep:blake3"]
 std = ["dep:thiserror"]
 migration = []
-parallel = ["rayon"]
+parallel = ["rayon", "num_cpus"]
 rocksdb = ["dep:rocksdb"]
+sharded = []
 
 [dependencies]
 anyhow = "1.0.38"
@@ -35,6 +36,7 @@ num-derive = "0.4.2"
 num-traits = "0.2.14"
 parking_lot = { version = "0.12.1", optional = true } 
 rayon = { version = "1.8", optional = true }
+num_cpus = { version = "1.16", optional = true }
 serde = { version = "1.0.124", features = ["derive"] }
 thiserror = { version = "1.0.24", optional = true } 
 sha2 = { version = "0.10", optional = true } 
@@ -53,8 +55,29 @@ proptest = { version = "1.0.0" }
 proptest-derive = { version = "0.5.0" }
 sha2 = "0.10"
 criterion = "0.5"
+tempfile = "3.10.1"
 
 [[bench]]
 name = "batch_insert_bench"
+harness = false
+required-features = ["parallel", "mocks"]
+
+[[bench]]
+name = "rocksdb_bench"
+harness = false
+required-features = ["rocksdb", "mocks", "sha2"]
+
+[[bench]]
+name = "parallel_reads"
+harness = false
+required-features = ["rocksdb", "mocks", "sha2", "parallel"]
+
+[[bench]]
+name = "performance_comparison"
+harness = false
+required-features = ["mocks"]
+
+[[bench]]
+name = "large_tree_updates"
 harness = false
 required-features = ["parallel", "mocks"]

@@ -39,6 +39,10 @@ pub trait TreeReader {
     /// Gets the rightmost leaf. Note that this assumes we are in the process of restoring the tree
     /// and all nodes are at the same version.
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode)>>;
+    
+    /// Returns a reference to self as Any for downcasting.
+    /// This is used for runtime type checking and dynamic dispatch.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Defines the ability for a tree to look up the preimage of its key hashes.

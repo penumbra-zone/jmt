@@ -408,6 +408,12 @@ where
     fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, crate::storage::LeafNode)>> {
         unimplemented!("get_rightmost_leaf should not be used with a tree cache")
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        // TreeCache cannot be downcasted directly due to lifetime constraints
+        // Use reader_as_any() method instead
+        panic!("Cannot downcast TreeCache directly. Use reader_as_any() method instead.")
+    }
 }
 
 impl<'a, R> From<TreeCache<'a, R>> for (Vec<RootHash>, TreeUpdateBatch)
@@ -423,5 +429,15 @@ where
                 node_stats: tree_cache.frozen_cache.node_stats,
             },
         )
+    }
+}
+
+impl<'a, R> TreeCache<'a, R>
+where
+    R: 'a + TreeReader,
+{
+    /// Gets the underlying reader as Any for downcasting.
+    pub fn reader_as_any(&self) -> &dyn std::any::Any {
+        self.reader.as_any()
     }
 }

@@ -254,6 +254,8 @@ where
         // 第二步：并行更新 16 个子树（使用 rayon）
         // 每个子树创建独立的 TreeCache 来收集节点，避免并发冲突
         use rayon::prelude::*;
+        
+        // 标准并行处理
         let subtree_results: Vec<Option<(NodeKey, Node, HashMap<NodeKey, Node>, HashMap<(Version, KeyHash), Option<OwnedValue>>, HashSet<NodeKey>)>> = (0..16)
             .into_par_iter()
             .map(|i| {
