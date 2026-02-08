@@ -14,6 +14,8 @@ use hashbrown::{hash_map::Entry, HashMap};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry, HashMap};
 
+use crate::sharded_storage::{Shard, ShardedTreeReader, ShardedTreeWriter};
+
 use crate::{
     node_type::{LeafNode, Node, NodeKey},
     storage::{HasPreimage, NodeBatch, StaleNodeIndex, TreeReader, TreeUpdateBatch, TreeWriter},
@@ -86,6 +88,10 @@ impl TreeReader for MockTreeStore {
             }
             None => Ok(None),
         }
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -180,7 +186,7 @@ impl MockTreeStore {
     }
 
     pub fn write_tree_update_batch(&self, batch: TreeUpdateBatch) -> Result<()> {
-        self.write_node_batch(&batch.node_batch)?;
+        <MockTreeStore as TreeWriter>::write_node_batch(&self, &batch.node_batch)?;
         batch
             .stale_node_index_batch
             .into_iter()
@@ -214,3 +220,62 @@ impl MockTreeStore {
         self.data.read().nodes.len()
     }
 }
+
+impl ShardedTreeReader for MockTreeStore {
+    fn get_node_option_from_shard(&self, _shard_idx: usize, node_key: &NodeKey) -> Result<Option<Node>> {
+        <MockTreeStore as TreeReader>::get_node_option(self, node_key)
+    }
+
+    fn get_value_option(&self, max_version: Version, key_hash: KeyHash) -> Result<Option<OwnedValue>> {
+        <MockTreeStore as TreeReader>::get_value_option(self, max_version, key_hash)
+    }
+
+    fn get_rightmost_leaf(&self) -> Result<Option<(NodeKey, LeafNode)>> {
+        <MockTreeStore as TreeReader>::get_rightmost_leaf(self)
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn num_shards(&self) -> usize {
+        1
+    }
+}
+
+impl ShardedTreeWriter for MockTreeStore {
+    fn write_shard_batch(&self, _shard_idx: usize, batch: &[(NodeKey, Node)]) -> Result<()> {
+        let mut nodes_map = std::collections::BTreeMap::new();
+        let values_map = std::collections::BTreeMap::new();
+
+        for (node_key, node) in batch {
+            nodes_map.insert(node_key.clone(), node.clone());
+        }
+
+        let node_batch = NodeBatch::new(nodes_map, values_map);
+        <MockTreeStore as TreeWriter>::write_node_batch(self, &node_batch)
+    }
+
+    fn num_shards(&self) -> usize {
+        1
+    }
+}
+
+impl Shard for MockTreeStore {
+    fn shard_index(&self) -> usize {
+        0
+    }
+
+    fn get_node(&self, node_key: &NodeKey) -> Result<Option<Node>> {
+        <MockTreeStore as TreeReader>::get_node_option(self, node_key)
+    }
+
+    fn write_batch(&self, batch: &[(NodeKey, Node)]) -> Result<()> {
+        self.write_shard_batch(0, batch)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+

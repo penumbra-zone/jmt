@@ -90,6 +90,33 @@ mod tree_cache;
 mod types;
 mod writer;
 
+#[cfg(feature = "rocksdb")]
+mod rocksdb_shard;
+#[cfg(feature = "rocksdb")]
+pub use rocksdb_shard::{RocksDBShard, RocksDBShardedTreeStore};
+
+mod migration;
+pub use migration::*;
+
+pub mod sharded_storage;
+pub use sharded_storage::{ShardedTreeReader, ShardedTreeWriter};
+
+pub mod sharded_tree_store;
+pub use sharded_tree_store::{InMemoryShardedTreeStore, MockShardedTreeStore};
+
+pub mod sharded_adapter;
+pub use sharded_adapter::{ShardedTreeReaderAdapter, ShardedTreeWriterAdapter, ShardedTreeReaderAdapterRef, ShardedTreeWriterAdapterRef};
+
+#[cfg(feature = "parallel")]
+mod parallel_io;
+#[cfg(feature = "parallel")]
+pub use parallel_io::ParallelIO;
+
+#[cfg(feature = "parallel")]
+pub mod performance_monitor;
+#[cfg(feature = "parallel")]
+pub use performance_monitor::{PerformanceMonitor, PerformanceMetrics, PerformanceReport, Timer};
+
 #[cfg(any(test, feature = "mocks"))]
 pub mod mock;
 pub mod restore;

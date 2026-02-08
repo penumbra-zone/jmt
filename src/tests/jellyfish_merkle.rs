@@ -130,7 +130,7 @@ macro_rules! instantiate_test_for_hasher {
     };
 }
 
-fn test_insert_to_empty_tree<H: SimpleHasher>() {
+fn test_insert_to_empty_tree<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
@@ -157,7 +157,7 @@ fn test_insert_to_empty_tree<H: SimpleHasher>() {
     );
 }
 
-fn test_insert_at_leaf_with_internal_created<H: SimpleHasher>() {
+fn test_insert_at_leaf_with_internal_created<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
@@ -226,7 +226,7 @@ fn test_insert_at_leaf_with_internal_created<H: SimpleHasher>() {
     assert_eq!(db.get_node(&internal_node_key).unwrap(), internal);
 }
 
-fn test_insert_at_leaf_with_multiple_internals_created<H: SimpleHasher>() {
+fn test_insert_at_leaf_with_multiple_internals_created<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
@@ -336,7 +336,7 @@ fn test_insert_at_leaf_with_multiple_internals_created<H: SimpleHasher>() {
     assert_eq!(tree.get(key2, 2).unwrap().unwrap(), value2_update);
 }
 
-fn test_batch_insertion<H: SimpleHasher>() {
+fn test_batch_insertion<H: SimpleHasher + Sync>() {
     // ```text
     //                             internal(root)
     //                            /        \
@@ -509,7 +509,7 @@ fn test_batch_insertion<H: SimpleHasher>() {
     }
 }
 
-fn test_non_existence<H: SimpleHasher>() {
+fn test_non_existence<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
     // ```text
@@ -600,7 +600,7 @@ fn test_non_batch_empty_write_set<H: SimpleHasher>() {
     assert_eq!(root.0, SPARSE_MERKLE_PLACEHOLDER_HASH);
 }
 
-fn test_put_value_sets<H: SimpleHasher>() {
+fn test_put_value_sets<H: SimpleHasher + Sync>() {
     let mut keys = vec![];
     let mut values = vec![];
     let total_updates = 20;
@@ -655,7 +655,7 @@ fn test_put_value_sets<H: SimpleHasher>() {
     }
 }
 
-fn many_keys_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], num_keys: usize) {
+fn many_keys_get_proof_and_verify_tree_root<H: SimpleHasher + Sync>(seed: &[u8], num_keys: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
     actual_seed[..seed.len()].copy_from_slice(seed);
@@ -683,12 +683,12 @@ fn many_keys_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], num_ke
     }
 }
 
-fn test_1000_keys<H: SimpleHasher>() {
+fn test_1000_keys<H: SimpleHasher + Sync>() {
     let seed: &[_] = &[1, 2, 3, 4];
     many_keys_get_proof_and_verify_tree_root::<H>(seed, 1000);
 }
 
-fn many_versions_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], num_versions: usize) {
+fn many_versions_get_proof_and_verify_tree_root<H: SimpleHasher + Sync>(seed: &[u8], num_versions: usize) {
     assert!(seed.len() < 32);
     let mut actual_seed = [0u8; 32];
     actual_seed[..seed.len()].copy_from_slice(seed);
@@ -740,12 +740,12 @@ fn many_versions_get_proof_and_verify_tree_root<H: SimpleHasher>(seed: &[u8], nu
     }
 }
 
-fn test_1000_versions<H: SimpleHasher>() {
+fn test_1000_versions<H: SimpleHasher + Sync>() {
     let seed: &[_] = &[1, 2, 3, 4];
     many_versions_get_proof_and_verify_tree_root::<H>(seed, 1000);
 }
 
-fn test_delete_then_get_in_one<H: SimpleHasher>() {
+fn test_delete_then_get_in_one<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
@@ -763,7 +763,7 @@ fn test_delete_then_get_in_one<H: SimpleHasher>() {
     db.write_tree_update_batch(batch).unwrap();
 }
 
-fn test_two_gets_then_delete<H: SimpleHasher>() {
+fn test_two_gets_then_delete<H: SimpleHasher + Sync>() {
     let db = MockTreeStore::default();
     let tree = JellyfishMerkleTree::<_, H>::new(&db);
 
