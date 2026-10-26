@@ -213,4 +213,10 @@ impl MockTreeStore {
     pub fn num_nodes(&self) -> usize {
         self.data.read().nodes.len()
     }
+
+    /// Returns the keys of all nodes currently held by the store.
+    #[cfg(test)]
+    pub(crate) fn node_keys(&self) -> BTreeSet<NodeKey> {
+        self.data.read().nodes.keys().cloned().collect()
+    }
 }
