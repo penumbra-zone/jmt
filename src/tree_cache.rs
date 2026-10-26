@@ -94,6 +94,9 @@ struct FrozenTreeCache {
     /// Immutable stale_node_index_cache.
     stale_node_index_cache: StaleNodeIndexBatch,
 
+    /// Nodes of overwritten versions that are no longer part of the tree.
+    removed_nodes: BTreeSet<NodeKey>,
+
     /// the stats vector including the number of new nodes, new leaves, stale nodes and stale leaves.
     node_stats: Vec<NodeStats>,
 
@@ -106,6 +109,7 @@ impl FrozenTreeCache {
         Self {
             node_cache: Default::default(),
             stale_node_index_cache: BTreeSet::new(),
+            removed_nodes: BTreeSet::new(),
             node_stats: Vec::new(),
             root_hashes: Vec::new(),
         }
@@ -141,6 +145,14 @@ pub struct TreeCache<'a, R> {
 
     /// The immutable part of this cache, which will be committed to the underlying storage.
     frozen_cache: FrozenTreeCache,
+
+    /// Whether the nodes of `next_version` are rewritten in place instead of creating a new
+    /// version, see `new_overwrite`.
+    overwrite: bool,
+
+    /// Nodes of `next_version` read from storage and deleted while overwriting that version in
+    /// place. Those of them that are not rewritten by the time the cache is frozen are removed.
+    overwritten_node_cache: HashSet<NodeKey>,
 
     /// The underlying persistent storage.
     reader: &'a R,
@@ -185,6 +197,8 @@ where
             num_stale_leaves: 0,
             num_new_leaves: 0,
             value_cache: Default::default(),
+            overwrite: false,
+            overwritten_node_cache: HashSet::new(),
         })
     }
 
@@ -217,6 +231,8 @@ where
             num_stale_leaves: 0,
             num_new_leaves: 0,
             value_cache: Default::default(),
+            overwrite: true,
+            overwritten_node_cache: HashSet::new(),
         })
     }
 
@@ -276,6 +292,13 @@ where
         // If node cache doesn't have this node, it means the node is in the previous version of
         // the tree on the disk.
         if self.node_cache.remove(old_node_key).is_none() {
+            // When overwriting a version in place, its nodes may be rewritten under the same keys,
+            // by this or by a later overwrite. Indexing them as stale would make pruning delete
+            // the rewritten nodes, so the ones that are not rewritten are removed right away.
+            if self.overwrite && old_node_key.version() == self.next_version {
+                self.overwritten_node_cache.insert(old_node_key.clone());
+                return;
+            }
             let is_new_entry = self.stale_node_index_cache.insert(old_node_key.clone());
             assert!(is_new_entry, "Node gets stale twice unexpectedly.");
             if is_leaf {
@@ -318,8 +341,11 @@ where
             && self.stale_node_index_cache.is_empty()
         {
             let root_node = self.get_node(&self.root_node_key)?;
+            // The copy replaces the previous root, which therefore becomes stale in this version.
+            self.delete_node(&self.root_node_key.clone(), root_node.is_leaf());
             root_node_key.set_version(self.next_version);
-            self.put_node(root_node_key, root_node)?;
+            self.put_node(root_node_key.clone(), root_node)?;
+            self.root_node_key = root_node_key;
         }
 
         // Transfer all the state from this version of the cache into the immutable version of the
@@ -331,6 +357,12 @@ where
             stale_leaves: self.num_stale_leaves,
         };
         self.frozen_cache.node_stats.push(node_stats);
+        let node_cache = &self.node_cache;
+        self.frozen_cache.removed_nodes.extend(
+            self.overwritten_node_cache
+                .drain()
+                .filter(|node_key| !node_cache.contains_key(node_key)),
+        );
         self.frozen_cache
             .node_cache
             .extend(self.node_cache.drain(), self.value_cache.drain());
@@ -398,6 +430,7 @@ where
             TreeUpdateBatch {
                 node_batch: tree_cache.frozen_cache.node_cache,
                 stale_node_index_batch: tree_cache.frozen_cache.stale_node_index_cache,
+                removed_nodes: tree_cache.frozen_cache.removed_nodes,
                 node_stats: tree_cache.frozen_cache.node_stats,
             },
         )

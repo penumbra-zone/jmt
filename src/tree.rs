@@ -213,9 +213,8 @@ where
                     );
                 }
 
-                if node_key.version() == version {
-                    tree_cache.delete_node(&node_key, false /* is_leaf */);
-                }
+                // The null root is replaced by the new subtree.
+                tree_cache.delete_node(&node_key, false /* is_leaf */);
                 self.batch_create_subtree(
                     NodeKey::new_empty_path(version),
                     version,
@@ -451,6 +450,10 @@ where
 
     #[cfg(feature = "migration")]
     /// Append value sets to the latest version of the tree, without incrementing its version.
+    ///
+    /// Nodes of the latest version are rewritten in place under the same keys. Nodes of the
+    /// latest version that are no longer part of the tree are returned in
+    /// [`TreeUpdateBatch::removed_nodes`] and must be deleted when the batch is written.
     pub fn append_value_set(
         &self,
         value_set: impl IntoIterator<Item = (KeyHash, Option<OwnedValue>)>,
@@ -627,8 +630,9 @@ where
                         root_node_key
                     );
                 }
-                // Delete the old null node if the at the same version
-                if root_node_key.version() == version && node_already_exists {
+                // Delete the old null node if it is at the same version, or if an insertion
+                // replaces it with a leaf.
+                if node_already_exists && (root_node_key.version() == version || value.is_some()) {
                     tree_cache.delete_node(&root_node_key, false /* is_leaf */);
                 }
                 if let Some(value) = value {

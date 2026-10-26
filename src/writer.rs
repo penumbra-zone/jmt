@@ -122,12 +122,19 @@ pub struct StaleNodeIndex {
 }
 
 /// This is a wrapper of [`NodeBatch`](type.NodeBatch.html),
-/// [`StaleNodeIndexBatch`](type.StaleNodeIndexBatch.html) and some stats of nodes that represents
-/// the incremental updates of a tree and pruning indices after applying a write set,
-/// which is a vector of `hashed_account_address` and `new_value` pairs.
+/// [`StaleNodeIndexBatch`](type.StaleNodeIndexBatch.html), the nodes to remove and some stats of
+/// nodes that represents the incremental updates of a tree and pruning indices after applying a
+/// write set, which is a vector of `hashed_account_address` and `new_value` pairs.
 #[derive(Clone, Debug, Default, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct TreeUpdateBatch {
     pub node_batch: NodeBatch,
     pub stale_node_index_batch: StaleNodeIndexBatch,
+    /// Nodes that must be deleted from storage atomically with writing `node_batch`.
+    ///
+    /// Unlike the nodes in `stale_node_index_batch`, these nodes are not part of any version of
+    /// the tree anymore, so they cannot be left to pruning: a later update may write a new node
+    /// under the same key. Only `append_value_set`, which rewrites the latest version in place,
+    /// produces them. They are disjoint from the nodes in `node_batch`.
+    pub removed_nodes: BTreeSet<NodeKey>,
     pub node_stats: Vec<NodeStats>,
 }
