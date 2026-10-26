@@ -213,9 +213,8 @@ where
                     );
                 }
 
-                if node_key.version() == version {
-                    tree_cache.delete_node(&node_key, false /* is_leaf */);
-                }
+                // The null root is replaced by the new subtree.
+                tree_cache.delete_node(&node_key, false /* is_leaf */);
                 self.batch_create_subtree(
                     NodeKey::new_empty_path(version),
                     version,
@@ -627,8 +626,9 @@ where
                         root_node_key
                     );
                 }
-                // Delete the old null node if the at the same version
-                if root_node_key.version() == version && node_already_exists {
+                // Delete the old null node if it is at the same version, or if an insertion
+                // replaces it with a leaf.
+                if node_already_exists && (root_node_key.version() == version || value.is_some()) {
                     tree_cache.delete_node(&root_node_key, false /* is_leaf */);
                 }
                 if let Some(value) = value {

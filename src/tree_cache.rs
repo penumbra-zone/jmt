@@ -142,6 +142,10 @@ pub struct TreeCache<'a, R> {
     /// The immutable part of this cache, which will be committed to the underlying storage.
     frozen_cache: FrozenTreeCache,
 
+    /// Whether the nodes of `next_version` are rewritten in place instead of creating a new
+    /// version, see `new_overwrite`.
+    overwrite: bool,
+
     /// The underlying persistent storage.
     reader: &'a R,
 }
@@ -185,6 +189,7 @@ where
             num_stale_leaves: 0,
             num_new_leaves: 0,
             value_cache: Default::default(),
+            overwrite: false,
         })
     }
 
@@ -217,6 +222,7 @@ where
             num_stale_leaves: 0,
             num_new_leaves: 0,
             value_cache: Default::default(),
+            overwrite: true,
         })
     }
 
@@ -276,6 +282,12 @@ where
         // If node cache doesn't have this node, it means the node is in the previous version of
         // the tree on the disk.
         if self.node_cache.remove(old_node_key).is_none() {
+            // When overwriting a version in place, its nodes are rewritten under the same keys, by
+            // this or by a later overwrite. Indexing them as stale would make pruning delete the
+            // rewritten nodes, so the nodes of that version that are not rewritten leak instead.
+            if self.overwrite && old_node_key.version() == self.next_version {
+                return;
+            }
             let is_new_entry = self.stale_node_index_cache.insert(old_node_key.clone());
             assert!(is_new_entry, "Node gets stale twice unexpectedly.");
             if is_leaf {
@@ -318,8 +330,11 @@ where
             && self.stale_node_index_cache.is_empty()
         {
             let root_node = self.get_node(&self.root_node_key)?;
+            // The copy replaces the previous root, which therefore becomes stale in this version.
+            self.delete_node(&self.root_node_key.clone(), root_node.is_leaf());
             root_node_key.set_version(self.next_version);
-            self.put_node(root_node_key, root_node)?;
+            self.put_node(root_node_key.clone(), root_node)?;
+            self.root_node_key = root_node_key;
         }
 
         // Transfer all the state from this version of the cache into the immutable version of the
